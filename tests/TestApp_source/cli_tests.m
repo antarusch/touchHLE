@@ -2085,6 +2085,42 @@ int test_Eustrath_character_sets() {
     if ([letters characterIsMember:excluded[i]])
       return -4;
   }
+
+  NSMutableCharacterSet *mutable = [NSMutableCharacterSet letterCharacterSet];
+  [mutable addCharactersInString:[NSString stringWithUTF8String:"_"]];
+  if (![mutable characterIsMember:'_'] || [letters characterIsMember:'_'] ||
+      [[NSCharacterSet letterCharacterSet] characterIsMember:'_'])
+    return -5;
+
+  // Exercise the scanner path used by the game's token reader.
+  NSScanner *scanner = [[NSScanner alloc]
+      initWithString:[NSString stringWithUTF8String:" Name42"]];
+  NSString *word = nil;
+  BOOL scanned =
+      [scanner scanCharactersFromSet:letters intoString:&word] &&
+      [word isEqualToString:[NSString stringWithUTF8String:"Name"]] &&
+      [scanner scanLocation] == 5 &&
+      ![scanner scanCharactersFromSet:letters intoString:&word] &&
+      [scanner scanLocation] == 5 &&
+      [scanner scanCharactersFromSet:digits intoString:&word] &&
+      [word isEqualToString:[NSString stringWithUTF8String:"42"]] &&
+      [scanner isAtEnd];
+  [scanner release];
+  if (!scanned)
+    return -6;
+#ifndef DEFINE_ME_WHEN_BUILDING_ON_MACOS
+  // Verify the emulator releases the inverse set's temporary ownership.
+  // Native Foundation may use immortal/cached objects with special refcounts.
+  NSAutoreleasePool *pool = [NSAutoreleasePool new];
+  NSCharacterSet *inverse = [[letters invertedSet] retain];
+  [pool drain];
+  BOOL lifetime = [inverse retainCount] == 1 &&
+                  ![inverse characterIsMember:'A'] &&
+                  [inverse characterIsMember:'7'];
+  [inverse release];
+  if (!lifetime)
+    return -7;
+#endif
   return 0;
 }
 

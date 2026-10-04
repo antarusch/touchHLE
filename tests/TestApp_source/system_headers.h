@@ -115,6 +115,19 @@ static inline NSRange NSMakeRange(NSUInteger loc, NSUInteger len) {
 + (instancetype)letterCharacterSet;
 + (instancetype)decimalDigitCharacterSet;
 - (BOOL)characterIsMember:(unsigned short)character;
+- (instancetype)invertedSet;
+@end
+
+@class NSString;
+@interface NSMutableCharacterSet : NSCharacterSet
+- (void)addCharactersInString:(NSString *)string;
+@end
+
+@interface NSScanner : NSObject
+- (instancetype)initWithString:(NSString *)string;
+- (NSUInteger)scanLocation;
+- (BOOL)isAtEnd;
+- (BOOL)scanCharactersFromSet:(NSCharacterSet *)set intoString:(NSString **)out;
 @end
 
 typedef enum {

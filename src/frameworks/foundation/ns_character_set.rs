@@ -10,6 +10,12 @@ use crate::objc::{
     autorelease, id, msg, msg_class, objc_classes, retain, ClassExports, HostObject, NSZonePtr,
 };
 use std::collections::HashSet;
+use std::sync::{Arc, OnceLock};
+
+// Script interpreters request these large sets for every token. Share their
+// immutable storage, including with inverted sets, instead of rebuilding it.
+static ALPHANUMERIC_SET: OnceLock<Arc<HashSet<unichar>>> = OnceLock::new();
+static LETTER_SET: OnceLock<Arc<HashSet<unichar>>> = OnceLock::new();
 
 // Unicode General Category Zs and CHARACTER TABULATION (U+0009).
 const WHITESPACE_CHARACTERS: [char; 18] = [
@@ -600,7 +606,7 @@ const NUMBER_RANGES: &[(unichar, unichar)] = &[
 
 /// Belongs to _touchHLE_NSCharacterSet
 struct CharacterSetHostObject {
-    set: HashSet<unichar>,
+    set: Arc<HashSet<unichar>>,
     inverted: bool,
 }
 impl HostObject for CharacterSetHostObject {}
@@ -629,7 +635,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     ns_string::for_each_code_unit(env, string, |_idx, c| { set.insert(c); });
 
     let new: id = msg![env; this alloc];
-    env.objc.borrow_mut::<CharacterSetHostObject>(new).set = set;
+    env.objc.borrow_mut::<CharacterSetHostObject>(new).set = Arc::new(set);
 
     autorelease(env, new)
 }
@@ -642,25 +648,30 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
 
     let new: id = msg![env; this alloc];
-    env.objc.borrow_mut::<CharacterSetHostObject>(new).set = set;
+    env.objc.borrow_mut::<CharacterSetHostObject>(new).set = Arc::new(set);
 
     autorelease(env, new)
 }
 
 + (id)alphanumericCharacterSet {
-    let set = ALPHANUMERIC_RANGES.iter().flat_map(|&(start, end)| start..=end).collect();
+    let set = ALPHANUMERIC_SET.get_or_init(|| {
+        Arc::new(ALPHANUMERIC_RANGES.iter().flat_map(|&(start, end)| start..=end).collect())
+    }).clone();
     let new: id = msg![env; this alloc];
     env.objc.borrow_mut::<CharacterSetHostObject>(new).set = set;
     autorelease(env, new)
 }
 
 + (id)letterCharacterSet {
-    let mut set: HashSet<unichar> = ALPHANUMERIC_RANGES.iter().flat_map(|&(start, end)| start..=end).collect();
-    for &(start, end) in NUMBER_RANGES {
-        for code_unit in start..=end {
-            set.remove(&code_unit);
+    let set = LETTER_SET.get_or_init(|| {
+        let mut set: HashSet<unichar> = ALPHANUMERIC_RANGES.iter().flat_map(|&(start, end)| start..=end).collect();
+        for &(start, end) in NUMBER_RANGES {
+            for code_unit in start..=end {
+                set.remove(&code_unit);
+            }
         }
-    }
+        Arc::new(set)
+    }).clone();
     let new: id = msg![env; this alloc];
     env.objc.borrow_mut::<CharacterSetHostObject>(new).set = set;
     autorelease(env, new)
@@ -669,7 +680,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 + (id)decimalDigitCharacterSet {
     let set = DECIMAL_DIGIT_RANGES.iter().flat_map(|&(start, end)| start..=end).collect();
     let new: id = msg![env; this alloc];
-    env.objc.borrow_mut::<CharacterSetHostObject>(new).set = set;
+    env.objc.borrow_mut::<CharacterSetHostObject>(new).set = Arc::new(set);
     autorelease(env, new)
 }
 
@@ -677,7 +688,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     let set = HashSet::from(NEWLINE_CHARACTERS.map(|c| unichar::try_from(c).unwrap()));
 
     let new: id = msg![env; this alloc];
-    env.objc.borrow_mut::<CharacterSetHostObject>(new).set = set;
+    env.objc.borrow_mut::<CharacterSetHostObject>(new).set = Arc::new(set);
 
     autorelease(env, new)
 }
@@ -686,7 +697,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     let set = HashSet::from(WHITESPACE_CHARACTERS.map(|c| unichar::try_from(c).unwrap()));
 
     let new: id = msg![env; this alloc];
-    env.objc.borrow_mut::<CharacterSetHostObject>(new).set = set;
+    env.objc.borrow_mut::<CharacterSetHostObject>(new).set = Arc::new(set);
 
     autorelease(env, new)
 }
@@ -697,7 +708,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     let set = set1.union(&set2).copied().collect();
 
     let new: id = msg![env; this alloc];
-    env.objc.borrow_mut::<CharacterSetHostObject>(new).set = set;
+    env.objc.borrow_mut::<CharacterSetHostObject>(new).set = Arc::new(set);
 
     autorelease(env, new)
 }
@@ -706,7 +717,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     let set = HashSet::from(CONTROL_CHARACTERS.map(|c| unichar::try_from(c).unwrap()));
 
     let new: id = msg![env; this alloc];
-    env.objc.borrow_mut::<CharacterSetHostObject>(new).set = set;
+    env.objc.borrow_mut::<CharacterSetHostObject>(new).set = Arc::new(set);
 
     autorelease(env, new)
 }
@@ -734,7 +745,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 + (id)allocWithZone:(NSZonePtr)_zone {
     let host_object = Box::new(CharacterSetHostObject {
-        set: HashSet::new(),
+        set: Arc::default(),
         inverted: false
     });
     env.objc.alloc_object(this, host_object, &mut env.mem)
@@ -763,7 +774,8 @@ pub const CLASSES: ClassExports = objc_classes! {
         inverted: !old_host_object.inverted
     });
     let class = env.objc.get_known_class("_touchHLE_NSCharacterSet", &mut env.mem);
-    env.objc.alloc_object(class, host_object, &mut env.mem)
+    let new = env.objc.alloc_object(class, host_object, &mut env.mem);
+    autorelease(env, new)
 }
 
 @end
@@ -774,7 +786,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 + (id)allocWithZone:(NSZonePtr)_zone {
     let host_object = Box::new(CharacterSetHostObject {
-        set: HashSet::new(),
+        set: Arc::default(),
         inverted: false
     });
     env.objc.alloc_object(this, host_object, &mut env.mem)
@@ -799,7 +811,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     let length: NSUInteger = msg![env; string length];
     for i in 0..length {
         let c = msg![env; string characterAtIndex:i];
-        env.objc.borrow_mut::<CharacterSetHostObject>(this).set.insert(c);
+        Arc::make_mut(&mut env.objc.borrow_mut::<CharacterSetHostObject>(this).set).insert(c);
     }
 }
 
