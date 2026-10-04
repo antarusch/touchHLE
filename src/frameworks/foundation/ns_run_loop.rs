@@ -21,7 +21,8 @@ use crate::frameworks::{core_animation, media_player, uikit};
 use crate::libc::semaphore::{host_create_semaphore, sem_post, sem_t};
 use crate::mem::MutPtr;
 use crate::objc::{
-    id, msg, msg_send, nil, objc_classes, release, retain, Class, ClassExports, HostObject, SEL,
+    id, msg, msg_send_no_type_checking, nil, objc_classes, release, retain, Class, ClassExports,
+    HostObject, SEL,
 };
 use crate::Environment;
 use std::collections::VecDeque;
@@ -294,6 +295,52 @@ pub(super) fn cancel_perform_requests(
         .selector_objects = new_selector_objects;
 }
 
+/// Dispatch ready performSelector requests and return the next deadline.
+pub(super) fn handle_perform_requests(env: &mut Environment, run_loop: id) -> Option<Instant> {
+    loop {
+        let selector_objects = &mut env
+            .objc
+            .borrow_mut::<NSRunLoopHostObject>(run_loop)
+            .selector_objects;
+        let to_run = selector_objects
+            .iter()
+            .enumerate()
+            .find(|(_, oss)| oss.due_by.is_none_or(|due_by| Instant::now() >= due_by))
+            .map(|(index, _)| index);
+
+        match to_run {
+            Some(index) => {
+                // TODO: remove() is linear here
+                let ObjectSelectorSource {
+                    target,
+                    selector,
+                    argument,
+                    due_by: _,
+                    semaphore,
+                } = selector_objects.remove(index).unwrap();
+                log_dbg!("Running object selector request {target:?} {:?} {argument:?} on run loop {run_loop:?}", selector.as_str(env.mem.as_mut()));
+
+                // performSelector ignores the selected method's return value.
+                // It need not be void (AVAudioPlayer's play returns BOOL).
+                if selector.as_str(&env.mem).ends_with(':') {
+                    () = msg_send_no_type_checking(env, (target, selector, argument));
+                } else {
+                    assert!(argument.is_null());
+                    () = msg_send_no_type_checking(env, (target, selector));
+                }
+
+                release(env, target);
+                release(env, argument);
+
+                if !semaphore.is_null() {
+                    sem_post(env, semaphore);
+                }
+            }
+            None => return selector_objects.iter().filter_map(|obj| obj.due_by).min(),
+        }
+    }
+}
+
 /// Run the run loop for just a single iteration. This is a special mode just
 /// for the app picker, since we don't have `runMode:beforeDate:` yet.
 /// (TODO: implement those to replace this.)
@@ -392,51 +439,8 @@ pub fn run_run_loop(
             render_audio_unit(env, audio_unit);
         }
 
-        loop {
-            let selector_objects = &mut env
-                .objc
-                .borrow_mut::<NSRunLoopHostObject>(run_loop)
-                .selector_objects;
-            let to_run = selector_objects
-                .iter()
-                .enumerate()
-                .find(|(_, oss)| oss.due_by.is_none_or(|due_by| Instant::now() >= due_by))
-                .map(|(index, _)| index);
-
-            match to_run {
-                Some(index) => {
-                    // TODO: remove() is linear here
-                    let ObjectSelectorSource {
-                        target,
-                        selector,
-                        argument,
-                        due_by: _,
-                        semaphore,
-                    } = selector_objects.remove(index).unwrap();
-                    log_dbg!("Running object selector request {target:?} {:?} {argument:?} on run loop {run_loop:?}", selector.as_str(env.mem.as_mut()));
-
-                    if selector.as_str(&env.mem).ends_with(':') {
-                        () = msg_send(env, (target, selector, argument));
-                    } else {
-                        assert!(argument.is_null());
-                        () = msg_send(env, (target, selector));
-                    }
-
-                    release(env, target);
-                    release(env, argument);
-
-                    if !semaphore.is_null() {
-                        sem_post(env, semaphore);
-                    }
-                }
-                None => {
-                    for oss in selector_objects {
-                        limit_sleep_time(&mut sleep_until, oss.due_by);
-                    }
-                    break;
-                }
-            }
-        }
+        let next_due = handle_perform_requests(env, run_loop);
+        limit_sleep_time(&mut sleep_until, next_due);
 
         if is_main_run_loop {
             media_player::handle_players(env);

@@ -51,6 +51,18 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
 }
 @end
+@implementation PlaybackProbe: UIView
+- (bool)play {
+    let count: i32 = msg![env; this tag];
+    () = msg![env; this setTag:(count + 1)];
+    true
+}
+- (bool)playWithObject:(id)object {
+    let tag: i32 = msg![env; object tag];
+    () = msg![env; this setTag:tag];
+    true
+}
+@end
 @implementation TableProbe: NSObject
 - (i32)tableView:(id)_table numberOfRowsInSection:(i32)_section {
     3
@@ -94,6 +106,7 @@ fn archive_invocation_and_menu_round_trips() {
     check_property_lists(env);
     check_nib_scroll_view(env);
     check_controller_nib_name(env);
+    check_scheduled_playback(env);
     check_set_archives(env);
     check_foundation_archives(env);
     check_text_nib(env);
@@ -1084,6 +1097,7 @@ fn game_command_button_geometry() {
             release(env, target);
             env.mem.free(items.cast());
             check_game_system_panel(env);
+            check_game_audio_playback(env);
             () = msg![env; pool drain];
         });
         env
@@ -1091,6 +1105,75 @@ fn game_command_button_geometry() {
     while let corosensei::CoroutineResult::Yield(next) = coroutine.resume(env) {
         env = next;
     }
+}
+
+fn check_game_audio_playback(env: &mut Environment) {
+    use crate::frameworks::foundation::ns_run_loop::handle_perform_requests;
+    let directory = std::path::PathBuf::from(std::env::var_os("TOUCHHLE_COMMAND_GAME").unwrap());
+    let bytes = std::fs::read(directory.join("UI_Select.wav")).unwrap();
+    let data = data_from_bytes(env, &bytes);
+    let player: id = msg_class![env; AVAudioPlayer alloc];
+    let player: id = msg![env; player initWithData:data error:(crate::mem::MutPtr::<id>::null())];
+    assert_ne!(player, nil);
+    for _ in 0..2 {
+        let prepared: bool = msg![env; player prepareToPlay];
+        assert!(prepared);
+    }
+    let playing: bool = msg![env; player isPlaying];
+    assert!(!playing);
+    let play = env.objc.register_host_selector("play".into(), &mut env.mem);
+    () = msg![env; player performSelector:play withObject:nil afterDelay:0.0f64];
+    let run_loop: id = msg_class![env; NSRunLoop currentRunLoop];
+    assert_eq!(handle_perform_requests(env, run_loop), None);
+    let playing: bool = msg![env; player isPlaying];
+    assert!(playing);
+    () = msg![env; player stop];
+    let started: bool = msg![env; player play];
+    assert!(started);
+    () = msg![env; player stop];
+    release(env, player);
+    // Execute Eustrath's original delayed sound scheduling code as well.
+    let manager: id = msg_class![env; SoundManager new];
+    () = msg![env; manager playSoundData:data afterDelay:0.0f32];
+    assert_eq!(handle_perform_requests(env, run_loop), None);
+    release(env, manager);
+}
+
+fn check_scheduled_playback(env: &mut Environment) {
+    use crate::frameworks::foundation::ns_run_loop::handle_perform_requests;
+    let target: id = msg_class![env; PlaybackProbe new];
+    let play = env.objc.register_host_selector("play".into(), &mut env.mem);
+    () = msg![env; target performSelector:play withObject:nil afterDelay:0.0f64];
+    let run_loop: id = msg_class![env; NSRunLoop currentRunLoop];
+    assert_eq!(handle_perform_requests(env, run_loop), None);
+    let count: i32 = msg![env; target tag];
+    assert_eq!(count, 1);
+    // Main-thread dispatch also discards the method's BOOL return value.
+    () = msg![env; target performSelectorOnMainThread:play withObject:nil waitUntilDone:true];
+    let count: i32 = msg![env; target tag];
+    assert_eq!(count, 2);
+    let argument: id = msg_class![env; UIView new];
+    () = msg![env; argument setTag:73i32];
+    let action = env
+        .objc
+        .register_host_selector("playWithObject:".into(), &mut env.mem);
+    () = msg![env; target performSelector:action withObject:argument afterDelay:0.0f64];
+    assert_eq!(handle_perform_requests(env, run_loop), None);
+    let count: i32 = msg![env; target tag];
+    assert_eq!(count, 73);
+    () = msg![env; argument setTag:74i32];
+    () =
+        msg![env; target performSelectorOnMainThread:action withObject:argument waitUntilDone:true];
+    let count: i32 = msg![env; target tag];
+    assert_eq!(count, 74);
+    () = msg![env; target performSelector:play withObject:nil afterDelay:60.0f64];
+    assert!(handle_perform_requests(env, run_loop).is_some());
+    let count: i32 = msg![env; target tag];
+    assert_eq!(count, 74);
+    () = msg_class![env; NSObject cancelPreviousPerformRequestsWithTarget:target selector:play object:nil];
+    assert_eq!(handle_perform_requests(env, run_loop), None);
+    release(env, argument);
+    release(env, target);
 }
 
 fn check_controller_nib_name(env: &mut Environment) {

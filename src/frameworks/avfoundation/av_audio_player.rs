@@ -171,10 +171,10 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
 }
 
-- (())prepareToPlay {
+- (bool)prepareToPlay {
     let audio_queue = env.objc.borrow_mut::<AVAudioPlayerHostObject>(this).audio_queue;
     if audio_queue.is_some() {
-        return;
+        return true;
     }
 
     let audio_file_id = env.objc.borrow::<AVAudioPlayerHostObject>(this).audio_file_id.unwrap();
@@ -238,6 +238,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.mem.free(tmp_size_ptr.cast());
     env.mem.free(aq_ref_ptr.cast());
     env.mem.free(tmp_data_ptr.cast());
+    true
 }
 
 - (bool)isPlaying {
@@ -245,7 +246,10 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (bool)play {
-    () = msg![env; this prepareToPlay];
+    let prepared: bool = msg![env; this prepareToPlay];
+    if !prepared {
+        return false;
+    }
 
     let aq_ref = env.objc.borrow_mut::<AVAudioPlayerHostObject>(this).audio_queue.unwrap();
 

@@ -303,10 +303,10 @@ forUndefinedKey:(id)key { // NSString*
     log_dbg!("performSelectorOnMainThread:{} withObject:{:?} waitUntilDone:{}", sel.as_str(&env.mem), arg, wait);
     if wait && env.current_thread == 0 {
         if sel.as_str(&env.mem).ends_with(':') {
-            () = msg_send(env, (this, sel, arg));
+            () = msg_send_no_type_checking(env, (this, sel, arg));
         } else {
             assert!(arg.is_null());
-            () = msg_send(env, (this, sel));
+            () = msg_send_no_type_checking(env, (this, sel));
         }
         return;
     }
