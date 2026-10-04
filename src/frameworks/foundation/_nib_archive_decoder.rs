@@ -187,6 +187,19 @@ pub const CLASSES: ClassExports = objc_classes! {
     log_dbg!("decoded CGPoint {} {}", x, y);
     CGPoint { x, y }
 }
+- (CGSize)decodeCGSizeForKey:(id)key { // NSString*
+    let Some(val) = get_value_to_decode_for_key(env, this, key) else {
+        return CGSize::default();
+    };
+    let ValueVariant::Data(data) = val.value() else {
+        unreachable!()
+    };
+    assert_eq!(data.len(), 9);
+    assert_eq!(data[0], 6);
+    let width = f32::from_le_bytes(data[1..5].try_into().unwrap());
+    let height = f32::from_le_bytes(data[5..9].try_into().unwrap());
+    CGSize { width, height }
+}
 - (CGRect)decodeCGRectForKey:(id)key { // NSString*
     let val = get_value_to_decode_for_key(env, this, key).unwrap();
     let ValueVariant::Data(data) = val.value() else {

@@ -87,6 +87,7 @@ fn archive_invocation_and_menu_round_trips() {
     let mut env = Environment::new_without_app(options, icon).unwrap();
     let env = &mut env;
     let pool: id = msg_class![env; NSAutoreleasePool new];
+    check_nib_scroll_view(env);
     // A token reader can inspect the full source without moving its cursor.
     let scanner_input = get_static_str(env, " Name42");
     let scanner: id = msg_class![env; NSScanner alloc];
@@ -301,4 +302,62 @@ fn archive_invocation_and_menu_round_trips() {
         env.mem.free(pointer);
     }
     release(env, pool);
+}
+
+fn check_nib_scroll_view(env: &mut Environment) {
+    use nibarchive::{ClassName, NIBArchive, Object, Value, ValueVariant};
+    // The geometry payloads match Eustrath's ChatPanel UIScrollView.
+    let geometry = |components: &[f32]| {
+        let mut bytes = vec![6];
+        for component in components {
+            bytes.extend(component.to_le_bytes());
+        }
+        ValueVariant::Data(bytes)
+    };
+    let archive = NIBArchive::new(
+        vec![Object::new(0, 0, 4)],
+        vec![
+            "UIBounds".into(),
+            "UICenter".into(),
+            "UIContentSize".into(),
+            "negative".into(),
+        ],
+        vec![
+            Value::new(0, geometry(&[0.0, 0.0, 580.0, 124.0])),
+            Value::new(1, geometry(&[357.0, 117.0])),
+            Value::new(2, geometry(&[580.0, 37.0])),
+            Value::new(3, geometry(&[-1.0, -1.5])),
+        ],
+        vec![ClassName::new("UIScrollView".into(), vec![])],
+    )
+    .unwrap()
+    .to_bytes();
+    let bytes = env.mem.alloc(archive.len().try_into().unwrap());
+    env.mem
+        .bytes_at_mut(bytes.cast(), archive.len().try_into().unwrap())
+        .copy_from_slice(&archive);
+    let data: id =
+        msg_class![env; NSData dataWithBytes:(bytes.cast_const()) length:(archive.len() as u32)];
+    env.mem.free(bytes);
+    let coder: id = msg_class![env; _touchHLE_NIBArchiveDecoder alloc];
+    let coder: id = msg![env; coder _touchHLE_initForReadingWithData:data];
+    let key = get_static_str(env, "UIContentSize");
+    let size: CGSize = msg![env; coder decodeCGSizeForKey:key];
+    assert_eq!((size.width, size.height), (580.0, 37.0));
+    let key = get_static_str(env, "negative");
+    let size: CGSize = msg![env; coder decodeCGSizeForKey:key];
+    assert_eq!((size.width, size.height), (-1.0, -1.5));
+    let key = get_static_str(env, "absent");
+    let size: CGSize = msg![env; coder decodeCGSizeForKey:key];
+    assert_eq!((size.width, size.height), (0.0, 0.0));
+    let scroll: id = msg_class![env; UIScrollView alloc];
+    let scroll: id = msg![env; scroll initWithCoder:coder];
+    let size: CGSize = msg![env; scroll contentSize];
+    assert_eq!((size.width, size.height), (580.0, 37.0));
+    let bounds: CGRect = msg![env; scroll bounds];
+    assert_eq!((bounds.size.width, bounds.size.height), (580.0, 124.0));
+    let center: CGPoint = msg![env; scroll center];
+    assert_eq!((center.x, center.y), (357.0, 117.0));
+    release(env, scroll);
+    release(env, coder);
 }

@@ -5,6 +5,8 @@ Usage: python audit_receivers.py EXECUTABLE TOUCHHLE_SOURCE REPORT.json
 Infers self and explicitly typed object ivars. Unknown receivers, super sends,
 categories, return types and dynamic dispatch require separate review. A source
 match proves registration only, not correct behavior or runtime reachability.
+Also checks keyed decoding calls in host source against each archive reader:
+framework code can send methods that do not appear in the game's executable.
 """
 import argparse
 import hashlib
@@ -64,6 +66,29 @@ def audit(binary, source):
             name = cls['superclass']
         return None
 
+    def inherits_coder(name):
+        seen = set()
+        while name in host and name not in seen:
+            if name == 'NSCoder':
+                return True
+            seen.add(name)
+            name = host[name]['superclass']
+        return False
+
+    readers = sorted(name for name, cls in host.items()
+                     if '-decodeObjectForKey:' in cls['methods'] and inherits_coder(name))
+    reader_calls = []
+    for path, text in texts.items():
+        # Explicit coder variables, restricted to the keyed reading selectors.
+        # This includes host initWithCoder: and decoding helper implementations.
+        clean = re.sub(r'^\s*//.*$', '', text, flags=re.M)
+        for match in re.finditer(r'msg!\[env;\s*coder\s+((?:decode\w+|containsValueForKey):)', clean):
+            selector = match[1]
+            reader_calls.append({'source': path,
+                                 'selector': selector,
+                                 'readers': {name: lookup(name, '-' + selector) is not None
+                                             for name in readers}})
+
     methods = [{**x, 'owner': n, 'kind': k} for n, c in guest.items()
                for k, field in [('-', 'instance_methods'), ('+', 'class_methods')]
                for x in c[field]]
@@ -95,6 +120,8 @@ def audit(binary, source):
                    if ins.group(1) and ins.mnemonic not in ('bl', 'blx')
                    for o in ins.operands if o.type == ARM_OP_IMM}
         regs = {'r0': ('object', method['owner'], method['kind'])}
+        if method['kind'] == '-' and method['selector'] == 'initWithCoder:':
+            regs['r2'] = ('coder', 'NSCoder', '-')
         for ins in instructions:
             if ins.address in targets and ins.address != start:
                 regs.clear()
@@ -154,7 +181,13 @@ def audit(binary, source):
                         if selector in selectors and isinstance(receiver, tuple):
                             _, name, kind = receiver
                             row.update(receiver_class=name, method_kind=kind)
-                            if name in host:
+                            if receiver[0] == 'coder':
+                                checks = {reader: lookup(reader, kind + selector) is not None
+                                          for reader in readers}
+                                row['possible_readers'] = checks
+                                row['status'] = ('archive_reader_registrations_found' if all(checks.values())
+                                                 else 'missing_archive_reader_method_candidate')
+                            elif name in host:
                                 found = lookup(name, kind + selector)
                                 row['status'] = 'host_registration_found' if found else 'missing_host_method_candidate'
                                 if found:
@@ -174,7 +207,10 @@ def audit(binary, source):
                 # Unreadable literals leave the affected register unknown.
                 pass
     return {'scope': __doc__, 'binary_sha256': hashlib.sha256(Path(binary).read_bytes()).hexdigest(),
-            'counts': dict(Counter(x['status'] for x in rows)), 'callsites': rows}
+            'counts': dict(Counter(x['status'] for x in rows)), 'callsites': rows,
+            'host_reader_calls': reader_calls,
+            'host_reader_missing': sorted({(reader, row['selector']) for row in reader_calls
+                                           for reader, found in row['readers'].items() if not found})}
 
 
 if __name__ == '__main__':
@@ -187,5 +223,7 @@ if __name__ == '__main__':
     Path(args.report).write_text(json.dumps(report, indent=2) + '\n')
     print(json.dumps(report['counts'], indent=2))
     for row in report['callsites']:
-        if row['status'] == 'missing_host_method_candidate':
+        if row['status'] in ('missing_host_method_candidate', 'missing_archive_reader_method_candidate'):
             print(row)
+    print('Host decoding calls:', len(report['host_reader_calls']))
+    print('Missing reader registrations:', report['host_reader_missing'])
