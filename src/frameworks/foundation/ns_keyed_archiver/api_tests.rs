@@ -93,6 +93,7 @@ fn archive_invocation_and_menu_round_trips() {
     check_image_button_sizing(env);
     check_property_lists(env);
     check_nib_scroll_view(env);
+    check_controller_nib_name(env);
     check_set_archives(env);
     check_foundation_archives(env);
     check_text_nib(env);
@@ -1082,6 +1083,7 @@ fn game_command_button_geometry() {
             release(env, menu);
             release(env, target);
             env.mem.free(items.cast());
+            check_game_system_panel(env);
             () = msg![env; pool drain];
         });
         env
@@ -1089,4 +1091,106 @@ fn game_command_button_geometry() {
     while let corosensei::CoroutineResult::Yield(next) = coroutine.resume(env) {
         env = next;
     }
+}
+
+fn check_controller_nib_name(env: &mut Environment) {
+    use nibarchive::{ClassName, NIBArchive, Object, Value, ValueVariant};
+    for has_name in [false, true] {
+        let pool: id = msg_class![env; NSAutoreleasePool new];
+        let archive = NIBArchive::new(
+            vec![Object::new(0, 0, i32::from(has_name)), Object::new(1, 1, 1)],
+            vec!["UINibName".into(), "NS.bytes".into()],
+            vec![
+                Value::new(0, ValueVariant::ObjectRef(1)),
+                Value::new(1, ValueVariant::Data(b"DifferentPanel".to_vec())),
+            ],
+            vec![
+                ClassName::new("UIViewController".into(), vec![]),
+                ClassName::new("NSString".into(), vec![]),
+            ],
+        )
+        .unwrap();
+        let data = data_from_bytes(env, &archive.to_bytes());
+        let coder: id = msg_class![env; _touchHLE_NIBArchiveDecoder alloc];
+        let coder: id = msg![env; coder _touchHLE_initForReadingWithData:data];
+        let controller: id = msg_class![env; UIViewController alloc];
+        let controller: id = msg![env; controller initWithCoder:coder];
+        release(env, coder);
+        () = msg![env; pool drain];
+        // Metadata must outlive the decoder and its autorelease pool.
+        let name: id = msg![env; controller nibName];
+        if has_name {
+            let expected = get_static_str(env, "DifferentPanel");
+            assert!(msg![env; name isEqualToString:expected]);
+        } else {
+            assert_eq!(name, nil);
+        }
+        let bundle: id = msg![env; controller nibBundle];
+        assert_eq!(bundle, nil);
+        release(env, controller);
+    }
+}
+
+fn check_game_system_panel(env: &mut Environment) {
+    use nibarchive::NIBArchive;
+    let directory = std::path::PathBuf::from(std::env::var_os("TOUCHHLE_COMMAND_GAME").unwrap());
+    let bytes = std::fs::read(directory.join("FieldMapScreen.nib")).unwrap();
+    let archive = NIBArchive::from_bytes(&bytes).unwrap();
+    let mut objects = archive.objects().to_vec();
+    // Start the decoder at the original SystemPanel record, keeping every
+    // object reference and its archived TacticsPanel nib name intact.
+    objects[0] = objects[47].clone();
+    let archive = NIBArchive::new(
+        objects,
+        archive.keys().to_vec(),
+        archive.values().to_vec(),
+        archive.class_names().to_vec(),
+    )
+    .unwrap();
+    let data = data_from_bytes(env, &archive.to_bytes());
+    let coder: id = msg_class![env; _touchHLE_NIBArchiveDecoder alloc];
+    let coder: id = msg![env; coder _touchHLE_initForReadingWithData:data];
+    let panel: id = msg_class![env; SystemPanel alloc];
+    let panel: id = msg![env; panel initWithCoder:coder];
+    release(env, coder);
+    let name: id = msg![env; panel nibName];
+    let expected = get_static_str(env, "TacticsPanel");
+    assert!(msg![env; name isEqualToString:expected]);
+    let view: id = msg![env; panel view];
+    let tab: id = msg![env; panel mapTab];
+    assert_ne!(
+        tab, nil,
+        "SystemPanel must load its archived TacticsPanel UI"
+    );
+    let button_class = env.objc.get_known_class("UIButton", &mut env.mem);
+    let mut pending = vec![view];
+    let mut save_load = Vec::new();
+    while let Some(child) = pending.pop() {
+        let children: id = msg![env; child subviews];
+        let count: u32 = msg![env; children count];
+        for index in 0..count {
+            pending.push(msg![env; children objectAtIndex:index]);
+        }
+        if msg![env; child isKindOfClass:button_class] {
+            let bounds: CGRect = msg![env; child bounds];
+            let rect: CGRect = msg![env; child convertRect:bounds toView:view];
+            if rect.origin.x > 900.0 && rect.origin.y > 400.0 {
+                let image_view: id = msg![env; child imageView];
+                let image_rect: CGRect = msg![env; image_view frame];
+                assert!(image_rect.size.width > 0.0 && image_rect.size.height > 0.0);
+                let layer: id = msg![env; image_view layer];
+                let contents: id = msg![env; layer contents];
+                assert_ne!(contents, nil);
+                let point = CGPoint {
+                    x: rect.origin.x + rect.size.width / 2.0,
+                    y: rect.origin.y + rect.size.height / 2.0,
+                };
+                let hit: id = msg![env; view hitTest:point withEvent:nil];
+                assert_eq!(hit, child);
+                save_load.push(child);
+            }
+        }
+    }
+    assert_eq!(save_load.len(), 2, "Quick Save and Quick Load buttons");
+    release(env, panel);
 }

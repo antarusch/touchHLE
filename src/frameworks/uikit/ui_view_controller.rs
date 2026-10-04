@@ -71,12 +71,29 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (id)initWithCoder:(id)coder {
+    let key = get_static_str(env, "UINibName");
+    let nib_name: id = msg![env; coder decodeObjectForKey:key];
+    let key = get_static_str(env, "UINibBundle");
+    let bundle: id = msg![env; coder decodeObjectForKey:key];
+    retain(env, nib_name);
+    retain(env, bundle);
+    let host_obj = env.objc.borrow_mut::<UIViewControllerHostObject>(this);
+    host_obj.nib_name = nib_name;
+    host_obj.bundle = bundle;
+
     let key_ns_string = get_static_str(env, "UIView");
     let view: id = msg![env; coder decodeObjectForKey:key_ns_string];
 
     () = msg![env; this setView:view];
 
     this
+}
+
+- (id)nibName {
+    env.objc.borrow::<UIViewControllerHostObject>(this).nib_name
+}
+- (id)nibBundle {
+    env.objc.borrow::<UIViewControllerHostObject>(this).bundle
 }
 
 - (())dealloc {
