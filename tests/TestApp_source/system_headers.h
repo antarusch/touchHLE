@@ -131,6 +131,7 @@ static inline NSRange NSMakeRange(NSUInteger loc, NSUInteger len) {
 
 @interface NSScanner : NSObject
 - (instancetype)initWithString:(NSString *)string;
+- (NSString *)string;
 - (NSUInteger)scanLocation;
 - (BOOL)isAtEnd;
 - (BOOL)scanCharactersFromSet:(NSCharacterSet *)set intoString:(NSString **)out;

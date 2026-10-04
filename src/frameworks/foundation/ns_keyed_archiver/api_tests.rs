@@ -87,6 +87,79 @@ fn archive_invocation_and_menu_round_trips() {
     let mut env = Environment::new_without_app(options, icon).unwrap();
     let env = &mut env;
     let pool: id = msg_class![env; NSAutoreleasePool new];
+    // A token reader can inspect the full source without moving its cursor.
+    let scanner_input = get_static_str(env, " Name42");
+    let scanner: id = msg_class![env; NSScanner alloc];
+    let scanner: id = msg![env; scanner initWithString:scanner_input];
+    let scanner_text: id = msg![env; scanner string];
+    assert!(msg![env; scanner_text isEqualToString:scanner_input]);
+    let location: u32 = msg![env; scanner scanLocation];
+    assert_eq!(location, 0);
+    () = msg![env; scanner setScanLocation:5u32];
+    let full_text: id = msg![env; scanner string];
+    assert_eq!(full_text, scanner_text);
+    let location: u32 = msg![env; scanner scanLocation];
+    assert_eq!(location, 5);
+    crate::objc::retain(env, scanner_text);
+    release(env, scanner);
+    assert!(msg![env; scanner_text isEqualToString:scanner_input]);
+    release(env, scanner_text);
+    let label: id = msg_class![env; UILabel alloc];
+    let frame = CGRect {
+        origin: CGPoint { x: 0.0, y: 0.0 },
+        size: CGSize {
+            width: 20.0,
+            height: 20.0,
+        },
+    };
+    let label: id = msg![env; label initWithFrame:frame];
+    assert!(msg![env; label isEnabled]);
+    let text_color: id = msg![env; label textColor];
+    () = msg![env; label setEnabled:false];
+    assert!(!msg![env; label isEnabled]);
+    let disabled_color: id = msg![env; label textColor];
+    assert_eq!(disabled_color, text_color);
+    () = msg![env; label setEnabled:true];
+    assert!(msg![env; label isEnabled]);
+    release(env, label);
+    // The IPA uses both collection methods when stages and effects finish.
+    let member: id = msg_class![env; NSObject new];
+    let array: id = msg_class![env; NSArray arrayWithObject:member];
+    let set: id = msg_class![env; NSMutableSet new];
+    () = msg![env; set addObjectsFromArray:array];
+    () = msg![env; set addObjectsFromArray:array];
+    () = msg![env; set addObjectsFromArray:nil];
+    let count: u32 = msg![env; set count];
+    assert_eq!(count, 1);
+    assert!(msg![env; set containsObject:member]);
+    let before: u32 = msg![env; member retainCount];
+    let inner_pool: id = msg_class![env; NSAutoreleasePool new];
+    let selector = env
+        .objc
+        .register_host_selector("retain".into(), &mut env.mem);
+    () = msg![env; set makeObjectsPerformSelector:selector];
+    release(env, inner_pool);
+    let after: u32 = msg![env; member retainCount];
+    assert_eq!(after, before + 1);
+    release(env, member); // The retain callback's reference.
+    release(env, set);
+    release(env, member);
+    // An allObjects snapshot keeps members alive after the set is destroyed.
+    for class_name in ["NSSet", "NSMutableSet"] {
+        let inner_pool: id = msg_class![env; NSAutoreleasePool new];
+        let member: id = msg_class![env; NSObject new];
+        let class = env.objc.get_known_class(class_name, &mut env.mem);
+        let set: id = msg![env; class alloc];
+        let set: id = msg![env; set initWithObject:member];
+        let snapshot: id = msg![env; set allObjects];
+        release(env, set);
+        release(env, member);
+        let saved: id = msg![env; snapshot objectAtIndex:0u32];
+        assert_eq!(saved, member);
+        let references: u32 = msg![env; saved retainCount];
+        assert_eq!(references, 1);
+        release(env, inner_pool);
+    }
     crate::frameworks::foundation::ns_dictionary::check_copy_unset_layer_actions(env);
     // Eustrath reads a custom transaction key before any layer mutation.
     let transaction_key = get_static_str(env, "EustrathTransactionProbe");

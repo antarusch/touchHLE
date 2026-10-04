@@ -33,6 +33,7 @@ pub struct UILabelHostObject {
     text_alignment: UITextAlignment,
     line_break_mode: UILineBreakMode,
     number_of_lines: NSInteger,
+    enabled: bool,
 }
 impl_HostObject_with_superclass!(UILabelHostObject);
 impl Default for UILabelHostObject {
@@ -45,6 +46,7 @@ impl Default for UILabelHostObject {
             text_alignment: UITextAlignmentLeft,
             line_break_mode: UILineBreakModeTailTruncation,
             number_of_lines: 1,
+            enabled: true,
         }
     }
 }
@@ -111,6 +113,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         text_alignment: _,
         line_break_mode: _,
         number_of_lines: _,
+        enabled: _,
     } = env.objc.borrow(this);
     release(env, text);
     release(env, font);
@@ -122,6 +125,14 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (id)text {
     env.objc.borrow::<UILabelHostObject>(this).text
+}
+
+- (bool)isEnabled {
+    env.objc.borrow::<UILabelHostObject>(this).enabled
+}
+- (())setEnabled:(bool)enabled {
+    env.objc.borrow_mut::<UILabelHostObject>(this).enabled = enabled;
+    () = msg![env; this setNeedsDisplay];
 }
 - (())setText:(id)new_text { // NSString*
     let new_text: id = msg![env; new_text copy];
@@ -255,9 +266,12 @@ pub const CLASSES: ClassExports = objc_classes! {
         text_alignment,
         line_break_mode,
         number_of_lines,
+        enabled,
     } = env.objc.borrow_mut(this);
 
     let (r, g, b, a) = ui_color::get_rgba(&env.objc, text_color);
+    // Disabled text is dimmed without changing the stored text color.
+    let a = if enabled { a } else { a * 0.5 };
     CGContextSetRGBFillColor(env, context, r, g, b, a);
 
     // TODO: handle line counts other than 0 and 1 properly. 0 = unlimited

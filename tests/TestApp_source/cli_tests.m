@@ -2104,13 +2104,20 @@ int test_Eustrath_character_sets() {
       initWithString:[NSString stringWithUTF8String:" Name42"]];
   NSString *word = nil;
   BOOL scanned =
+      [[scanner string]
+          isEqualToString:[NSString stringWithUTF8String:" Name42"]] &&
+      [scanner scanLocation] == 0 &&
       [scanner scanCharactersFromSet:letters intoString:&word] &&
       [word isEqualToString:[NSString stringWithUTF8String:"Name"]] &&
+      [[scanner string]
+          isEqualToString:[NSString stringWithUTF8String:" Name42"]] &&
       [scanner scanLocation] == 5 &&
       ![scanner scanCharactersFromSet:letters intoString:&word] &&
       [scanner scanLocation] == 5 &&
       [scanner scanCharactersFromSet:digits intoString:&word] &&
       [word isEqualToString:[NSString stringWithUTF8String:"42"]] &&
+      [[scanner string]
+          isEqualToString:[NSString stringWithUTF8String:" Name42"]] &&
       [scanner isAtEnd];
   [scanner release];
   if (!scanned)

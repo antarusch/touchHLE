@@ -84,6 +84,10 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.dealloc_object(this, &mut env.mem);
 }
 
+- (id)string { // NSString *
+    env.objc.borrow::<NSScannerHostObject>(this).string
+}
+
 - (())setCharactersToBeSkipped:(id)to_be_skipped { // NSCharacterSet *
     let old_to_be_skipped = env.objc.borrow::<NSScannerHostObject>(this).to_be_skipped;
     env.objc.borrow_mut::<NSScannerHostObject>(this).to_be_skipped = to_be_skipped;

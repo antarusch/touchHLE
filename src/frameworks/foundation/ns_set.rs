@@ -94,6 +94,18 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
 }
 
+- (())makeObjectsPerformSelector:(crate::objc::SEL)selector {
+    // Snapshot membership so a callback can mutate the original set.
+    let objects: id = msg![env; this allObjects];
+    retain(env, objects);
+    let count: NSUInteger = msg![env; objects count];
+    for index in 0..count {
+        let object: id = msg![env; objects objectAtIndex:index];
+        let _: id = msg![env; object performSelector:selector];
+    }
+    release(env, objects);
+}
+
 @end
 
 // NSMutableSet is an abstract class. A subclass must provide everything
@@ -138,6 +150,14 @@ pub const CLASSES: ClassExports = objc_classes! {
         () = msg![env; this addObject:object];
     }
     release(env, objects);
+}
+
+- (())addObjectsFromArray:(id)array {
+    let count: NSUInteger = msg![env; array count];
+    for index in 0..count {
+        let object: id = msg![env; array objectAtIndex:index];
+        () = msg![env; this addObject:object];
+    }
 }
 
 
@@ -203,8 +223,10 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (id)allObjects {
-    let objects = env.objc.borrow_mut::<SetHostObject>(this).dict.iter_keys().collect();
-    ns_array::from_vec(env, objects)
+    let objects = env.objc.borrow::<SetHostObject>(this).dict.iter_keys().collect::<Vec<_>>();
+    let objects = objects.into_iter().map(|object| retain(env, object)).collect();
+    let array = ns_array::from_vec(env, objects);
+    autorelease(env, array)
 }
 
 - (id)objectEnumerator { // NSEnumerator*
@@ -288,8 +310,10 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (id)allObjects {
-    let objects = env.objc.borrow_mut::<SetHostObject>(this).dict.iter_keys().collect();
-    ns_array::from_vec(env, objects)
+    let objects = env.objc.borrow::<SetHostObject>(this).dict.iter_keys().collect::<Vec<_>>();
+    let objects = objects.into_iter().map(|object| retain(env, object)).collect();
+    let array = ns_array::from_vec(env, objects);
+    autorelease(env, array)
 }
 
 - (id)objectEnumerator { // NSEnumerator*
