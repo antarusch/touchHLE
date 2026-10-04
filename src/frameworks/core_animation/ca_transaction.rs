@@ -3,7 +3,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
-//! `CAAnimation` and its subclasses
+//! `CATransaction` and per-thread implicit transaction state.
 use std::collections::HashMap;
 
 use crate::dyld::{ConstantExports, HostConstant};
@@ -42,6 +42,15 @@ impl ThreadLocalState {
             .explicit_transactions
             .last_mut()
             .or(thread_state.implicit_transaction.as_mut())
+    }
+
+    fn ensure_current_transaction(env: &mut Environment) {
+        if Self::get_current_transaction(env).is_none() {
+            // Property reads and writes can precede the first layer change,
+            // including on a newly created background thread.
+            let transaction = Transaction::new(env);
+            Self::get_mut(env).implicit_transaction = Some(transaction);
+        }
     }
 
     pub fn add_animation(env: &mut Environment, layer: id, animation: id) {
@@ -166,6 +175,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 @implementation CATransaction: NSObject
 
 + (())setValue:(id)value forKey:(id)key {
+    ThreadLocalState::ensure_current_transaction(env);
     let key_string = to_rust_string(env, key);
     log_dbg!("[CATransaction setValue:{:?} forKey:{:?} ({})]", value, key, key_string);
     match &*key_string  {
@@ -195,6 +205,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     };
 }
 + (id)valueForKey:(id)key { // NSString*
+    ThreadLocalState::ensure_current_transaction(env);
     let key_string = to_rust_string(env, key);
     let value = match &*key_string {
         kCATransactionAnimationDuration => {

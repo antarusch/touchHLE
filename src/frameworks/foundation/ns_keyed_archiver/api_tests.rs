@@ -87,6 +87,27 @@ fn archive_invocation_and_menu_round_trips() {
     let mut env = Environment::new_without_app(options, icon).unwrap();
     let env = &mut env;
     let pool: id = msg_class![env; NSAutoreleasePool new];
+    // Eustrath reads a custom transaction key before any layer mutation.
+    let transaction_key = get_static_str(env, "EustrathTransactionProbe");
+    let unset: id = msg_class![env; CATransaction valueForKey:transaction_key];
+    assert_eq!(unset, nil);
+    let duration: f64 = msg_class![env; CATransaction animationDuration];
+    assert_eq!(duration, 0.25);
+    let disabled: bool = msg_class![env; CATransaction disableActions];
+    assert!(!disabled);
+    () = msg_class![env; CATransaction flush];
+    // The setter must also initialize a transaction after flushing.
+    () = msg_class![env; CATransaction setAnimationDuration:0.75f64];
+    () = msg_class![env; CATransaction setDisableActions:true];
+    let transaction_value: id = msg_class![env; NSNumber numberWithInt:42i32];
+    () = msg_class![env; CATransaction setValue:transaction_value forKey:transaction_key];
+    let actual: id = msg_class![env; CATransaction valueForKey:transaction_key];
+    assert_eq!(actual, transaction_value);
+    let duration: f64 = msg_class![env; CATransaction animationDuration];
+    assert_eq!(duration, 0.75);
+    let disabled: bool = msg_class![env; CATransaction disableActions];
+    assert!(disabled);
+    () = msg_class![env; CATransaction flush];
     let data: id = msg_class![env; NSMutableData new];
     let encoder: id = msg_class![env; NSKeyedArchiver alloc];
     let encoder: id = msg![env; encoder initForWritingWithMutableData:data];
