@@ -93,6 +93,33 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
 }
 
+- (())sendEvent:(id)event { // UIEvent*
+    let event_type: super::ui_event::UIEventType = msg![env; event type];
+    if event_type != super::ui_event::UIEventTypeTouches {
+        log!("Unsupported UIEvent type {event_type}");
+        return;
+    }
+    let touches: id = msg![env; event allTouches];
+    let array: id = msg![env; touches allObjects];
+    let count: NSUInteger = msg![env; array count];
+    let mut windows = Vec::new();
+    for i in 0..count {
+        let touch: id = msg![env; array objectAtIndex:i];
+        let phase: super::ui_touch::UITouchPhase = msg![env; touch phase];
+        if phase == super::ui_touch::UITouchPhaseStationary {
+            continue;
+        }
+        let window: id = msg![env; touch window];
+        if window != nil && !windows.contains(&window) {
+            windows.push(window);
+        }
+    }
+    for window in windows {
+        log_dbg!("UIApplication {:?} dispatches event {:?} to window {:?}", this, event, window);
+        () = msg![env; window sendEvent:event];
+    }
+}
+
 - (bool)isStatusBarHidden {
     env.framework_state.uikit.ui_application.status_bar_hidden
 }

@@ -23,6 +23,7 @@ pub const UITouchPhaseBegan: UITouchPhase = 0;
 pub const UITouchPhaseMoved: UITouchPhase = 1;
 pub const UITouchPhaseStationary: UITouchPhase = 2;
 pub const UITouchPhaseEnded: UITouchPhase = 3;
+pub const UITouchPhaseCancelled: UITouchPhase = 4;
 
 #[derive(Default)]
 pub struct State {
@@ -90,6 +91,9 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (id)view {
     env.objc.borrow::<UITouchHostObject>(this).view
+}
+- (id)window {
+    env.objc.borrow::<UITouchHostObject>(this).window
 }
 
 - (NSTimeInterval)timestamp {
@@ -302,16 +306,13 @@ fn handle_touches_down(env: &mut Environment, map: HashMap<FingerId, Coords>) {
         }
     }
 
-    for (view, touches) in view_touches {
-        log_dbg!(
-            "Sending [{:?} touchesBegan:{:?} withEvent:{:?}]",
-            view,
-            touches,
-            event
-        );
-        let _: () = msg![env; view touchesBegan:touches withEvent:event];
+    let application: id = msg_class![env; UIApplication sharedApplication];
+    () = msg![env; application sendEvent:event];
+    for (_, group) in view_touches {
+        release(env, group);
     }
-
+    release(env, touches);
+    release(env, all_touches);
     release(env, pool);
 }
 
@@ -388,16 +389,13 @@ fn handle_touches_move(env: &mut Environment, map: HashMap<FingerId, Coords>) {
     let event = ui_event::new_event(env, all_touches);
     autorelease(env, event);
 
-    for (view, touches) in view_touches {
-        log_dbg!(
-            "Sending [{:?} touchesMoved:{:?} withEvent:{:?}]",
-            view,
-            touches,
-            event
-        );
-        let _: () = msg![env; view touchesMoved:touches withEvent:event];
+    let application: id = msg_class![env; UIApplication sharedApplication];
+    () = msg![env; application sendEvent:event];
+    for (_, group) in view_touches {
+        release(env, group);
     }
-
+    release(env, touches);
+    release(env, all_touches);
     release(env, pool);
 }
 
@@ -479,15 +477,12 @@ fn handle_touches_up(env: &mut Environment, map: HashMap<FingerId, Coords>) {
     let event = ui_event::new_event(env, all_touches);
     autorelease(env, event);
 
-    for (view, touches) in view_touches {
-        log_dbg!(
-            "Sending [{:?} touchesEnded:{:?} withEvent:{:?}]",
-            view,
-            touches,
-            event
-        );
-        let _: () = msg![env; view touchesEnded:touches withEvent:event];
+    let application: id = msg_class![env; UIApplication sharedApplication];
+    () = msg![env; application sendEvent:event];
+    for (_, group) in view_touches {
+        release(env, group);
     }
-
+    release(env, touches);
+    release(env, all_touches);
     release(env, pool);
 }

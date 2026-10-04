@@ -5,13 +5,16 @@
  */
 //! `UIEvent`.
 
-use super::ui_touch::UITouchHostObject;
-use crate::frameworks::foundation::{NSTimeInterval, NSUInteger};
+use crate::frameworks::foundation::{NSInteger, NSTimeInterval, NSUInteger};
 use crate::mem::MutVoidPtr;
 use crate::objc::{
-    id, msg, msg_class, nil, objc_classes, release, retain, ClassExports, HostObject, NSZonePtr,
+    autorelease, id, msg, msg_class, nil, objc_classes, release, retain, ClassExports, HostObject,
+    NSZonePtr,
 };
 use crate::Environment;
+
+pub type UIEventType = NSInteger;
+pub const UIEventTypeTouches: UIEventType = 0;
 
 pub(super) struct UIEventHostObject {
     /// `NSSet<UITouch*>*`
@@ -37,6 +40,11 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (())dealloc {
     let &UIEventHostObject { touches, .. } = env.objc.borrow(this);
     release(env, touches);
+    env.objc.dealloc_object(this, &mut env.mem)
+}
+
+- (UIEventType)type {
+    UIEventTypeTouches
 }
 
 - (NSTimeInterval)timestamp {
@@ -44,7 +52,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (id)touchesForView:(id)view_ {
-    let &UIEventHostObject { touches, .. } = env.objc.borrow(this);
+    let touches: id = msg![env; this allTouches];
 
     let touches_for_view: id = msg_class![env; NSMutableSet allocWithZone:(MutVoidPtr::null())];
 
@@ -52,7 +60,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     let touches_count: NSUInteger = msg![env; touches_arr count];
     for i in 0..touches_count {
         let touch: id = msg![env; touches_arr objectAtIndex:i];
-        let &UITouchHostObject { view, .. } = env.objc.borrow(touch);
+        let view: id = msg![env; touch view];
         if view_ == view {
             let _: () = msg![env; touches_for_view addObject:touch];
             if !msg![env; view isMultipleTouchEnabled] {
@@ -61,7 +69,22 @@ pub const CLASSES: ClassExports = objc_classes! {
         }
     }
 
-    touches_for_view
+    autorelease(env, touches_for_view)
+}
+
+- (id)touchesForWindow:(id)window {
+    let touches: id = msg![env; this allTouches];
+    let result: id = msg_class![env; NSMutableSet new];
+    let array: id = msg![env; touches allObjects];
+    let count: NSUInteger = msg![env; array count];
+    for i in 0..count {
+        let touch: id = msg![env; array objectAtIndex:i];
+        let touch_window: id = msg![env; touch window];
+        if touch_window == window {
+            () = msg![env; result addObject:touch];
+        }
+    }
+    autorelease(env, result)
 }
 
 - (id)allTouches {

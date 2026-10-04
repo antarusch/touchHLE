@@ -69,6 +69,13 @@ pub const CLASSES: ClassExports = objc_classes! {
     nil
 }
 
+- (())touchesCancelled:(id)touches withEvent:(id)event {
+    let next_responder: id = msg![env; this nextResponder];
+    if next_responder != nil {
+        () = msg![env; next_responder touchesCancelled:touches withEvent:event];
+    }
+}
+
 - (bool)isFirstResponder {
     false
 }

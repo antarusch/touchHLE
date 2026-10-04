@@ -14,6 +14,7 @@ use crate::dyld::{ConstantExports, HostConstant};
 use crate::frameworks::core_graphics::cg_affine_transform::CGAffineTransform;
 use crate::frameworks::core_graphics::{CGPoint, CGRect};
 use crate::frameworks::foundation::ns_string;
+use crate::frameworks::foundation::NSUInteger;
 use crate::frameworks::uikit::ui_application::{
     UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight,
     UIInterfaceOrientationPortraitUpsideDown,
@@ -22,7 +23,10 @@ use crate::frameworks::uikit::ui_device::{
     UIDeviceOrientationLandscapeLeft, UIDeviceOrientationLandscapeRight,
     UIDeviceOrientationPortraitUpsideDown,
 };
-use crate::objc::{id, msg, msg_class, msg_super, nil, objc_classes, ClassExports};
+use crate::frameworks::uikit::ui_touch::{
+    UITouchPhase, UITouchPhaseBegan, UITouchPhaseCancelled, UITouchPhaseEnded, UITouchPhaseMoved,
+};
+use crate::objc::{autorelease, id, msg, msg_class, msg_super, nil, objc_classes, ClassExports};
 
 #[derive(Default)]
 pub struct State {
@@ -42,6 +46,39 @@ pub const CLASSES: ClassExports = objc_classes! {
 @implementation UIWindow: UIView
 
 // TODO: more?
+
+- (())sendEvent:(id)event { // UIEvent*
+    let touches: id = msg![env; event touchesForWindow:this];
+    let array: id = msg![env; touches allObjects];
+    let count: NSUInteger = msg![env; array count];
+    let mut groups = std::collections::HashMap::new();
+    for i in 0..count {
+        let touch: id = msg![env; array objectAtIndex:i];
+        let phase: UITouchPhase = msg![env; touch phase];
+        if !matches!(phase, UITouchPhaseBegan | UITouchPhaseMoved | UITouchPhaseEnded | UITouchPhaseCancelled) {
+            continue;
+        }
+        let view: id = msg![env; touch view];
+        if view == nil {
+            continue;
+        }
+        let group = *groups.entry((view, phase)).or_insert_with(|| {
+            let group: id = msg_class![env; NSMutableSet new];
+            autorelease(env, group)
+        });
+        () = msg![env; group addObject:touch];
+    }
+    for ((view, phase), touches) in groups {
+        log_dbg!("UIWindow {:?} dispatches phase {} to view {:?}", this, phase, view);
+        match phase {
+            UITouchPhaseBegan => { () = msg![env; view touchesBegan:touches withEvent:event]; },
+            UITouchPhaseMoved => { () = msg![env; view touchesMoved:touches withEvent:event]; },
+            UITouchPhaseEnded => { () = msg![env; view touchesEnded:touches withEvent:event]; },
+            UITouchPhaseCancelled => { () = msg![env; view touchesCancelled:touches withEvent:event]; },
+            _ => unreachable!(),
+        }
+    }
+}
 
 - (id)initWithFrame:(CGRect)frame {
     let this = msg_super![env; this initWithFrame:frame];

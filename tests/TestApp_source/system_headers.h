@@ -87,6 +87,8 @@ static inline NSRange NSMakeRange(NSUInteger loc, NSUInteger len) {
 
 @interface NSSet<ObjectType> : NSObject
 - (ObjectType)anyObject;
+- (NSUInteger)count;
+- (NSArray *)allObjects;
 @end
 
 @interface NSEnumerator : NSObject
@@ -483,9 +485,11 @@ typedef enum {
   UIControlEventTouchUpInside = 1 << 6,
 } UIControlEvents;
 
+@class UIEvent;
 @interface UIApplication : NSObject
 + (instancetype)sharedApplication;
 - (id)delegate;
+- (void)sendEvent:(UIEvent *)event;
 @end
 @interface UIScreen : NSObject
 + (instancetype)mainScreen;
@@ -513,17 +517,30 @@ typedef enum {
 + (instancetype)redColor;
 + (instancetype)yellowColor;
 @end
+@class UIView, UIWindow;
 @interface UIEvent : NSObject
+- (NSInteger)type;
+- (NSSet *)allTouches;
+- (NSSet *)touchesForWindow:(UIWindow *)window;
+- (NSSet *)touchesForView:(UIView *)view;
 @end
 @class UIView;
 @interface UITouch : NSObject
 - (CGPoint)locationInView:(UIView *)view;
+- (UIView *)view;
+- (UIWindow *)window;
+- (NSInteger)phase;
 @end
 @interface UIResponder : NSObject
 @end
 @class UIWindow;
 @interface UIView : UIResponder
 - (instancetype)initWithFrame:(CGRect)frame;
+- (void)setMultipleTouchEnabled:(BOOL)enabled;
+- (void)touchesBegan:(NSSet *)touches withEvent:(UIEvent *)event;
+- (void)touchesMoved:(NSSet *)touches withEvent:(UIEvent *)event;
+- (void)touchesEnded:(NSSet *)touches withEvent:(UIEvent *)event;
+- (void)touchesCancelled:(NSSet *)touches withEvent:(UIEvent *)event;
 - (CALayer *)layer;
 - (CGRect)bounds;
 - (CGRect)frame;
@@ -548,6 +565,7 @@ typedef enum {
 - (CALayer *)layer;
 @end
 @interface UIWindow : UIView
+- (void)sendEvent:(UIEvent *)event;
 - (void)makeKeyAndVisible;
 - (CGPoint)convertPoint:(CGPoint)point fromWindow:(UIWindow *)window;
 - (CGPoint)convertPoint:(CGPoint)point toWindow:(UIWindow *)window;
