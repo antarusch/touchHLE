@@ -64,6 +64,12 @@ pub const CLASSES: ClassExports = objc_classes! {
     autorelease(env, new)
 }
 
++ (id)setWithSet:(id)set {
+    let new: id = msg![env; this alloc];
+    let new: id = msg![env; new initWithSet:set];
+    autorelease(env, new)
+}
+
 + (id)setWithObject:(id)object {
     assert!(object != nil);
     let new: id = msg![env; this alloc];
@@ -78,6 +84,11 @@ pub const CLASSES: ClassExports = objc_classes! {
     autorelease(env, new)
 }
 
+- (id)initWithSet:(id)set {
+    let objects: id = msg![env; set allObjects];
+    msg![env; this initWithArray:objects]
+}
+
 - (())encodeWithCoder:(id)coder {
     // NSSet uses the same keyed object-list format as NSArray.
     let objects: id = msg![env; this allObjects];
@@ -87,6 +98,21 @@ pub const CLASSES: ClassExports = objc_classes! {
 // NSCopying implementation
 - (id)copyWithZone:(NSZonePtr)_zone {
     retain(env, this)
+}
+
+- (id)mutableCopyWithZone:(NSZonePtr)zone {
+    let copy: id = msg_class![env; NSMutableSet allocWithZone:zone];
+    msg![env; copy initWithSet:this]
+}
+
+- (id)member:(id)object {
+    let enumerator: id = msg![env; this objectEnumerator];
+    loop {
+        let next: id = msg![env; enumerator nextObject];
+        if next == nil || msg![env; next isEqual:object] {
+            return next;
+        }
+    }
 }
 
 - (bool)containsObject:(id)object {

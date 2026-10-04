@@ -124,6 +124,7 @@ fn archive_invocation_and_menu_round_trips() {
     check_scheduled_playback(env);
     check_animation_metadata(env);
     check_signed_number_formatting(env);
+    check_set_snapshots(env);
     check_set_archives(env);
     check_foundation_archives(env);
     check_text_nib(env);
@@ -1168,6 +1169,58 @@ fn check_game_audio_playback(env: &mut Environment) {
     () = msg![env; manager playSoundData:data afterDelay:0.0f32];
     assert_eq!(handle_perform_requests(env, run_loop), None);
     release(env, manager);
+}
+
+fn check_set_snapshots(env: &mut Environment) {
+    for class_name in ["NSSet", "NSMutableSet", "NSCountedSet"] {
+        let pool: id = msg_class![env; NSAutoreleasePool new];
+        let member: id = msg_class![env; NSObject new];
+        let extra: id = msg_class![env; NSObject new];
+        let source: id = msg_class![env; NSMutableSet new];
+        () = msg![env; source addObject:member];
+        let class = env.objc.get_known_class(class_name, &mut env.mem);
+        let snapshot: id = msg![env; class setWithSet:source];
+        crate::objc::retain(env, snapshot);
+        let initialized: id = msg![env; class alloc];
+        let initialized: id = msg![env; initialized initWithSet:source];
+        let mutable: id = msg![env; snapshot mutableCopy];
+        () = msg![env; source removeAllObjects];
+        release(env, source);
+        release(env, pool);
+        let probe_pool: id = msg_class![env; NSAutoreleasePool new];
+        for set in [snapshot, initialized, mutable] {
+            assert!(msg![env; set containsObject:member]);
+            let count: u32 = msg![env; set count];
+            assert_eq!(count, 1);
+            let representative: id = msg![env; set member:member];
+            assert_eq!(representative, member);
+        }
+        () = msg![env; mutable addObject:extra];
+        let count: u32 = msg![env; mutable count];
+        assert_eq!(count, 2);
+        assert!(!msg![env; snapshot containsObject:extra]);
+        release(env, mutable);
+        release(env, initialized);
+        release(env, snapshot);
+        release(env, probe_pool);
+        let refs: u32 = msg![env; member retainCount];
+        assert_eq!(refs, 1);
+        release(env, member);
+        release(env, extra);
+        let empty: id = msg![env; class setWithSet:nil];
+        let count: u32 = msg![env; empty count];
+        assert_eq!(count, 0);
+    }
+    let member = crate::frameworks::foundation::ns_string::from_rust_string(env, "equal".into());
+    let query = crate::frameworks::foundation::ns_string::from_rust_string(env, "equal".into());
+    assert_ne!(member, query);
+    let set: id = msg_class![env; NSSet setWithObject:member];
+    let found: id = msg![env; set member:query];
+    assert_eq!(found, member);
+    let missing: id = msg![env; set member:nil];
+    assert_eq!(missing, nil);
+    release(env, member);
+    release(env, query);
 }
 
 fn check_signed_number_formatting(env: &mut Environment) {
