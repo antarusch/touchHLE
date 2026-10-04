@@ -140,8 +140,9 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (())setDelegate:(id)delegate { // CAAnimationDelegate*
     log_dbg!("[(CAAnimation*){:?} setDelegate:{:?}]", this, delegate);
-    env.objc.borrow_mut::<CAAnimationHostObject>(this).delegate = delegate;
     retain(env, delegate);
+    let old_delegate = std::mem::replace(&mut env.objc.borrow_mut::<CAAnimationHostObject>(this).delegate, delegate);
+    release(env, old_delegate);
 }
 - (id)delegate {
     env.objc.borrow::<CAAnimationHostObject>(this).delegate
@@ -149,8 +150,9 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (())setTimingFunction:(id)timingFunction { // CAMediaTimingFunction*
     log_dbg!("[(CAAnimation*){:?} setTimingFunction:{:?}]", this, timingFunction);
-    env.objc.borrow_mut::<CAAnimationHostObject>(this).timing_function = timingFunction;
     retain(env, timingFunction);
+    let old_function = std::mem::replace(&mut env.objc.borrow_mut::<CAAnimationHostObject>(this).timing_function, timingFunction);
+    release(env, old_function);
 }
 - (id)timingFunction {
     env.objc.borrow::<CAAnimationHostObject>(this).timing_function

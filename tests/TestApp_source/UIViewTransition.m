@@ -135,5 +135,18 @@ int test_UIView_transition(void) {
   [delegate release];
   [view release];
   [pool drain];
+
+  // Cached timing functions must remain valid after the first pool drains.
+  pool = [NSAutoreleasePool new];
+  view = [[TransitionTestView alloc] initWithFrame:CGRectMake(0, 0, 32, 32)];
+  [UIView beginAnimations:nil context:nil];
+  [UIView setAnimationTransition:1 forView:view cache:NO];
+  [UIView commitAnimations];
+  timing &= scheduledCount == 1;
+  for (NSUInteger i = 0; i < scheduledCount; i++)
+    [scheduled[i] release];
+  scheduledCount = 0;
+  [view release];
+  [pool drain];
   return timing && callback ? 0 : -1;
 }
