@@ -125,6 +125,7 @@ fn archive_invocation_and_menu_round_trips() {
     check_animation_metadata(env);
     check_signed_number_formatting(env);
     check_set_snapshots(env);
+    check_layer_names(env);
     check_set_archives(env);
     check_foundation_archives(env);
     check_text_nib(env);
@@ -1073,6 +1074,27 @@ fn game_command_button_geometry() {
                 );
             }
             env.mem.free(argument.cast());
+            // Execute the original beam-layer factory at the crash site.
+            let scene: id = msg_class![env; BeamAttackScene alloc];
+            let bounds = CGRect {
+                origin: CGPoint { x: 5.0, y: 7.0 },
+                size: CGSize { width: 30.0, height: 18.0 },
+            };
+            let clip: id = msg![env; scene beamClipLayerWithBounds:bounds];
+            let name: id = msg![env; clip name];
+            let expected = get_static_str(env, "beamClip");
+            assert!(msg![env; name isEqualToString:expected]);
+            let masks: bool = msg![env; clip masksToBounds];
+            assert!(masks);
+            let anchor: CGPoint = msg![env; clip anchorPoint];
+            assert_eq!(anchor, CGPoint { x: 0.0, y: 0.5 });
+            let clip_bounds: CGRect = msg![env; clip bounds];
+            assert_eq!(clip_bounds.origin, CGPoint { x: 0.0, y: 0.0 });
+            assert_eq!(clip_bounds.size, CGSize { width: 509.0, height: 18.0 });
+            let depth: f32 = msg![env; clip zPosition];
+            assert_eq!(depth, -399.0);
+            release(env, clip);
+            release(env, scene);
             for name in ["Command_Defend", "Command_Wait", "Command_Ability"] {
                 let name = get_static_str(env, name);
                 // Execute the game's UIButton(Darkland) category, including its
@@ -1169,6 +1191,42 @@ fn check_game_audio_playback(env: &mut Environment) {
     () = msg![env; manager playSoundData:data afterDelay:0.0f32];
     assert_eq!(handle_perform_requests(env, run_loop), None);
     release(env, manager);
+}
+
+fn check_layer_names(env: &mut Environment) {
+    let layer: id = msg_class![env; CALayer new];
+    let initial: id = msg![env; layer name];
+    assert_eq!(initial, nil);
+    let name = get_static_str(env, "beamClip");
+    let mutable: id = msg_class![env; NSMutableString alloc];
+    let mutable: id = msg![env; mutable initWithString:name];
+    () = msg![env; layer setName:mutable];
+    let saved: id = msg![env; layer name];
+    assert_ne!(saved, mutable);
+    crate::objc::retain(env, saved);
+    let suffix = get_static_str(env, "Changed");
+    () = msg![env; mutable appendString:suffix];
+    assert!(msg![env; saved isEqualToString:name]);
+    release(env, mutable);
+    () = msg![env; layer setName:saved];
+    let references: u32 = msg![env; saved retainCount];
+    assert_eq!(references, 2);
+    let replacement = get_static_str(env, "レイヤー");
+    () = msg![env; layer setName:replacement];
+    let references: u32 = msg![env; saved retainCount];
+    assert_eq!(references, 1);
+    release(env, saved);
+    let current: id = msg![env; layer name];
+    assert!(msg![env; current isEqualToString:replacement]);
+    () = msg![env; layer setName:nil];
+    let cleared: id = msg![env; layer name];
+    assert_eq!(cleared, nil);
+    let name = crate::frameworks::foundation::ns_string::from_rust_string(env, "owned".into());
+    () = msg![env; layer setName:name];
+    release(env, layer);
+    let references: u32 = msg![env; name retainCount];
+    assert_eq!(references, 1);
+    release(env, name);
 }
 
 fn check_set_snapshots(env: &mut Environment) {

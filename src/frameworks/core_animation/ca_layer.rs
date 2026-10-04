@@ -35,6 +35,8 @@ use std::collections::{HashMap, HashSet};
 
 #[derive(Clone)]
 pub(super) struct CALayerHostObject {
+    /// The optional layer identifier, copied when assigned.
+    name: id,
     /// Possibly nil, usually a UIView. This is a weak reference.
     delegate: id,
     /// Sublayers in back-to-front order. These are strong references.
@@ -145,6 +147,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 + (id)alloc {
     let host_object = Box::new(CALayerHostObject {
+        name: nil,
         delegate: nil,
         sublayers: Vec::new(),
         superlayer: nil,
@@ -192,7 +195,9 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (())dealloc {
     () = msg![env; this removeAllAnimations];
-    let actions = env.objc.borrow::<CALayerHostObject>(this).actions;
+    let host = env.objc.borrow::<CALayerHostObject>(this);
+    let (name, actions) = (host.name, host.actions);
+    release(env, name);
     release(env, actions);
     let &mut CALayerHostObject {
         drawable_properties,
@@ -225,6 +230,18 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
 
     env.objc.dealloc_object(this, &mut env.mem)
+}
+
+- (id)name {
+    env.objc.borrow::<CALayerHostObject>(this).name
+}
+- (())setName:(id)value {
+    let value: id = msg![env; value copy];
+    let old = std::mem::replace(
+        &mut env.objc.borrow_mut::<CALayerHostObject>(this).name,
+        value,
+    );
+    release(env, old);
 }
 
 - (id)delegate {
