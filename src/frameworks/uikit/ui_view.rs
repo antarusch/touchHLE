@@ -786,6 +786,15 @@ pub const CLASSES: ClassExports = objc_classes! {
     todo_objc_setter!(this, content_mode);
 }
 
+- (CGRect)contentStretch {
+    let layer = env.objc.borrow::<UIViewHostObject>(this).layer;
+    msg![env; layer contentsCenter]
+}
+- (())setContentStretch:(CGRect)stretch {
+    let layer = env.objc.borrow::<UIViewHostObject>(this).layer;
+    msg![env; layer setContentsCenter:stretch]
+}
+
 - (bool)clearsContextBeforeDrawing {
     env.objc.borrow::<UIViewHostObject>(this).clears_context_before_drawing
 }

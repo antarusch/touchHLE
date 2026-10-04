@@ -186,17 +186,26 @@ impl State {
                     presentation.background_color =
                         Some(from_value + by_value * interpolation_amount)
                 }
-                "bounds" => {
+                "bounds" | "contentsCenter" => {
                     let from_value = id_as_option(from_value).map(|obj| msg![env; obj CGRectValue]);
                     let to_value = id_as_option(to_value).map(|obj| msg![env; obj CGRectValue]);
                     let by_value = id_as_option(by_value).map(|obj| msg![env; obj CGRectValue]);
                     let (from_value, by_value) = get_from_and_by_values(
-                        Some(presentation.bounds),
+                        Some(if &*key_path == "bounds" {
+                            presentation.bounds
+                        } else {
+                            presentation.contents_center
+                        }),
                         from_value,
                         to_value,
                         by_value,
                     );
-                    presentation.bounds = from_value + by_value * interpolation_amount;
+                    let value = from_value + by_value * interpolation_amount;
+                    if &*key_path == "bounds" {
+                        presentation.bounds = value;
+                    } else {
+                        presentation.contents_center = value;
+                    }
                 }
                 "cornerRadius" => {
                     let from_value = id_as_option(from_value).map(|obj| msg![env; obj floatValue]);

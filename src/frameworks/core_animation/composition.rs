@@ -11,10 +11,10 @@
 #![allow(clippy::zero_ptr)] // alas, as you know, opengl
 
 use super::ca_eagl_layer::find_fullscreen_eagl_layer;
-use super::ca_layer::CALayerHostObject;
+use super::ca_layer::{CALayerHostObject, DEFAULT_CONTENTS_CENTER};
 use crate::frameworks::core_animation::animation;
 use crate::frameworks::core_graphics::cg_color::CGColorHostObject;
-use crate::frameworks::core_graphics::{cg_bitmap_context, cg_image, CGFloat, CGRect};
+use crate::frameworks::core_graphics::{cg_bitmap_context, cg_image, CGFloat, CGRect, CGSize};
 use crate::gles::gles11_raw as gles11; // constants only
 use crate::gles::gles11_raw::types::*;
 use crate::gles::present::{present_frame, FpsCounter};
@@ -48,6 +48,9 @@ struct MiscGlObjects {
     /// 9-patch rounded corner vertex co-ords (varies with ratio of corner
     /// radius to overall rectangle size).
     rounded_tex_coord_buffer: GLuint,
+    /// Dynamic 9-patch buffers for stretchable layer contents.
+    stretch_vertex_buffer: GLuint,
+    stretch_tex_coord_buffer: GLuint,
     /// Index buffer for 9-patch (first 6 elements can be used for square).
     index_buffer: GLuint,
 }
@@ -257,9 +260,9 @@ pub fn recomposite_if_necessary(env: &mut Environment, force: bool) -> Option<In
                 );
             }
 
-            let [basic_square_buffer, flipped_square_buffer, rounded_vertex_buffer, rounded_tex_coord_buffer, index_buffer] = unsafe {
-                let mut array_buffers = [0; 5];
-                gles.GenBuffers(5, array_buffers.as_mut_ptr());
+            let [basic_square_buffer, flipped_square_buffer, rounded_vertex_buffer, rounded_tex_coord_buffer, stretch_vertex_buffer, stretch_tex_coord_buffer, index_buffer] = unsafe {
+                let mut array_buffers = [0; 7];
+                gles.GenBuffers(7, array_buffers.as_mut_ptr());
                 array_buffers
             };
             unsafe {
@@ -291,6 +294,8 @@ pub fn recomposite_if_necessary(env: &mut Environment, force: bool) -> Option<In
                 flipped_square_buffer,
                 rounded_vertex_buffer,
                 rounded_tex_coord_buffer,
+                stretch_vertex_buffer,
+                stretch_tex_coord_buffer,
                 index_buffer,
             }
         });
@@ -590,6 +595,25 @@ unsafe fn composite_layer_recursive(
 
     // Draw texture, if any
     if need_texture {
+        let stretch_mesh = if host_obj.contents_center != DEFAULT_CONTENTS_CENTER {
+            let dimensions = if host_obj.contents != nil {
+                cg_image::borrow_image(&env.objc, host_obj.contents).dimensions()
+            } else if let Some((_, width, height)) = &host_obj.presented_pixels {
+                (*width, *height)
+            } else {
+                let (width, height, _) =
+                    cg_bitmap_context::get_data(&env.objc, host_obj.cg_context.unwrap());
+                (width, height)
+            };
+            content_stretch_mesh(
+                host_obj.contents_center,
+                dimensions,
+                host_obj.bounds.size,
+                host_obj.contents == nil,
+            )
+        } else {
+            None
+        };
         let misc = env
             .framework_state
             .core_animation
@@ -607,25 +631,59 @@ unsafe fn composite_layer_recursive(
         }
 
         gles.EnableClientState(gles11::VERTEX_ARRAY);
-        gles.BindBuffer(gles11::ARRAY_BUFFER, misc.basic_square_buffer);
+        if let Some((vertices, _)) = &stretch_mesh {
+            gles.BindBuffer(gles11::ARRAY_BUFFER, misc.stretch_vertex_buffer);
+            upload_slice(
+                gles.as_mut(),
+                gles11::ARRAY_BUFFER,
+                vertices,
+                gles11::DYNAMIC_DRAW,
+            );
+        } else {
+            gles.BindBuffer(gles11::ARRAY_BUFFER, misc.basic_square_buffer);
+        }
         gles.VertexPointer(2, gles11::FLOAT, 0, 0 as *const GLvoid);
 
         gles.EnableClientState(gles11::TEXTURE_COORD_ARRAY);
         // Normal images will have top-to-bottom row order, but OpenGL ES
         // expects bottom-to-top, so flip the UVs in that case.
-        gles.BindBuffer(
-            gles11::ARRAY_BUFFER,
-            if host_obj.contents != nil {
-                misc.basic_square_buffer
-            } else {
-                misc.flipped_square_buffer
-            },
-        );
+        if let Some((_, tex_coords)) = &stretch_mesh {
+            gles.BindBuffer(gles11::ARRAY_BUFFER, misc.stretch_tex_coord_buffer);
+            upload_slice(
+                gles.as_mut(),
+                gles11::ARRAY_BUFFER,
+                tex_coords,
+                gles11::DYNAMIC_DRAW,
+            );
+            gles.TexParameteri(
+                gles11::TEXTURE_2D,
+                gles11::TEXTURE_WRAP_S,
+                gles11::CLAMP_TO_EDGE as _,
+            );
+            gles.TexParameteri(
+                gles11::TEXTURE_2D,
+                gles11::TEXTURE_WRAP_T,
+                gles11::CLAMP_TO_EDGE as _,
+            );
+        } else {
+            gles.BindBuffer(
+                gles11::ARRAY_BUFFER,
+                if host_obj.contents != nil {
+                    misc.basic_square_buffer
+                } else {
+                    misc.flipped_square_buffer
+                },
+            );
+        }
         gles.TexCoordPointer(2, gles11::FLOAT, 0, 0 as *const GLvoid);
         gles.Enable(gles11::TEXTURE_2D);
         gles.DrawElements(
             gles11::TRIANGLES,
-            SQUARE_INDICES.len() as _,
+            if stretch_mesh.is_some() {
+                INDICES_PER_9PATCH
+            } else {
+                SQUARE_INDICES.len()
+            } as _,
             gles11::UNSIGNED_BYTE,
             0 as *const GLvoid,
         );
@@ -652,6 +710,69 @@ const SQUARE_INDICES: [u8; 6] = [0, 1, 2, 2, 1, 3];
 const FLIPPED_SQUARE_POINTS: [f32; 4 * FLOATS_PER_POINT] = [0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 1.0, 1.0];
 const FLOATS_PER_9PATCH: usize = BASIC_SQUARE_POINTS.len() * 3 * 3;
 const INDICES_PER_9PATCH: usize = SQUARE_INDICES.len() * 3 * 3;
+
+/// Destination edges in unit coordinates, with caps measured in source pixels.
+fn stretch_axis(start: f32, length: f32, source_size: f32, target_size: f32) -> [f32; 4] {
+    let leading = start * source_size;
+    let trailing = (1.0 - start - length).max(0.0) * source_size;
+    let caps = leading + trailing;
+    // If the view is smaller than both caps combined, shrink them together
+    // rather than letting them overlap or reversing the center region.
+    let cap_scale = if caps > target_size {
+        target_size / caps
+    } else {
+        1.0
+    };
+    [
+        0.0,
+        leading * cap_scale / target_size,
+        1.0 - trailing * cap_scale / target_size,
+        1.0,
+    ]
+}
+
+fn content_stretch_mesh(
+    center: CGRect,
+    source_size: (u32, u32),
+    target_size: CGSize,
+    flip_y: bool,
+) -> Option<([f32; FLOATS_PER_9PATCH], [f32; FLOATS_PER_9PATCH])> {
+    let x = center.origin.x;
+    let y = center.origin.y;
+    let width = center.size.width;
+    let height = center.size.height;
+    if center == DEFAULT_CONTENTS_CENTER
+        || ![x, y, width, height, target_size.width, target_size.height]
+            .iter()
+            .all(|v| v.is_finite())
+        || x < 0.0
+        || y < 0.0
+        || width < 0.0
+        || height < 0.0
+        || x + width > 1.0
+        || y + height > 1.0
+        || source_size.0 == 0
+        || source_size.1 == 0
+        || target_size.width <= 0.0
+        || target_size.height <= 0.0
+    {
+        return None;
+    }
+    let vertices = make_9patch_coords(
+        stretch_axis(x, width, source_size.0 as f32, target_size.width),
+        stretch_axis(y, height, source_size.1 as f32, target_size.height),
+    );
+    let mut tex_y = [0.0, y, y + height, 1.0];
+    if flip_y {
+        for value in &mut tex_y {
+            *value = 1.0 - *value;
+        }
+    }
+    Some((
+        vertices,
+        make_9patch_coords([0.0, x, x + width, 1.0], tex_y),
+    ))
+}
 
 fn make_9patch_coords(x_edges: [f32; 4], y_edges: [f32; 4]) -> [f32; FLOATS_PER_9PATCH] {
     let mut out_points = [0.0; FLOATS_PER_9PATCH];
@@ -728,4 +849,81 @@ unsafe fn upload_rgba8_pixels(gles: &mut dyn GLES, pixels: &[u8], dimensions: (u
         gles11::TEXTURE_MAG_FILTER,
         gles11::LINEAR as _,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{content_stretch_mesh, stretch_axis, DEFAULT_CONTENTS_CENTER};
+    use crate::frameworks::core_graphics::{CGPoint, CGRect, CGSize};
+
+    fn rect(x: f32, y: f32, width: f32, height: f32) -> CGRect {
+        CGRect {
+            origin: CGPoint { x, y },
+            size: CGSize { width, height },
+        }
+    }
+
+    fn close(actual: f32, expected: f32) {
+        assert!(
+            (actual - expected).abs() < 0.00001,
+            "{actual} != {expected}"
+        );
+    }
+
+    #[test]
+    fn stretch_preserves_asymmetric_caps() {
+        let edges = stretch_axis(0.1, 0.6, 100.0, 200.0);
+        close(edges[1] * 200.0, 10.0);
+        close((1.0 - edges[2]) * 200.0, 30.0);
+        let (vertices, uv) = content_stretch_mesh(
+            rect(0.25, 0.25, 0.5, 0.5),
+            (100, 80),
+            CGSize {
+                width: 200.0,
+                height: 160.0,
+            },
+            false,
+        )
+        .unwrap();
+        // A 25-pixel corner remains 25 pixels, while the middle expands to 150.
+        close((vertices[4] - vertices[0]) * 200.0, 25.0);
+        close((vertices[36] - vertices[32]) * 200.0, 150.0);
+        close((uv[4] - uv[0]) * 100.0, 25.0);
+        close((uv[36] - uv[32]) * 100.0, 50.0);
+    }
+
+    #[test]
+    fn stretch_compresses_caps_without_overlap() {
+        assert_eq!(stretch_axis(0.25, 0.5, 100.0, 25.0), [0.0, 0.5, 0.5, 1.0]);
+        assert_eq!(stretch_axis(0.5, 0.0, 20.0, 40.0), [0.0, 0.25, 0.75, 1.0]);
+    }
+
+    #[test]
+    fn stretch_mesh_zero_strip_and_orientation() {
+        let size = CGSize {
+            width: 80.0,
+            height: 40.0,
+        };
+        let (vertices, uv) =
+            content_stretch_mesh(rect(0.0, 0.5, 1.0, 0.0), (8, 8), size, false).unwrap();
+        close((vertices[33] - vertices[35]) * 40.0, 32.0);
+        close(uv[33], 0.5);
+        close(uv[35], 0.5);
+        let (_, uv) = content_stretch_mesh(rect(0.0, 0.25, 1.0, 0.5), (8, 8), size, true).unwrap();
+        close(uv[1], 0.75);
+        close(uv[3], 1.0);
+    }
+
+    #[test]
+    fn stretch_mesh_default_and_invalid_sizes() {
+        let size = CGSize {
+            width: 80.0,
+            height: 40.0,
+        };
+        assert!(content_stretch_mesh(DEFAULT_CONTENTS_CENTER, (8, 8), size, false).is_none());
+        let center = rect(0.25, 0.25, 0.5, 0.5);
+        assert!(content_stretch_mesh(center, (0, 8), size, false).is_none());
+        assert!(content_stretch_mesh(center, (8, 8), CGSize::default(), false).is_none());
+        assert!(content_stretch_mesh(rect(f32::NAN, 0.0, 0.5, 0.5), (8, 8), size, false).is_none());
+    }
 }

@@ -53,6 +53,8 @@ pub(super) struct CALayerHostObject {
     pub(super) needs_display_on_bounds_change: bool,
     /// `CGImageRef*`
     pub(super) contents: id,
+    /// Normalized center region to stretch, preserving the surrounding caps.
+    pub(super) contents_center: CGRect,
     /// For CAEAGLLayer only
     pub(super) drawable_properties: id,
     /// For CAEAGLLayer only (internal state for compositor)
@@ -92,6 +94,14 @@ pub const kCAFilterLinear: &str = "kCAFilterLinear";
 pub const kCAFilterNearest: &str = "kCAFilterNearest";
 pub const kCAFilterTrilinear: &str = "kCAFilterTrilinear";
 
+pub(super) const DEFAULT_CONTENTS_CENTER: CGRect = CGRect {
+    origin: CGPoint { x: 0.0, y: 0.0 },
+    size: CGSize {
+        width: 1.0,
+        height: 1.0,
+    },
+};
+
 pub const CONSTANTS: ConstantExports = &[
     ("_kCAFilterLinear", HostConstant::NSString(kCAFilterLinear)),
     (
@@ -130,6 +140,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         needs_display: false,
         needs_display_on_bounds_change: false,
         contents: nil,
+        contents_center: DEFAULT_CONTENTS_CENTER,
         drawable_properties: nil,
         presented_pixels: None,
         cg_context: None,
@@ -486,6 +497,21 @@ pub const CLASSES: ClassExports = objc_classes! {
     CGContextClearRect(env, cg_context, CGRect { origin, size });
     () = msg![env; delegate drawLayer:this inContext:cg_context];
     CGContextTranslateCTM(env, cg_context, origin.x, origin.y);
+}
+
+- (CGRect)contentsCenter {
+    env.objc.borrow::<CALayerHostObject>(this).contents_center
+}
+- (())setContentsCenter:(CGRect)center {
+    let old = std::mem::replace(
+        &mut env.objc.borrow_mut::<CALayerHostObject>(this).contents_center,
+        center,
+    );
+    if is_implicit_animation_enabled(env, this) && old != center {
+        let old: id = msg_class![env; NSValue valueWithCGRect:old];
+        let center: id = msg_class![env; NSValue valueWithCGRect:center];
+        add_default_implied_basic_animation(env, this, "contentsCenter", old, center);
+    }
 }
 
 // CGImageRef*

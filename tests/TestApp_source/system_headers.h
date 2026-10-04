@@ -457,6 +457,8 @@ CFTimeInterval CACurrentMediaTime();
 - (void)setToValue:(id)value;
 @end
 @interface CALayer : NSObject
+- (CGRect)contentsCenter;
+- (void)setContentsCenter:(CGRect)center;
 - (id)contents;
 - (void)setAffineTransform:(CGAffineTransform)transform;
 - (void)setAnchorPoint:(CGPoint)point;
@@ -572,6 +574,8 @@ typedef enum {
                        forView:(UIView *)view
                          cache:(BOOL)cache;
 - (instancetype)initWithFrame:(CGRect)frame;
+- (CGRect)contentStretch;
+- (void)setContentStretch:(CGRect)stretch;
 - (void)setMultipleTouchEnabled:(BOOL)enabled;
 - (BOOL)isUserInteractionEnabled;
 - (void)touchesBegan:(NSSet *)touches withEvent:(UIEvent *)event;

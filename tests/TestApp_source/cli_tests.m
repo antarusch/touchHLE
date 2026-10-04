@@ -63,6 +63,7 @@ int test_UIView_transition(void);                   // UIViewTransition.m
 int test_UIButton_archived_images(void);            // UIButtonContent.m
 int test_UIImageView_highlight_and_animation(void); // UIImageViewHighlight.m
 int test_NSArray_subarray_ranges(void);             // NSArrayRange.m
+int test_UIView_contentStretch(void);               // UIViewContentStretch.m
 #endif
 
 // === Main code ===
@@ -6817,6 +6818,7 @@ struct {
     FUNC_DEF(test_UIButton_archived_images),
     FUNC_DEF(test_UIImageView_highlight_and_animation),
     FUNC_DEF(test_NSArray_subarray_ranges),
+    FUNC_DEF(test_UIView_contentStretch),
 #endif
     FUNC_DEF(test_NSConditionLock_init),
     FUNC_DEF(test_NSConditionLock_lock_unlock),
