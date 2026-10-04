@@ -216,7 +216,12 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (id)initWithImage:(id)image // UIImage*
   highlightedImage:(id)highlighted_image { // UIImage*
     let sizing_image = if image != nil { image } else { highlighted_image };
-    let size: CGSize = msg![env; sizing_image size];
+    // A message to nil does not initialize a structure return buffer.
+    let size: CGSize = if sizing_image == nil {
+        CGSize::default()
+    } else {
+        msg![env; sizing_image size]
+    };
     let frame = CGRect {
         origin: CGPoint { x: 0.0, y: 0.0 },
         size,
