@@ -2021,7 +2021,9 @@ int test_Eustrath_NSCountedSet() {
   if ([copy count] != 2 || [copy countForObject:equal] != 2)
     return -4;
   NSUInteger count = 0;
-  for (id object in copy) {
+  NSEnumerator *distinct = [copy objectEnumerator];
+  id object;
+  while ((object = [distinct nextObject]) != nil) {
     if (![object isEqual:@"same"] && ![object isEqual:@"other"])
       return -5;
     count++;
@@ -2065,11 +2067,10 @@ int test_Eustrath_character_sets() {
 
 int test_Eustrath_nil_plist() {
   NSString *error = nil;
-  id plist =
-      [NSPropertyListSerialization propertyListFromData:nil
-                                       mutabilityOption:NSPropertyListImmutable
-                                                 format:NULL
-                                       errorDescription:&error];
+  id plist = [NSPropertyListSerialization propertyListFromData:nil
+                                              mutabilityOption:0
+                                                        format:NULL
+                                              errorDescription:&error];
   if (plist != nil || error == nil)
     return -1;
   plist = [NSPropertyListSerialization propertyListFromData:nil
@@ -6745,7 +6746,10 @@ struct {
     FUNC_DEF(test_Eustrath_NSCondition),
     FUNC_DEF(test_Eustrath_NSCountedSet),
     FUNC_DEF(test_Eustrath_character_sets),
+#ifndef DEFINE_ME_WHEN_BUILDING_ON_MACOS
+    // This nil-input tolerance is intentionally provided by the emulator.
     FUNC_DEF(test_Eustrath_nil_plist),
+#endif
     FUNC_DEF(test_NSConditionLock_init),
     FUNC_DEF(test_NSConditionLock_lock_unlock),
     FUNC_DEF(test_NSConditionLock_tryLockWhenCondition),

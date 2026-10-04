@@ -52,6 +52,8 @@ static inline NSRange NSMakeRange(NSUInteger loc, NSUInteger len) {
 + (instancetype)new;
 + (BOOL)respondsToSelector:(SEL)selector;
 - (instancetype)init;
+- (id)copy;
+- (BOOL)isEqual:(id)object;
 - (instancetype)retain;
 - (void)release;
 - (instancetype)autorelease;
@@ -87,6 +89,31 @@ static inline NSRange NSMakeRange(NSUInteger loc, NSUInteger len) {
 - (ObjectType)anyObject;
 @end
 
+@interface NSEnumerator : NSObject
+- (id)nextObject;
+@end
+
+@interface NSMutableSet : NSSet
+- (void)addObject:(id)object;
+- (void)removeObject:(id)object;
+- (void)removeAllObjects;
+@end
+
+@interface NSCountedSet : NSMutableSet
+- (instancetype)initWithCapacity:(NSUInteger)capacity;
+- (NSUInteger)count;
+- (NSUInteger)countForObject:(id)object;
+- (id)member:(id)object;
+- (NSArray *)allObjects;
+- (NSEnumerator *)objectEnumerator;
+@end
+
+@interface NSCharacterSet : NSObject
++ (instancetype)alphanumericCharacterSet;
++ (instancetype)decimalDigitCharacterSet;
+- (BOOL)characterIsMember:(unsigned short)character;
+@end
+
 typedef enum {
   NSCaseInsensitiveSearch = 1,
 } NSStringCompareOptions;
@@ -105,6 +132,7 @@ typedef enum {
 - (BOOL)isEqualToString:(NSString *)other;
 @end
 @interface NSMutableString : NSString
+- (instancetype)initWithString:(NSString *)string;
 - (void)deleteCharactersInRange:(NSRange)range;
 @end
 
@@ -144,6 +172,13 @@ typedef double NSTimeInterval;
 
 @interface NSData : NSObject
 + (id)dataWithContentsOfURL:(NSURL *)url;
+@end
+
+@interface NSPropertyListSerialization : NSObject
++ (id)propertyListFromData:(NSData *)data
+          mutabilityOption:(NSUInteger)option
+                    format:(NSUInteger *)format
+          errorDescription:(NSString **)error;
 @end
 
 @interface NSCoder : NSObject
@@ -212,6 +247,16 @@ SEL NSSelectorFromString(NSString *);
 - (void)lockWhenCondition:(NSInteger)condition;
 - (BOOL)tryLockWhenCondition:(NSInteger)condition;
 - (void)unlockWithCondition:(NSInteger)condition;
+@end
+
+@interface NSCondition : NSObject
+- (void)lock;
+- (void)unlock;
+- (void)wait;
+- (void)signal;
+- (void)broadcast;
+- (void)setName:(NSString *)name;
+- (NSString *)name;
 @end
 
 // Core Graphics
