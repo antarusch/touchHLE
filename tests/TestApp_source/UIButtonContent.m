@@ -49,11 +49,15 @@ static id decodeButtonContent(UIImage *image, UIImage *background) {
   ButtonContentTestCoder *coder = [ButtonContentTestCoder new];
   coder->values = [NSDictionary
       dictionaryWithObjects:[NSArray arrayWithObjects:image, background, nil]
-                    forKeys:[NSArray arrayWithObjects:@"UIImage",
-                                                      @"UIBackgroundImage",
-                                                      nil]];
+                    forKeys:[NSArray
+                                arrayWithObjects:
+                                    [NSString stringWithUTF8String:"UIImage"],
+                                    [NSString stringWithUTF8String:
+                                                  "UIBackgroundImage"],
+                                    nil]];
   id content =
-      [[NSClassFromString(@"UIButtonContent") alloc] initWithCoder:coder];
+      [[NSClassFromString([NSString stringWithUTF8String:"UIButtonContent"])
+          alloc] initWithCoder:coder];
   [coder release];
   return content;
 }
@@ -76,8 +80,10 @@ int test_UIButton_archived_images(void) {
   coder->values = [NSDictionary
       dictionaryWithObjects:[NSArray arrayWithObjects:states, nil]
                     forKeys:[NSArray
-                                arrayWithObjects:@"UIButtonStatefulContent",
-                                                 nil]];
+                                arrayWithObjects:
+                                    [NSString stringWithUTF8String:
+                                                  "UIButtonStatefulContent"],
+                                    nil]];
   UIButton *button = [[UIButton alloc] initWithCoder:coder];
   [normalContent release];
   [highlightedContent release];
