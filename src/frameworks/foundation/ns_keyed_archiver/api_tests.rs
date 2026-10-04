@@ -63,6 +63,21 @@ pub const CLASSES: ClassExports = objc_classes! {
     true
 }
 @end
+@implementation AnimationMetadataProbe: UIView
+- (())animationDidStop:(id)animation finished:(bool)finished {
+    assert!(finished);
+    let key = get_static_str(env, "name");
+    let name: id = msg![env; animation valueForKey:key];
+    let expected = get_static_str(env, "damageMovement");
+    assert!(msg![env; name isEqualToString:expected]);
+    let key = get_static_str(env, "damageLevel");
+    let level: id = msg![env; animation valueForKey:key];
+    let value: i32 = msg![env; level intValue];
+    assert_eq!(value, 73);
+    let count: i32 = msg![env; this tag];
+    () = msg![env; this setTag:(count + 1)];
+}
+@end
 @implementation TableProbe: NSObject
 - (i32)tableView:(id)_table numberOfRowsInSection:(i32)_section {
     3
@@ -107,6 +122,7 @@ fn archive_invocation_and_menu_round_trips() {
     check_nib_scroll_view(env);
     check_controller_nib_name(env);
     check_scheduled_playback(env);
+    check_animation_metadata(env);
     check_set_archives(env);
     check_foundation_archives(env);
     check_text_nib(env);
@@ -1137,6 +1153,83 @@ fn check_game_audio_playback(env: &mut Environment) {
     () = msg![env; manager playSoundData:data afterDelay:0.0f32];
     assert_eq!(handle_perform_requests(env, run_loop), None);
     release(env, manager);
+}
+
+fn check_animation_metadata(env: &mut Environment) {
+    use crate::frameworks::foundation::ns_string::from_rust_string;
+    let name = get_static_str(env, "name");
+    let level_key = get_static_str(env, "damageLevel");
+    let value = from_rust_string(env, "damageMovement".into());
+    let number: id = msg_class![env; NSNumber numberWithInt:73i32];
+    for class in [
+        "CAAnimation",
+        "CABasicAnimation",
+        "CAKeyframeAnimation",
+        "CAAnimationGroup",
+    ] {
+        let class = env.objc.get_known_class(class, &mut env.mem);
+        let animation: id = msg![env; class new];
+        let absent: id = msg![env; animation valueForKey:name];
+        assert_eq!(absent, nil);
+        () = msg![env; animation setValue:value forKey:name];
+        assert_eq!(env.objc.get_refcount(value).get(), 2);
+        () = msg![env; animation setValue:number forKey:level_key];
+        let copy: id = msg![env; animation copy];
+        assert_eq!(env.objc.get_refcount(value).get(), 3);
+        () = msg![env; animation setValue:nil forKey:name];
+        let removed: id = msg![env; animation valueForKey:name];
+        assert_eq!(removed, nil);
+        let stored: id = msg![env; copy valueForKey:name];
+        assert_eq!(stored, value);
+        release(env, animation);
+        let stored: id = msg![env; copy valueForKey:level_key];
+        assert_eq!(stored, number);
+        release(env, copy);
+        assert_eq!(env.objc.get_refcount(value).get(), 1);
+    }
+    let animation: id = msg_class![env; CABasicAnimation new];
+    for key in [
+        "duration",
+        "beginTime",
+        "repeatDuration",
+        "timeOffset",
+        "repeatCount",
+        "speed",
+    ] {
+        let key = get_static_str(env, key);
+        let number: id = msg_class![env; NSNumber numberWithDouble:2.5f64];
+        () = msg![env; animation setValue:number forKey:key];
+        let boxed: id = msg![env; animation valueForKey:key];
+        let number: f64 = msg![env; boxed doubleValue];
+        assert_eq!(number, 2.5);
+    }
+    let duration: f64 = msg![env; animation duration];
+    assert_eq!(duration, 2.5);
+    for key in ["autoreverses", "removedOnCompletion"] {
+        let key = get_static_str(env, key);
+        let number: id = msg_class![env; NSNumber numberWithBool:false];
+        () = msg![env; animation setValue:number forKey:key];
+        let boxed: id = msg![env; animation valueForKey:key];
+        let flag: bool = msg![env; boxed boolValue];
+        assert!(!flag);
+    }
+    let from = get_static_str(env, "fromValue");
+    () = msg![env; animation setValue:number forKey:from];
+    let stored: id = msg![env; animation fromValue];
+    assert_eq!(stored, number);
+    () = msg![env; animation setValue:nil forKey:from];
+    let stored: id = msg![env; animation valueForKey:from];
+    assert_eq!(stored, nil);
+    let unicode = get_static_str(env, "情報");
+    () = msg![env; animation setValue:value forKey:unicode];
+    let read: id = msg![env; animation valueForKey:unicode];
+    assert_eq!(read, value);
+    () = msg![env; animation setValue:number forKey:unicode];
+    let read: id = msg![env; animation valueForKey:unicode];
+    assert_eq!(read, number);
+    assert_eq!(env.objc.get_refcount(value).get(), 1);
+    release(env, animation);
+    release(env, value);
 }
 
 fn check_scheduled_playback(env: &mut Environment) {

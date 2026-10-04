@@ -5,13 +5,15 @@
  */
 //! `CAAnimation` and its subclasses
 
+use std::collections::HashMap;
+
 use crate::dyld::{ConstantExports, HostConstant};
 use crate::frameworks::core_animation::ca_media_timing_function::kCAMediaTimingFunctionDefault;
 use crate::frameworks::core_foundation::time::CFTimeInterval;
 use crate::frameworks::foundation::ns_string::{get_static_str, to_rust_string};
 use crate::objc::{
-    autorelease, id, msg, nil, objc_classes, release, retain, todo_objc_setter, ClassExports,
-    HostObject, NSZonePtr,
+    autorelease, id, msg, msg_send, nil, objc_classes, release, retain, todo_objc_setter,
+    ClassExports, HostObject, NSZonePtr,
 };
 use crate::Environment;
 use crate::{impl_HostObject_with_superclass, msg_class, msg_super};
@@ -77,6 +79,8 @@ struct CAAnimationHostObject {
     fill_mode: &'static str,
     started_at: Option<CFTimeInterval>,
     pub(super) completion_reported: bool,
+    /// Arbitrary KVC values travel with animation copies and callbacks.
+    metadata: HashMap<String, id>,
 }
 impl HostObject for CAAnimationHostObject {}
 impl Default for CAAnimationHostObject {
@@ -95,6 +99,7 @@ impl Default for CAAnimationHostObject {
             fill_mode: kCAFillModeRemoved,
             started_at: None,
             completion_reported: false,
+            metadata: HashMap::new(),
         }
     }
 }
@@ -168,6 +173,73 @@ pub const CLASSES: ClassExports = objc_classes! {
     let default_timing_function: id = msg_class![env; CAMediaTimingFunction functionWithName: default_timing_function_name];
     () = msg![env; this setTimingFunction: default_timing_function];
     this
+}
+
+- (())setValue:(id)value forKey:(id)key {
+    let key = to_rust_string(env, key).into_owned();
+    let first = key.chars().next().expect("KVC key must not be empty");
+    let setter = format!("set{}{}:", first.to_uppercase(), &key[first.len_utf8()..]);
+    let selector = env.objc.register_host_selector(setter, &mut env.mem);
+    if env.objc.object_has_method(&env.mem, this, selector) {
+        match key.as_str() {
+            "removedOnCompletion" | "autoreverses" => {
+                assert!(value != nil);
+                let value: bool = msg![env; value boolValue];
+                () = msg_send(env, (this, selector, value));
+            }
+            "beginTime" | "duration" | "repeatDuration" | "timeOffset" => {
+                assert!(value != nil);
+                let value: f64 = msg![env; value doubleValue];
+                () = msg_send(env, (this, selector, value));
+            }
+            "repeatCount" | "speed" => {
+                assert!(value != nil);
+                let value: f32 = msg![env; value floatValue];
+                () = msg_send(env, (this, selector, value));
+            }
+            _ => { () = msg_send(env, (this, selector, value)); }
+        }
+        return;
+    }
+    retain(env, value);
+    let metadata = &mut env.objc.borrow_mut::<CAAnimationHostObject>(this).metadata;
+    let old = if value == nil {
+        metadata.remove(&key)
+    } else {
+        metadata.insert(key, value)
+    };
+    if let Some(old) = old {
+        release(env, old);
+    }
+}
+
+- (id)valueForKey:(id)key {
+    let key = to_rust_string(env, key).into_owned();
+    let getter = if key == "removedOnCompletion" { "isRemovedOnCompletion" } else { &key };
+    let selector = env.objc.register_host_selector(getter.into(), &mut env.mem);
+    if env.objc.object_has_method(&env.mem, this, selector) {
+        match key.as_str() {
+            "removedOnCompletion" | "autoreverses" => {
+                let value: bool = msg_send(env, (this, selector));
+                return msg_class![env; NSNumber numberWithBool:value];
+            }
+            "beginTime" | "duration" | "repeatDuration" | "timeOffset" => {
+                let value: f64 = msg_send(env, (this, selector));
+                return msg_class![env; NSNumber numberWithDouble:value];
+            }
+            "repeatCount" | "speed" => {
+                let value: f32 = msg_send(env, (this, selector));
+                return msg_class![env; NSNumber numberWithFloat:value];
+            }
+            "delegate" | "timingFunction" | "fillMode" | "keyPath" |
+            "fromValue" | "toValue" | "byValue" | "values" | "keyTimes" |
+            "timingFunctions" | "path" | "calculationMode" | "animations" => {
+                return msg_send(env, (this, selector));
+            }
+            _ => {}
+        }
+    }
+    env.objc.borrow::<CAAnimationHostObject>(this).metadata.get(&key).copied().unwrap_or(nil)
 }
 
 - (())setRemovedOnCompletion:(bool)removed_on_completion {
@@ -289,6 +361,10 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
     if timing_function != nil {
         release(env, timing_function);
+    }
+    let metadata = std::mem::take(&mut env.objc.borrow_mut::<CAAnimationHostObject>(this).metadata);
+    for value in metadata.into_values() {
+        release(env, value);
     }
 
     env.objc.dealloc_object(this, &mut env.mem)
@@ -652,6 +728,7 @@ fn copy_animation(env: &mut Environment, animation: id) -> id {
     };
     let parent = env.objc.borrow::<CAAnimationHostObject>(animation);
     refs.extend([parent.delegate, parent.timing_function]);
+    refs.extend(parent.metadata.values().copied());
     for value in refs {
         retain(env, value);
     }

@@ -527,6 +527,7 @@ fn id_as_option(value: id) -> Option<id> {
 
 #[cfg(test)]
 pub(crate) fn integration_check(env: &mut Environment) {
+    check_animation_metadata_callback(env);
     use crate::frameworks::foundation::{ns_array, ns_string::get_static_str};
     use crate::objc::msg_class;
     let layer: id = msg_class![env; CALayer new];
@@ -598,6 +599,50 @@ pub(crate) fn integration_check(env: &mut Environment) {
     for object in [values, children, layer] {
         release(env, object);
     }
+}
+
+#[cfg(test)]
+fn check_animation_metadata_callback(env: &mut Environment) {
+    use crate::frameworks::foundation::ns_string::get_static_str;
+    use crate::objc::msg_class;
+    let layer: id = msg_class![env; CALayer new];
+    let key_path = get_static_str(env, "position.x");
+    let animation: id = msg_class![env; CABasicAnimation animationWithKeyPath:key_path];
+    let name = get_static_str(env, "name");
+    let level_key = get_static_str(env, "damageLevel");
+    let value =
+        crate::frameworks::foundation::ns_string::from_rust_string(env, "damageMovement".into());
+    let level: id = msg_class![env; NSNumber numberWithInt:73i32];
+    () = msg![env; animation setValue:value forKey:name];
+    () = msg![env; animation setValue:level forKey:level_key];
+    release(env, value);
+    let target: id = msg_class![env; AnimationMetadataProbe new];
+    () = msg![env; animation setDelegate:target];
+    let end: id = msg_class![env; NSNumber numberWithFloat:10.0f32];
+    () = msg![env; animation setToValue:end];
+    () = msg![env; animation setDuration:1.0f64];
+    let key = get_static_str(env, "damage");
+    () = msg![env; layer addAnimation:animation forKey:key];
+    let stored = env.objc.borrow::<CALayerHostObject>(layer).animations["damage"];
+    () = msg![env; animation setValue:nil forKey:name];
+    () = msg![env; animation setValue:nil forKey:level_key];
+    let mut presentation = env.objc.borrow::<CALayerHostObject>(layer).clone();
+    let mut state = State::default();
+    for elapsed in [1.1, 1.2] {
+        state.animate_at(
+            env,
+            layer,
+            stored,
+            Some("damage".into()),
+            elapsed,
+            &mut presentation,
+        );
+    }
+    state.update_started_and_finished_animations(env);
+    let count: i32 = msg![env; target tag];
+    assert_eq!(count, 1);
+    release(env, target);
+    release(env, layer);
 }
 
 #[cfg(test)]
