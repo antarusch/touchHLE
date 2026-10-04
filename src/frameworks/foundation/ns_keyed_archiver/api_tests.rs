@@ -89,6 +89,7 @@ fn archive_invocation_and_menu_round_trips() {
     let pool: id = msg_class![env; NSAutoreleasePool new];
     check_nib_scroll_view(env);
     check_set_archives(env);
+    check_foundation_archives(env);
     check_text_nib(env);
     // A token reader can inspect the full source without moving its cursor.
     let scanner_input = get_static_str(env, " Name42");
@@ -584,4 +585,176 @@ fn check_text_nib(env: &mut Environment) {
     for object in [label, view, coder] {
         release(env, object);
     }
+}
+
+fn check_foundation_graph(env: &mut Environment, root: id) {
+    let text = get_static_str(env, "Café 火 😀");
+    let mutable: id = msg![env; root objectAtIndex:0u32];
+    let immutable: id = msg![env; root objectAtIndex:1u32];
+    let repeated: id = msg![env; root objectAtIndex:2u32];
+    let class = env.objc.get_known_class("NSMutableString", &mut env.mem);
+    assert!(msg![env; mutable isKindOfClass:class]);
+    assert!(msg![env; mutable isEqualToString:text]);
+    assert!(msg![env; immutable isEqualToString:text]);
+    assert_eq!(mutable, repeated);
+    let suffix = get_static_str(env, "!");
+    () = msg![env; mutable appendString:suffix];
+    let changed = get_static_str(env, "Café 火 😀!");
+    assert!(msg![env; mutable isEqualToString:changed]);
+    assert!(msg![env; immutable isEqualToString:text]);
+    for index in [3u32, 4] {
+        let data: id = msg![env; root objectAtIndex:index];
+        let bytes = crate::frameworks::foundation::ns_data::to_rust_slice(env, data);
+        assert_eq!(bytes, &[0, 1, 0, 255]);
+        let class_name = if index == 3 {
+            "NSData"
+        } else {
+            "NSMutableData"
+        };
+        let class = env.objc.get_known_class(class_name, &mut env.mem);
+        assert!(msg![env; data isKindOfClass:class]);
+    }
+    let data: id = msg![env; root objectAtIndex:4u32];
+    let byte = env.mem.alloc_and_write(7u8);
+    () = msg![env; data appendBytes:(byte.cast_const()) length:1u32];
+    env.mem.free(byte.cast());
+    assert_eq!(
+        crate::frameworks::foundation::ns_data::to_rust_slice(env, data),
+        &[0, 1, 0, 255, 7]
+    );
+    let date: id = msg![env; root objectAtIndex:5u32];
+    let time: f64 = msg![env; date timeIntervalSinceReferenceDate];
+    assert_eq!(time, 1234.25);
+    let null: id = msg_class![env; NSNull null];
+    let decoded_null: id = msg![env; root objectAtIndex:6u32];
+    assert_eq!(decoded_null, null);
+    for index in [7u32, 8] {
+        let data: id = msg![env; root objectAtIndex:index];
+        let length: u32 = msg![env; data length];
+        assert_eq!(length, 0);
+        let class = env.objc.get_known_class(
+            if index == 7 {
+                "NSData"
+            } else {
+                "NSMutableData"
+            },
+            &mut env.mem,
+        );
+        assert!(msg![env; data isKindOfClass:class]);
+        let mutable_class = env.objc.get_known_class("NSMutableData", &mut env.mem);
+        let mutable: bool = msg![env; data isKindOfClass:mutable_class];
+        assert_eq!(mutable, index == 8);
+    }
+}
+
+fn check_foundation_archives(env: &mut Environment) {
+    check_legacy_string_readers(env);
+    let text = get_static_str(env, "Café 火 😀");
+    let mutable: id = msg_class![env; NSMutableString alloc];
+    let mutable: id = msg![env; mutable initWithString:text];
+    let data = data_from_bytes(env, &[0, 1, 0, 255]);
+    let mutable_data: id = msg_class![env; NSMutableData dataWithData:data];
+    let empty = data_from_bytes(env, &[]);
+    let empty_mutable: id = msg_class![env; NSMutableData data];
+    let date: id = msg_class![env; NSDate alloc];
+    let date: id = msg![env; date initWithTimeIntervalSinceReferenceDate:1234.25f64];
+    let null: id = msg_class![env; NSNull null];
+    let objects = [
+        mutable,
+        text,
+        mutable,
+        data,
+        mutable_data,
+        date,
+        null,
+        empty,
+        empty_mutable,
+    ]
+    .into_iter()
+    .map(|object| crate::objc::retain(env, object))
+    .collect();
+    let root = crate::frameworks::foundation::ns_array::from_vec(env, objects);
+    let encoded: id = msg_class![env; NSKeyedArchiver archivedDataWithRootObject:root];
+    let decoded: id = msg_class![env; NSKeyedUnarchiver unarchiveObjectWithData:encoded];
+    check_foundation_graph(env, decoded);
+    assert!(msg![env; mutable isEqualToString:text]);
+    assert_eq!(
+        crate::frameworks::foundation::ns_data::to_rust_slice(env, mutable_data),
+        &[0, 1, 0, 255]
+    );
+    for object in [root, mutable, date] {
+        release(env, object);
+    }
+    if let Some(path) = std::env::var_os("TOUCHHLE_FOUNDATION_FIXTURE") {
+        let contents = std::fs::read(path).unwrap();
+        let data = data_from_bytes(env, &contents);
+        let root: id = msg_class![env; NSKeyedUnarchiver unarchiveObjectWithData:data];
+        check_foundation_graph(env, root);
+    }
+}
+
+fn check_legacy_string_readers(env: &mut Environment) {
+    let text = get_static_str(env, "Café 火 😀");
+    // Older keyed string objects use NS.bytes rather than NS.string.
+    use plist::{Dictionary, Uid, Value};
+    let mut object = Dictionary::new();
+    object.insert(
+        "NS.bytes".into(),
+        Value::Data("Café 火 😀".as_bytes().to_vec()),
+    );
+    object.insert("$class".into(), Value::Uid(Uid::new(2)));
+    let mut class = Dictionary::new();
+    class.insert("$classname".into(), "NSMutableString".into());
+    class.insert(
+        "$classes".into(),
+        Value::Array(
+            ["NSMutableString", "NSString", "NSObject"]
+                .into_iter()
+                .map(|name| Value::String(name.into()))
+                .collect(),
+        ),
+    );
+    let mut top = Dictionary::new();
+    top.insert("root".into(), Value::Uid(Uid::new(1)));
+    let mut archive = Dictionary::new();
+    archive.insert("$archiver".into(), "NSKeyedArchiver".into());
+    archive.insert("$version".into(), 100000.into());
+    archive.insert(
+        "$objects".into(),
+        Value::Array(vec!["$null".into(), object.into(), class.into()]),
+    );
+    archive.insert("$top".into(), top.into());
+    let mut bytes = Vec::new();
+    plist::to_writer_binary(&mut bytes, &archive).unwrap();
+    let data = data_from_bytes(env, &bytes);
+    let legacy: id = msg_class![env; NSKeyedUnarchiver unarchiveObjectWithData:data];
+    let class = env.objc.get_known_class("NSMutableString", &mut env.mem);
+    assert!(msg![env; legacy isKindOfClass:class]);
+    assert!(msg![env; legacy isEqualToString:text]);
+    // NIB strings use the byte form too; init must keep the mutable receiver.
+    use nibarchive::{ClassName, NIBArchive, Object, Value as NibValue, ValueVariant};
+    let archive = NIBArchive::new(
+        vec![Object::new(0, 0, 1)],
+        vec!["NS.bytes".into()],
+        vec![NibValue::new(
+            0,
+            ValueVariant::Data("Café 火 😀".as_bytes().to_vec()),
+        )],
+        vec![ClassName::new("NSMutableString".into(), vec![])],
+    )
+    .unwrap()
+    .to_bytes();
+    let data = data_from_bytes(env, &archive);
+    let coder: id = msg_class![env; _touchHLE_NIBArchiveDecoder alloc];
+    let coder: id = msg![env; coder _touchHLE_initForReadingWithData:data];
+    let allocated: id = msg_class![env; NSMutableString alloc];
+    let decoded: id = msg![env; allocated initWithCoder:coder];
+    assert_eq!(decoded, allocated);
+    assert!(msg![env; decoded isEqualToString:text]);
+    let suffix = get_static_str(env, "!");
+    () = msg![env; decoded appendString:suffix];
+    let changed = get_static_str(env, "Café 火 😀!");
+    assert!(msg![env; decoded isEqualToString:changed]);
+    release(env, decoded);
+    release(env, coder);
 }

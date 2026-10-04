@@ -1343,7 +1343,6 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 - (())encodeWithCoder:(id)coder {
     let string = to_rust_string(env, this);
-    assert!(string.as_bytes().iter().all(|byte| byte.is_ascii())); // TODO
 
     // TODO: use some kind of substitution instead?
     // See "Making Substitutions During Coding" in the doc https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/Archiving/Articles/codingobjects.html
@@ -1587,6 +1586,28 @@ pub const CLASSES: ClassExports = objc_classes! {
 + (id)allocWithZone:(NSZonePtr)_zone {
     let host_object = Box::new(StringHostObject::Utf8(Cow::Borrowed("")));
     env.objc.alloc_object(this, host_object, &mut env.mem)
+}
+
+- (id)initWithCoder:(id)coder {
+    let class: Class = msg![env; coder class];
+    let keyed: Class = msg_class![env; NSKeyedUnarchiver class];
+    let nib: Class = msg_class![env; _touchHLE_NIBArchiveDecoder class];
+    let decoded = if env.objc.class_is_subclass_of(class, keyed) {
+        ns_keyed_unarchiver::decode_current_string(env, coder)
+    } else if env.objc.class_is_subclass_of(class, nib) {
+        _nib_archive_decoder::decode_current_string(env, coder)
+    } else {
+        unimplemented!("NSMutableString archive reader")
+    };
+    () = msg![env; this setString:decoded];
+    release(env, decoded);
+    this
+}
+
+- (())encodeWithCoder:(id)coder {
+    let string = to_rust_string(env, this).into_owned();
+    super::ns_keyed_archiver::get_value_to_encode_for_current_key(env, coder)
+        .insert("NS.string".into(), plist::Value::String(string));
 }
 
 - (id)initWithCapacity:(NSUInteger)_capacity {

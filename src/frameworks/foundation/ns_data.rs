@@ -199,9 +199,17 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 // NSCoding implementation
 - (id)initWithCoder:(id)coder {
+    let class: id = msg![env; this class];
+    let mutable_class = env.objc.get_known_class("NSMutableData", &mut env.mem);
+    let is_mutable = env.objc.class_is_subclass_of(class, mutable_class);
     release(env, this);
     // Note: Assuming NSKeyedUnarchiver as coder here
-    decode_current_data(env, coder, /* is_mutable: */ true)
+    decode_current_data(env, coder, is_mutable)
+}
+- (())encodeWithCoder:(id)coder {
+    let bytes = to_rust_slice(env, this).to_vec();
+    super::ns_keyed_archiver::get_value_to_encode_for_current_key(env, coder)
+        .insert("NS.data".into(), plist::Value::Data(bytes));
 }
 
 - (id)mutableCopyWithZone:(NSZonePtr)_zone {
@@ -346,7 +354,10 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 pub fn to_rust_slice(env: &mut Environment, data: id) -> &[u8] {
     let borrowed_data = env.objc.borrow::<NSDataHostObject>(data);
-    assert!(!borrowed_data.bytes.is_null() && borrowed_data.length != 0);
+    if borrowed_data.length == 0 {
+        return &[];
+    }
+    assert!(!borrowed_data.bytes.is_null());
     env.mem
         .bytes_at(borrowed_data.bytes.cast(), borrowed_data.length)
 }

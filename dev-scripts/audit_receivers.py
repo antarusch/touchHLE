@@ -7,7 +7,7 @@ categories, return types and dynamic dispatch require separate review. A source
 match proves registration only, not correct behavior or runtime reachability.
 Also checks keyed decoding calls in host source against each archive reader:
 framework code can send methods that do not appear in the game's executable.
-Checks archive methods on referenced collection classes when the game uses
+Checks archive methods on referenced Foundation value and collection classes when the game uses
 keyed archiving. These are coverage candidates, not proof of archive reachability.
 """
 import argparse
@@ -108,13 +108,15 @@ def audit(binary, source):
                       if s['name'].startswith('_OBJC_CLASS_$_')}
         referenced.update(field[1] for fields in ivars.values() for field in fields.values())
         collections = {'NSArray', 'NSMutableArray', 'NSDictionary', 'NSMutableDictionary',
-                       'NSSet', 'NSMutableSet', 'NSCountedSet'}
+                       'NSSet', 'NSMutableSet', 'NSCountedSet', 'NSString', 'NSMutableString',
+                       'NSData', 'NSMutableData', 'NSDate', 'NSNumber', 'NSNull', 'NSValue',
+                       'NSURL', 'NSIndexPath', 'NSError'}
         for name in sorted(referenced & collections):
             checks = {selector: lookup(name, '-' + selector) is not None
                       for selector in ['encodeWithCoder:', 'initWithCoder:']}
             collection_coding.append({'class': name, 'registrations': checks,
                                       'status': ('registrations_found' if all(checks.values())
-                                                 else 'missing_collection_coding_candidate')})
+                                                 else 'missing_foundation_coding_candidate')})
     category_selectors = set()
     for addr in m.pointers('__objc_catlist'):
         for field, kind in [(8, '-'), (12, '+')]:
@@ -224,7 +226,7 @@ def audit(binary, source):
     return {'scope': __doc__, 'binary_sha256': hashlib.sha256(Path(binary).read_bytes()).hexdigest(),
             'counts': dict(Counter(x['status'] for x in rows)), 'callsites': rows,
             'host_reader_calls': reader_calls,
-            'collection_coding': collection_coding,
+            'foundation_coding': collection_coding,
             'host_reader_missing': sorted({(reader, row['selector']) for row in reader_calls
                                            for reader, found in row['readers'].items() if not found})}
 
@@ -243,4 +245,4 @@ if __name__ == '__main__':
             print(row)
     print('Host decoding calls:', len(report['host_reader_calls']))
     print('Missing reader registrations:', report['host_reader_missing'])
-    print('Collection archive coverage:', report['collection_coding'])
+    print('Foundation archive coverage:', report['foundation_coding'])

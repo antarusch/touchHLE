@@ -315,7 +315,10 @@ pub fn encode_object(env: &mut Environment, archiver: id, object: id) -> Uid {
             let class: id = msg![env; object class];
             // TODO: it seems that NSString class itself is _not_ encoded??
             let str_class = env.objc.get_known_class("NSString", &mut env.mem);
-            if !env.objc.class_is_subclass_of(class, str_class) {
+            let mutable_str_class = env.objc.get_known_class("NSMutableString", &mut env.mem);
+            if !env.objc.class_is_subclass_of(class, str_class)
+                || env.objc.class_is_subclass_of(class, mutable_str_class)
+            {
                 encode_object_for_key(env, archiver, class, "$class".into());
             }
             () = msg![env; object encodeWithCoder:archiver];

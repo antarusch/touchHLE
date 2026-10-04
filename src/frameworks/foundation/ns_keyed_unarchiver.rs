@@ -356,6 +356,16 @@ fn unarchive_key(env: &mut Environment, unarchiver: id, key: Uid) -> id {
             let s = s.to_string();
             from_rust_string(env, s)
         }
+        Value::Data(bytes) => {
+            let bytes = bytes.to_vec();
+            let length = bytes.len().try_into().unwrap();
+            let pointer = env.mem.alloc(length);
+            env.mem
+                .bytes_at_mut(pointer.cast(), length)
+                .copy_from_slice(&bytes);
+            let data: id = msg_class![env; NSData alloc];
+            msg![env; data initWithBytesNoCopy:pointer length:length freeWhenDone:true]
+        }
         Value::Integer(int) => {
             let int = *int;
             // Similar logic to deserialize_plist()
@@ -447,14 +457,21 @@ pub fn decode_current_data(env: &mut Environment, unarchiver: id, is_mutable: bo
         .bytes_at_mut(guest_bytes.cast(), len)
         .copy_from_slice(bytes.as_slice());
 
-    assert!(is_mutable); // TODO
-    let data: id = msg_class![env; NSMutableData alloc];
+    let data: id = if is_mutable {
+        msg_class![env; NSMutableData alloc]
+    } else {
+        msg_class![env; NSData alloc]
+    };
     msg![env; data initWithBytesNoCopy:guest_bytes length:len freeWhenDone:true]
 }
 
 /// Shortcut for use by `[NSString initWithCoder:]`.
-/// TODO: mutability
 pub fn decode_current_string(env: &mut Environment, unarchiver: id) -> id {
+    let key = get_static_str(env, "NS.string");
+    if let Some(value) = get_value_to_decode_for_key(env, unarchiver, key) {
+        let string = value.as_string().unwrap().to_owned();
+        return from_rust_string(env, string);
+    }
     let key = get_static_str(env, "NS.bytes");
     // TODO: avoid copying (twice!)
     let bytes = get_value_to_decode_for_key(env, unarchiver, key)

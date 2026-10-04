@@ -151,6 +151,11 @@ pub const CLASSES: ClassExports = objc_classes! {
     // Note: Assuming NSKeyedUnarchiver as coder here
     decode_current_date(env, coder)
 }
+- (())encodeWithCoder:(id)coder {
+    let key = super::ns_string::get_static_str(env, "NS.time");
+    let time = env.objc.borrow::<NSDateHostObject>(this).time_interval;
+    () = msg![env; coder encodeDouble:time forKey:key];
+}
 
 - (NSTimeInterval)timeIntervalSinceDate:(id)anotherDate {
     assert!(!anotherDate.is_null());
