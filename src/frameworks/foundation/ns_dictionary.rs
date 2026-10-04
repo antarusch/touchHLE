@@ -313,6 +313,11 @@ pub fn init_with_objects_and_keys(
 
 /// Helper function to share `initWithDictionary:` implementations
 fn init_with_dictionary_common(env: &mut Environment, this: id, other_dict: id) -> id {
+    if other_dict == nil {
+        // A layer's unset actions dictionary is nil. Copying it creates an
+        // empty dictionary, without trying to borrow a host object for nil.
+        return msg![env; this init];
+    }
     let other_host_object: DictionaryHostObject = std::mem::take(env.objc.borrow_mut(other_dict));
 
     let mut host_object = <DictionaryHostObject as Default>::default();
@@ -325,6 +330,36 @@ fn init_with_dictionary_common(env: &mut Environment, this: id, other_dict: id) 
     *env.objc.borrow_mut(this) = host_object;
     *env.objc.borrow_mut(other_dict) = other_host_object;
     this
+}
+
+#[cfg(test)]
+pub(super) fn check_copy_unset_layer_actions(env: &mut Environment) {
+    let pool: id = msg_class![env; NSAutoreleasePool new];
+    let layer: id = msg_class![env; CALayer new];
+    let actions: id = msg![env; layer actions];
+    assert_eq!(actions, nil);
+    let copy: id = msg_class![env; NSMutableDictionary dictionaryWithDictionary:actions];
+    assert_ne!(copy, nil);
+    let count: NSUInteger = msg![env; copy count];
+    assert_eq!(count, 0);
+    let key = get_static_str(env, "contents");
+    let value: id = msg_class![env; NSNull null];
+    () = msg![env; copy setObject:value forKey:key];
+    let actual: id = msg![env; copy objectForKey:key];
+    assert_eq!(actual, value);
+    () = msg![env; layer setActions:copy];
+    let immutable: id = msg_class![env; NSDictionary dictionaryWithDictionary:copy];
+    let count: NSUInteger = msg![env; immutable count];
+    assert_eq!(count, 1);
+    () = msg![env; copy removeObjectForKey:key];
+    let actual: id = msg![env; immutable objectForKey:key];
+    assert_eq!(actual, value);
+    let empty: id = msg_class![env; NSDictionary dictionaryWithDictionary:nil];
+    assert_ne!(empty, nil);
+    let count: NSUInteger = msg![env; empty count];
+    assert_eq!(count, 0);
+    release(env, layer);
+    release(env, pool);
 }
 
 /// Helper function so share `initWithObjects:ForKeys:` implementations

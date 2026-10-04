@@ -87,6 +87,7 @@ fn archive_invocation_and_menu_round_trips() {
     let mut env = Environment::new_without_app(options, icon).unwrap();
     let env = &mut env;
     let pool: id = msg_class![env; NSAutoreleasePool new];
+    crate::frameworks::foundation::ns_dictionary::check_copy_unset_layer_actions(env);
     // Eustrath reads a custom transaction key before any layer mutation.
     let transaction_key = get_static_str(env, "EustrathTransactionProbe");
     let unset: id = msg_class![env; CATransaction valueForKey:transaction_key];

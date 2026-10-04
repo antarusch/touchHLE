@@ -50,10 +50,11 @@ extern kern_return_t thread_info(mach_port_t target_act, natural_t flavor,
 
 // Declare test functions from other files.
 
-int test_AutoreleasePool(void);    // AutoReleasePoolTest.m
-int test_CGAffineTransform(void);  // CGAffineTransform.c
-int test_RespondsToSelector(void); // RespondsToSelector.m
-int test_Initialize(void);         // Initialize.m
+int test_AutoreleasePool(void);         // AutoReleasePoolTest.m
+int test_CGAffineTransform(void);       // CGAffineTransform.c
+int test_RespondsToSelector(void);      // RespondsToSelector.m
+int test_Initialize(void);              // Initialize.m
+int test_NSDictionary_nil_source(void); // NSDictionaryNil.m
 
 #ifndef DEFINE_ME_WHEN_BUILDING_ON_MACOS
 int test_cpp_virtual_inheritance(void);             // CppVirtualInheritance.cpp
@@ -6860,6 +6861,7 @@ struct {
     FUNC_DEF(test_NSKeyedArchiver_NSKeyedUnarchiver),
     FUNC_DEF(test_NSKeyedArchiver_NSDictionary_of_NSArray_of_NSStrings),
     FUNC_DEF(test_AutoreleasePool),
+    FUNC_DEF(test_NSDictionary_nil_source),
     FUNC_DEF(test_NSNumber_stringValue),
     FUNC_DEF(test_NSMethodSignature),
     FUNC_DEF(test_NSInvocation),
