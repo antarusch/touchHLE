@@ -1982,8 +1982,9 @@ void *eustrath_condition_worker(void *arg) {
 
 int test_Eustrath_NSCondition() {
   eustrath_condition = [[NSCondition alloc] init];
-  [eustrath_condition setName:@"Eustrath condition"];
-  if (![[eustrath_condition name] isEqual:@"Eustrath condition"])
+  NSString *name = [NSString stringWithUTF8String:"Eustrath condition"];
+  [eustrath_condition setName:name];
+  if (![[eustrath_condition name] isEqual:name])
     return -1;
   eustrath_condition_ready = 0;
   [eustrath_condition lock];
@@ -2002,12 +2003,14 @@ int test_Eustrath_NSCondition() {
 
 int test_Eustrath_NSCountedSet() {
   NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
-  NSMutableString *first = [[NSMutableString alloc] initWithString:@"same"];
-  NSMutableString *equal = [[NSMutableString alloc] initWithString:@"same"];
+  NSString *same = [NSString stringWithUTF8String:"same"];
+  NSString *other = [NSString stringWithUTF8String:"other"];
+  NSMutableString *first = [[NSMutableString alloc] initWithString:same];
+  NSMutableString *equal = [[NSMutableString alloc] initWithString:same];
   NSCountedSet *set = [[NSCountedSet alloc] initWithCapacity:2];
   [set addObject:first];
   [set addObject:equal];
-  [set addObject:@"other"];
+  [set addObject:other];
   if ([set count] != 2 || [set countForObject:equal] != 2)
     return -1;
   if ([set member:equal] != first)
@@ -2024,7 +2027,7 @@ int test_Eustrath_NSCountedSet() {
   NSEnumerator *distinct = [copy objectEnumerator];
   id object;
   while ((object = [distinct nextObject]) != nil) {
-    if (![object isEqual:@"same"] && ![object isEqual:@"other"])
+    if (![object isEqual:same] && ![object isEqual:other])
       return -5;
     count++;
   }
