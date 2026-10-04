@@ -71,11 +71,15 @@ type ContextState = (
     CGFontRef,                            // font
     CGFloat,                              // font size
     CGBlendMode,                          // blend mode
+    CGFloat,                              // line width
+    (CGFloat, CGFloat, CGFloat, CGFloat), // RGB stroke color
 );
 
 pub(super) struct CGContextHostObject {
     pub(super) subclass: CGContextSubclass,
     pub(super) rgb_fill_color: (CGFloat, CGFloat, CGFloat, CGFloat),
+    pub(super) rgb_stroke_color: (CGFloat, CGFloat, CGFloat, CGFloat),
+    pub(super) line_width: CGFloat,
     pub(super) font: CGFontRef,
     pub(super) font_size: CGFloat,
     /// Current transform.
@@ -154,34 +158,55 @@ fn CGContextSetGrayFillColor(
 }
 
 fn CGContextSetGrayStrokeColor(
-    _env: &mut Environment,
+    env: &mut Environment,
     context: CGContextRef,
     gray: CGFloat,
     alpha: CGFloat,
 ) {
-    log!(
-        "TODO: CGContextSetGrayStrokeColor({:?}, {}, {})",
-        context,
-        gray,
-        alpha,
-    );
+    CGContextSetRGBStrokeColor(env, context, gray, gray, gray, alpha);
 }
 fn CGContextSetRGBStrokeColor(
-    _env: &mut Environment,
+    env: &mut Environment,
     context: CGContextRef,
     r: CGFloat,
     g: CGFloat,
     b: CGFloat,
     a: CGFloat,
 ) {
-    log!(
-        "TODO: CGContextSetRGBStrokeColor({:?}, {}, {}, {}, {})",
-        context,
-        r,
-        g,
-        b,
-        a
-    );
+    env.objc
+        .borrow_mut::<CGContextHostObject>(context)
+        .rgb_stroke_color = (r, g, b, a);
+}
+
+fn CGContextSetStrokeColorWithColor(
+    env: &mut Environment,
+    context: CGContextRef,
+    color: CGColorRef,
+) {
+    let (r, g, b, a) = cg_color::to_rgba(&env.objc, color);
+    CGContextSetRGBStrokeColor(env, context, r, g, b, a);
+}
+
+fn CGContextSetLineWidth(env: &mut Environment, context: CGContextRef, width: CGFloat) {
+    // Quartz specifies a positive width, in user-space units.
+    if width.is_finite() && width > 0.0 {
+        env.objc
+            .borrow_mut::<CGContextHostObject>(context)
+            .line_width = width;
+    }
+}
+
+fn CGContextStrokeRect(env: &mut Environment, context: CGContextRef, rect: CGRect) {
+    cg_bitmap_context::stroke_rect(env, context, rect, None);
+}
+
+fn CGContextStrokeRectWithWidth(
+    env: &mut Environment,
+    context: CGContextRef,
+    rect: CGRect,
+    width: CGFloat,
+) {
+    cg_bitmap_context::stroke_rect(env, context, rect, Some(width));
 }
 
 fn CGContextSetShadowWithColor(
@@ -276,6 +301,8 @@ fn CGContextSaveGState(env: &mut Environment, context: CGContextRef) {
         host_obj.font,
         host_obj.font_size,
         host_obj.blend_mode,
+        host_obj.line_width,
+        host_obj.rgb_stroke_color,
     ));
     CGFontRetain(env, env.objc.borrow::<CGContextHostObject>(context).font);
 }
@@ -294,6 +321,8 @@ fn CGContextRestoreGState(env: &mut Environment, context: CGContextRef) {
     host_obj.font = state.2;
     host_obj.font_size = state.3;
     host_obj.blend_mode = state.4;
+    host_obj.line_width = state.5;
+    host_obj.rgb_stroke_color = state.6;
 }
 
 fn CGContextSetInterpolationQuality(
@@ -438,6 +467,10 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CGContextSetGrayFillColor(_, _, _)),
     export_c_func!(CGContextSetGrayStrokeColor(_, _, _)),
     export_c_func!(CGContextSetRGBStrokeColor(_, _, _, _, _)),
+    export_c_func!(CGContextSetStrokeColorWithColor(_, _)),
+    export_c_func!(CGContextSetLineWidth(_, _)),
+    export_c_func!(CGContextStrokeRect(_, _)),
+    export_c_func!(CGContextStrokeRectWithWidth(_, _, _)),
     export_c_func!(CGContextSetShadowWithColor(_, _, _, _)),
     export_c_func!(CGContextFillRect(_, _)),
     export_c_func!(CGContextClearRect(_, _)),

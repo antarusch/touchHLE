@@ -20,7 +20,7 @@ use super::cg_image::{
     kCGImageAlphaPremultipliedFirst, kCGImageAlphaPremultipliedLast, kCGImageByteOrder32Big,
     kCGImageByteOrderDefault, CGBitmapInfo, CGImageAlphaInfo, CGImageRef,
 };
-use super::{CGFloat, CGPoint, CGRect};
+use super::{CGFloat, CGPoint, CGRect, CGSize};
 use crate::dyld::{export_c_func, FunctionExports};
 use crate::image::{gamma_decode, gamma_encode, Image};
 use crate::mem::{GuestUSize, Mem, MutVoidPtr, Ptr};
@@ -86,6 +86,8 @@ pub fn CGBitmapContextCreate(
         }),
         // TODO: is this the correct default?
         rgb_fill_color: (0.0, 0.0, 0.0, 0.0),
+        rgb_stroke_color: (0.0, 0.0, 0.0, 1.0),
+        line_width: 1.0,
         font: Ptr::null(),
         font_size: 14.0,
         transform: CGAffineTransformIdentity,
@@ -450,18 +452,22 @@ impl CGBitmapContextDrawer<'_> {
     /// Get the current fill color. The returned color is linear RGB, not sRGB.
     /// It has premultiplied alpha if the context does.
     pub fn rgb_fill_color(&self) -> (CGFloat, CGFloat, CGFloat, CGFloat) {
+        self.convert_color(self.rgb_fill_color)
+    }
+    fn convert_color(
+        &self,
+        color: (CGFloat, CGFloat, CGFloat, CGFloat),
+    ) -> (CGFloat, CGFloat, CGFloat, CGFloat) {
         let multiply_by = match self.bitmap_info.alpha_info {
-            kCGImageAlphaPremultipliedLast | kCGImageAlphaPremultipliedFirst => {
-                self.rgb_fill_color.3
-            }
+            kCGImageAlphaPremultipliedLast | kCGImageAlphaPremultipliedFirst => color.3,
             _ => 1.0,
         };
         // Multiplying before decoding matches the Simulator's output.
         (
-            gamma_decode(self.rgb_fill_color.0 * multiply_by),
-            gamma_decode(self.rgb_fill_color.1 * multiply_by),
-            gamma_decode(self.rgb_fill_color.2 * multiply_by),
-            self.rgb_fill_color.3, // alpha is always linear
+            gamma_decode(color.0 * multiply_by),
+            gamma_decode(color.1 * multiply_by),
+            gamma_decode(color.2 * multiply_by),
+            color.3, // alpha is always linear
         )
     }
     /// Set the pixel at `coords` to `color`. `color` must be linear RGB, not
@@ -525,6 +531,49 @@ impl CGBitmapContextDrawer<'_> {
                 }
             })
         })
+    }
+}
+
+/// Rasterize a centered rectangular stroke with the current transform.
+/// Sampling the whole border once avoids blending the corners twice.
+pub(super) fn stroke_rect(
+    env: &mut Environment,
+    context: CGContextRef,
+    rect: CGRect,
+    width: Option<CGFloat>,
+) {
+    let host_obj = env.objc.borrow::<CGContextHostObject>(context);
+    let width = width.unwrap_or(host_obj.line_width);
+    if !width.is_finite() || width <= 0.0 {
+        return;
+    }
+    let stroke_color = host_obj.rgb_stroke_color;
+    let x0 = rect.origin.x.min(rect.origin.x + rect.size.width);
+    let x1 = rect.origin.x.max(rect.origin.x + rect.size.width);
+    let y0 = rect.origin.y.min(rect.origin.y + rect.size.height);
+    let y1 = rect.origin.y.max(rect.origin.y + rect.size.height);
+    if ![x0, x1, y0, y1].iter().all(|v| v.is_finite()) {
+        return;
+    }
+    let half = width / 2.0;
+    let outer = CGRect {
+        origin: CGPoint {
+            x: x0 - half,
+            y: y0 - half,
+        },
+        size: CGSize {
+            width: x1 - x0 + width,
+            height: y1 - y0 + width,
+        },
+    };
+    let mut drawer = CGBitmapContextDrawer::new(&env.objc, &mut env.mem, context);
+    let color = drawer.convert_color(stroke_color);
+    for (coords, (u, v)) in drawer.iter_transformed_pixels(outer) {
+        let x = outer.origin.x + u * outer.size.width;
+        let y = outer.origin.y + v * outer.size.height;
+        if x < x0 + half || x >= x1 - half || y < y0 + half || y >= y1 - half {
+            drawer.put_pixel(coords, color, /* blend: */ true);
+        }
     }
 }
 

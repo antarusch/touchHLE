@@ -62,6 +62,7 @@ int test_UIEvent_dispatch(void);                    // UIEventDispatch.m
 int test_UIView_transition(void);                   // UIViewTransition.m
 int test_UIButton_archived_images(void);            // UIButtonContent.m
 int test_UIImageView_highlight_and_animation(void); // UIImageViewHighlight.m
+int test_CGContext_line_width(void);                // CGContextLineWidth.m
 int test_NSArray_subarray_ranges(void);             // NSArrayRange.m
 int test_UIView_contentStretch(void);               // UIViewContentStretch.m
 #endif
@@ -6819,6 +6820,7 @@ struct {
     FUNC_DEF(test_UIImageView_highlight_and_animation),
     FUNC_DEF(test_NSArray_subarray_ranges),
     FUNC_DEF(test_UIView_contentStretch),
+    FUNC_DEF(test_CGContext_line_width),
 #endif
     FUNC_DEF(test_NSConditionLock_init),
     FUNC_DEF(test_NSConditionLock_lock_unlock),
