@@ -914,7 +914,6 @@ fn check_image_button_sizing(env: &mut Environment) {
     let center = CGPoint { x: 100.0, y: 200.0 };
     () = msg![env; button setCenter:center];
     () = msg![env; button setHidden:false];
-    () = msg![env; button layoutSubviews];
     let frame: CGRect = msg![env; button frame];
     assert_eq!(frame.origin, CGPoint { x: 68.0, y: 176.0 });
     let inside = CGPoint { x: 32.0, y: 24.0 };
@@ -955,6 +954,34 @@ fn check_image_button_sizing(env: &mut Environment) {
     () = msg![env; background sizeToFit];
     let fitted: CGRect = msg![env; background bounds];
     assert_eq!(fitted.size, bounds.size);
+    let background_view: id = msg![env; background backgroundImageView];
+    let background_frame: CGRect = msg![env; background_view frame];
+    assert_eq!(background_frame, fitted);
+    // Resizing after content assignment must also update image placement,
+    // without an explicit layoutSubviews message from the application.
+    let resized = CGRect {
+        origin: CGPoint { x: 5.0, y: 7.0 },
+        size: CGSize {
+            width: 96.0,
+            height: 80.0,
+        },
+    };
+    () = msg![env; button setBounds:resized];
+    let displayed: CGRect = msg![env; image_view frame];
+    assert_eq!(displayed.origin, CGPoint { x: 21.0, y: 23.0 });
+    assert_eq!(displayed.size, bounds.size);
+    let smaller = CGRect {
+        origin: CGPoint { x: 200.0, y: 300.0 },
+        size: CGSize {
+            width: 32.0,
+            height: 24.0,
+        },
+    };
+    () = msg![env; button setFrame:smaller];
+    let displayed: CGRect = msg![env; image_view frame];
+    let current_bounds: CGRect = msg![env; button bounds];
+    assert_eq!(displayed.origin, current_bounds.origin);
+    assert_eq!(displayed.size, smaller.size);
     if let Some(directory) = std::env::var_os("TOUCHHLE_COMMAND_IMAGES") {
         for name in [
             "Command_Defend_Normal.png",
@@ -971,7 +998,6 @@ fn check_image_button_sizing(env: &mut Environment) {
             () = msg![env; button sizeToFit];
             let fitted: CGRect = msg![env; button bounds];
             assert_eq!(fitted.size, expected);
-            () = msg![env; button layoutSubviews];
             let displayed: CGRect = msg![env; image_view frame];
             assert_eq!(displayed.size, expected);
             let point = CGPoint {
@@ -980,6 +1006,90 @@ fn check_image_button_sizing(env: &mut Environment) {
             };
             let hit: id = msg![env; button hitTest:point withEvent:nil];
             assert_eq!(hit, button);
+        }
+    }
+}
+
+#[test]
+#[ignore = "requires an original game bundle in TOUCHHLE_COMMAND_GAME"]
+fn game_command_button_geometry() {
+    let path = std::path::PathBuf::from(std::env::var_os("TOUCHHLE_COMMAND_GAME").unwrap());
+    let data = crate::fs::BundleData::open_any(&path).unwrap();
+    let (bundle, fs) = crate::bundle::Bundle::new_bundle_and_fs_from_host_path(data, true).unwrap();
+    let options = Options {
+        headless: true,
+        direct_memory_access: false,
+        preferred_languages: Some(vec!["en".into()]),
+        ..Default::default()
+    };
+    let mut env = Environment::new(bundle, fs, options, Vec::new()).unwrap();
+    env.cpu.regs_mut()[crate::cpu::Cpu::SP] = 0xFFFFF000;
+    let mut coroutine = corosensei::Coroutine::new(|yielder, mut env: Environment| {
+        env.with_yielder(yielder, |env| {
+            let pool: id = msg_class![env; NSAutoreleasePool new];
+            for name in ["Command_Defend", "Command_Wait", "Command_Ability"] {
+                let name = get_static_str(env, name);
+                // Execute the game's UIButton(Darkland) category, including its
+                // original ARM sizeToFit call. Do not force a layout from the test.
+                let button: id = msg_class![env; UIButton buttonWithImageNamed:name];
+                let bounds: CGRect = msg![env; button bounds];
+                assert_eq!(
+                    bounds.size,
+                    CGSize {
+                        width: 78.0,
+                        height: 78.0
+                    }
+                );
+                let image_view: id = msg![env; button imageView];
+                let displayed: CGRect = msg![env; image_view frame];
+                assert_eq!(displayed.size, bounds.size);
+                let layer: id = msg![env; image_view layer];
+                let contents: id = msg![env; layer contents];
+                assert_ne!(contents, nil);
+                let point = CGPoint { x: 39.0, y: 39.0 };
+                let hit: id = msg![env; button hitTest:point withEvent:nil];
+                assert_eq!(hit, button);
+            }
+            // Execute the original menu container too: it sizes the group,
+            // positions child centers, and shows them without asking UIKit
+            // to lay out the button images explicitly.
+            let target: id = msg_class![env; ArchiveProbe new];
+            let action = get_static_str(env, "commandButtonPressed:");
+            let items = env.mem.alloc(24).cast::<id>();
+            for (index, name) in ["Command_Defend", "Command_Wait", "Command_Ability"].iter().enumerate() {
+                let name = get_static_str(env, name);
+                env.mem.write(items + (index as u32 * 2), name);
+                env.mem.write(items + (index as u32 * 2 + 1), action);
+            }
+            let menu: id = msg_class![env; PopUpMenu alloc];
+            let menu: id = msg![env; menu initWithItems:items count:3u32 itemSize:(CGSize { width: 78.0, height: 78.0 }) direction:1i32 target:target];
+            () = msg![env; menu setRightTop:(CGPoint { x: 680.0, y: 680.0 })];
+            () = msg![env; menu show];
+            let frame: CGRect = msg![env; menu frame];
+            assert_eq!(frame.size, CGSize { width: 266.0, height: 78.0 });
+            assert_eq!(frame.origin, CGPoint { x: 414.0, y: 680.0 });
+            let hidden: bool = msg![env; menu isHidden];
+            assert!(!hidden);
+            for index in 0..3u32 {
+                let button: id = msg![env; menu itemAtIndex:index];
+                let image_view: id = msg![env; button imageView];
+                let frame: CGRect = msg![env; image_view frame];
+                assert_eq!(frame.size, CGSize { width: 78.0, height: 78.0 });
+                let center: CGPoint = msg![env; button center];
+                let hit: id = msg![env; menu hitTest:center withEvent:nil];
+                assert_eq!(hit, button);
+            }
+            release(env, menu);
+            release(env, target);
+            env.mem.free(items.cast());
+            () = msg![env; pool drain];
+        });
+        env
+    });
+    loop {
+        match coroutine.resume(env) {
+            corosensei::CoroutineResult::Yield(next) => env = next,
+            corosensei::CoroutineResult::Return(_) => break,
         }
     }
 }

@@ -288,6 +288,23 @@ pub const CLASSES: ClassExports = objc_classes! {
     layout(env, this);
 }
 
+- (())setFrame:(CGRect)frame {
+    () = msg_super![env; this setFrame:frame];
+    // UIView currently has no deferred layout pass. Keep the content geometry
+    // in sync when sizeToFit or the app resizes the control. initWithFrame:
+    // reaches this setter before the content views have been created.
+    if env.objc.borrow::<UIButtonHostObject>(this).image_view != nil {
+        layout(env, this);
+    }
+}
+
+- (())setBounds:(CGRect)bounds {
+    () = msg_super![env; this setBounds:bounds];
+    if env.objc.borrow::<UIButtonHostObject>(this).image_view != nil {
+        layout(env, this);
+    }
+}
+
 - (CGSize)sizeThatFits:(CGSize)size {
     let image: id = msg![env; this currentImage];
     let background: id = msg![env; this currentBackgroundImage];
