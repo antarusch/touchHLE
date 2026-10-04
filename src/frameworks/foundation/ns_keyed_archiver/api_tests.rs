@@ -1086,10 +1086,7 @@ fn game_command_button_geometry() {
         });
         env
     });
-    loop {
-        match coroutine.resume(env) {
-            corosensei::CoroutineResult::Yield(next) => env = next,
-            corosensei::CoroutineResult::Return(_) => break,
-        }
+    while let corosensei::CoroutineResult::Yield(next) = coroutine.resume(env) {
+        env = next;
     }
 }
