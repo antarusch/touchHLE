@@ -54,6 +54,7 @@ static inline NSRange NSMakeRange(NSUInteger loc, NSUInteger len) {
 - (instancetype)init;
 - (id)copy;
 - (BOOL)isEqual:(id)object;
+- (BOOL)isKindOfClass:(Class)class;
 - (instancetype)retain;
 - (void)release;
 - (instancetype)autorelease;
@@ -75,6 +76,11 @@ static inline NSRange NSMakeRange(NSUInteger loc, NSUInteger len) {
 - (NSUInteger)count;
 - (ObjectType)objectAtIndex:(NSUInteger)index;
 - (BOOL)isEqualToArray:(NSArray *)otherArray;
+- (NSArray<ObjectType> *)subarrayWithRange:(NSRange)range;
+@end
+
+@interface NSMutableArray<ObjectType> : NSArray <ObjectType>
+- (void)removeAllObjects;
 @end
 
 @interface NSDictionary<KeyType, ObjectType> : NSObject

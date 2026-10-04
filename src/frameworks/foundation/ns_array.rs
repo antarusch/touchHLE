@@ -185,6 +185,20 @@ pub const CLASSES: ClassExports = objc_classes! {
     msg![env; this objectAtIndex:(size - 1)]
 }
 
+- (id)subarrayWithRange:(NSRange)range {
+    let count: NSUInteger = msg![env; this count];
+    // TODO: throw NSRangeException rather than panic for an invalid range.
+    assert!(range.location <= count && range.length <= count - range.location);
+    let mut objects = Vec::with_capacity(range.length as usize);
+    for index in range.location..range.location + range.length {
+        let object: id = msg![env; this objectAtIndex:index];
+        retain(env, object);
+        objects.push(object);
+    }
+    let array = from_vec(env, objects);
+    autorelease(env, array)
+}
+
 - (id)componentsJoinedByString:(id)str { // NSString *
     let res: id = msg_class![env; NSMutableString new];
     let count: NSUInteger = msg![env; this count];
@@ -458,18 +472,6 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (id)description {
     build_description(env, this)
-}
-
-- (id)subarrayWithRange:(NSRange)range {
-    let mut tmp = Vec::new();
-    tmp.extend_from_slice(
-        &env.objc.borrow::<ArrayHostObject>(this).array[range.location as usize..(range.location + range.length) as usize]
-    );
-    for &obj in &tmp {
-        retain(env, obj);
-    }
-    let res = from_vec(env, tmp);
-    autorelease(env, res)
 }
 
 - (id)sortedArrayUsingSelector:(SEL)comparator {
