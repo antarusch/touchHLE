@@ -4,6 +4,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 #import "system_headers.h"
+#include <stdio.h>
 
 static NSUInteger animationViewDeallocations;
 @interface ImageAnimationTestView : UIImageView
@@ -70,6 +71,13 @@ static BOOL displaysImage(UIImageView *view, UIImage *image) {
   return (CGImageRef)[[view layer] contents] == [image CGImage];
 }
 
+static BOOL checkImageView(BOOL condition, int line) {
+  if (!condition)
+    printf("UIImageView check failed at line %d\n", line);
+  return condition;
+}
+#define CHECK(condition) ok &= checkImageView((condition), __LINE__)
+
 int test_UIImageView_highlight_and_animation(void) {
   NSAutoreleasePool *pool = [NSAutoreleasePool new];
   UIImage *normal = makeHighlightImage();
@@ -78,46 +86,57 @@ int test_UIImageView_highlight_and_animation(void) {
   UIImageView *view = [[UIImageView alloc] initWithImage:normal
                                         highlightedImage:highlight];
   CGRect initial = [view frame];
-  BOOL ok = [view image] == normal && [view highlightedImage] == highlight &&
-            ![view isHighlighted] && ![view isUserInteractionEnabled] &&
-            initial.size.width == 8 && initial.size.height == 8 &&
-            displaysImage(view, normal);
+  BOOL ok = YES;
+  CHECK([view image] == normal);
+  CHECK([view highlightedImage] == highlight);
+  CHECK(![view isHighlighted]);
+  CHECK(![view isUserInteractionEnabled]);
+  CHECK(initial.size.width == 8);
+  CHECK(initial.size.height == 8);
+  CHECK(displaysImage(view, normal));
   [view setHighlighted:YES];
-  ok &= [view isHighlighted] && displaysImage(view, highlight);
+  CHECK([view isHighlighted]);
+  CHECK(displaysImage(view, highlight));
   [view setImage:replacement];
-  ok &= [view image] == replacement && displaysImage(view, highlight);
+  CHECK([view image] == replacement);
+  CHECK(displaysImage(view, highlight));
   [view setHighlightedImage:highlight]; // Same-object assignment is safe.
   [view setHighlightedImage:nil];
-  ok &= displaysImage(view, replacement);
+  CHECK(displaysImage(view, replacement));
   [view setHighlighted:NO];
   [view setImage:replacement];
   CGRect after = [view frame];
-  ok &= displaysImage(view, replacement) && after.size.width == 8 &&
-        after.size.height == 8;
+  CHECK(displaysImage(view, replacement));
+  CHECK(after.size.width == 8);
+  CHECK(after.size.height == 8);
   [view setImage:nil];
-  ok &= [[view layer] contents] == nil;
+  CHECK([[view layer] contents] == nil);
   [view release];
-  ok &= [normal retainCount] == 1 && [highlight retainCount] == 1 &&
-        [replacement retainCount] == 1;
+  CHECK([normal retainCount] == 1);
+  CHECK([highlight retainCount] == 1);
+  CHECK([replacement retainCount] == 1);
 
   view = [[UIImageView alloc] initWithImage:nil highlightedImage:highlight];
   [view setHighlighted:YES];
-  ok &= [view image] == nil && displaysImage(view, highlight);
+  CHECK([view image] == nil);
+  CHECK(displaysImage(view, highlight));
   [view release];
   view = [[UIImageView alloc] initWithImage:nil highlightedImage:nil];
-  ok &= [view frame].size.width == 0 && ![view isHighlighted];
+  CHECK([view frame].size.width == 0);
+  CHECK(![view isHighlighted]);
   [view release];
 
   ImageHighlightTestCoder *coder = [ImageHighlightTestCoder new];
   coder->normal = normal;
   coder->highlight = highlight;
   view = [[UIImageView alloc] initWithCoder:coder];
-  ok &= [view isHighlighted] && displaysImage(view, highlight) &&
-        ![view isUserInteractionEnabled];
+  CHECK([view isHighlighted]);
+  CHECK(displaysImage(view, highlight));
+  CHECK(![view isUserInteractionEnabled]);
   [view release];
   coder->interactive = YES;
   view = [[UIImageView alloc] initWithCoder:coder];
-  ok &= [view isUserInteractionEnabled];
+  CHECK([view isUserInteractionEnabled]);
   [view release];
   [coder release];
 
@@ -126,35 +145,41 @@ int test_UIImageView_highlight_and_animation(void) {
   NSArray *frames = [NSArray arrayWithObjects:frame0, frame1, nil];
   view = [[ImageAnimationTestView alloc] initWithImage:normal
                                       highlightedImage:highlight];
-  ok &= [view animationImages] == nil && [view animationDuration] == 0.0 &&
-        [view animationRepeatCount] == 0 && ![view isAnimating];
+  CHECK([view animationImages] == nil);
+  CHECK([view animationDuration] == 0.0);
+  CHECK([view animationRepeatCount] == 0);
+  CHECK(![view isAnimating]);
   [view startAnimating];
-  ok &= ![view isAnimating];
+  CHECK(![view isAnimating]);
   [view setAnimationImages:frames];
   [view setAnimationDuration:1.0];
   [view setAnimationRepeatCount:2];
-  ok &= [[view animationImages] count] == 2 &&
-        [view animationRepeatCount] == 2 && [view animationDuration] == 1.0 &&
-        displaysImage(view, normal);
+  CHECK([[view animationImages] count] == 2);
+  CHECK([view animationRepeatCount] == 2);
+  CHECK([view animationDuration] == 1.0);
+  CHECK(displaysImage(view, normal));
   [view startAnimating];
-  ok &= [view isAnimating] && displaysImage(view, frame0) &&
-        [view image] == normal;
+  CHECK([view isAnimating]);
+  CHECK(displaysImage(view, frame0));
+  CHECK([view image] == normal);
   [view setHighlighted:YES];
-  ok &= displaysImage(view, highlight);
+  CHECK(displaysImage(view, highlight));
   [view setHighlighted:NO];
-  ok &= displaysImage(view, frame0);
+  CHECK(displaysImage(view, frame0));
   [view stopAnimating];
-  ok &= ![view isAnimating] && displaysImage(view, normal);
+  CHECK(![view isAnimating]);
+  CHECK(displaysImage(view, normal));
   [view setAnimationRepeatCount:0];
   [view startAnimating];
   [view setAnimationImages:nil];
-  ok &= ![view isAnimating] && displaysImage(view, normal);
+  CHECK(![view isAnimating]);
+  CHECK(displaysImage(view, normal));
   [view setAnimationImages:frames];
   [view startAnimating];
   // A repeating timer must not retain the image view forever.
   NSUInteger before = animationViewDeallocations;
   [view release];
-  ok &= animationViewDeallocations == before + 1;
+  CHECK(animationViewDeallocations == before + 1);
   [pool drain];
   return ok ? 0 : -1;
 }
