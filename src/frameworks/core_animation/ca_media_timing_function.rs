@@ -55,17 +55,26 @@ struct CAMediaTimingFunctionHostObject {
 impl HostObject for CAMediaTimingFunctionHostObject {}
 impl CAMediaTimingFunctionHostObject {
     fn solve_for_input(&self, input: f32) -> f32 {
-        // My math is kinda rusty so i couldnt solve the equation
-        // but a quick google search yielded me people "solving" it
-        // by brute forcing it through binary search so... ah well
-        let mut lower = 0.0;
-        let mut upper = 1.0;
-        let mut t;
-        let mut x;
-        loop {
+        if input.is_nan() || input <= 0.0 {
+            return 0.0;
+        }
+        if input >= 1.0 {
+            return 1.0;
+        }
+        if self.control_points.iter().flatten().any(|p| !p.is_finite()) {
+            return input;
+        }
+
+        // Use double precision to avoid a stalled single-precision midpoint.
+        // Bound the search even when a curve cannot reach the requested x.
+        let input = f64::from(input);
+        let mut lower = 0.0f64;
+        let mut upper = 1.0f64;
+        let mut t = 0.5;
+        for _ in 0..32 {
             t = (upper + lower) / 2.0;
-            x = self.coord_in_curve(t, 0);
-            if (x - input).abs() < f32::EPSILON {
+            let x = self.coord_in_curve(t, 0);
+            if (x - input).abs() <= 1.0e-12 {
                 break;
             }
             if input > x {
@@ -74,14 +83,14 @@ impl CAMediaTimingFunctionHostObject {
                 upper = t;
             }
         }
-        self.coord_in_curve(t, 1)
+        self.coord_in_curve(t, 1) as f32
     }
 
-    fn coord_in_curve(&self, t: f32, x_or_y: usize) -> f32 {
+    fn coord_in_curve(&self, t: f64, x_or_y: usize) -> f64 {
         // 4 control point bezier
         // knowing the first and last points are (0,0) and (1,1)
-        3.0 * (1.0 - t).powi(2) * t * self.control_points[0][x_or_y]
-            + 3.0 * (1.0 - t) * t.powi(2) * self.control_points[1][x_or_y]
+        3.0 * (1.0 - t).powi(2) * t * f64::from(self.control_points[0][x_or_y])
+            + 3.0 * (1.0 - t) * t.powi(2) * f64::from(self.control_points[1][x_or_y])
             + t.powi(3)
     }
 }
@@ -152,6 +161,71 @@ pub const CLASSES: ClassExports = objc_classes! {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_solve_for_input_invalid_values() {
+        let curve = CAMediaTimingFunctionHostObject {
+            control_points: [[0.42, 0.0], [0.58, 1.0]],
+        };
+        for input in [f32::NEG_INFINITY, -1.0, 0.0, f32::NAN] {
+            assert_eq!(curve.solve_for_input(input), 0.0);
+        }
+        for input in [1.0, 2.0, f32::INFINITY] {
+            assert_eq!(curve.solve_for_input(input), 1.0);
+        }
+        let invalid_curve = CAMediaTimingFunctionHostObject {
+            control_points: [[f32::NAN, 0.0], [0.58, 1.0]],
+        };
+        assert_eq!(invalid_curve.solve_for_input(0.25), 0.25);
+    }
+
+    #[test]
+    fn test_named_curves_dense_progress() {
+        let points = [
+            [[0.25, 0.10], [0.25, 1.0]],
+            [[0.42, 0.0], [1.0, 1.0]],
+            [[0.42, 0.0], [0.58, 1.0]],
+            [[0.0, 0.0], [0.58, 1.0]],
+            [[0.0, 0.0], [1.0, 1.0]],
+        ];
+        for control_points in points {
+            let curve = CAMediaTimingFunctionHostObject { control_points };
+            let mut previous = 0.0;
+            for step in 0..=10_000 {
+                let input = step as f32 / 10_000.0;
+                let output = curve.solve_for_input(input);
+                assert!(output.is_finite());
+                assert!((0.0..=1.0).contains(&output));
+                assert!(output >= previous);
+                previous = output;
+            }
+        }
+    }
+
+    #[test]
+    fn test_solve_for_input_near_endpoints() {
+        let curve = CAMediaTimingFunctionHostObject {
+            control_points: [[0.0, 0.0], [1.0, 1.0]],
+        };
+        for input in [f32::EPSILON, 0.9999, 1.0 - f32::EPSILON] {
+            assert!((curve.solve_for_input(input) - input).abs() < 1.0e-6);
+        }
+    }
+
+    #[test]
+    fn test_solve_for_input_rounding_stall_regressions() {
+        let linear = CAMediaTimingFunctionHostObject {
+            control_points: [[0.0, 0.0], [1.0, 1.0]],
+        };
+        let input = f32::from_bits(0x3f04_45cc);
+        assert!((linear.solve_for_input(input) - input).abs() < 1.0e-6);
+
+        let ease_in = CAMediaTimingFunctionHostObject {
+            control_points: [[0.42, 0.0], [1.0, 1.0]],
+        };
+        let input = f32::from_bits(0x3f2b_9eae);
+        assert!((ease_in.solve_for_input(input) - 0.516_410_6).abs() < 1.0e-6);
+    }
 
     #[test]
     fn test_linear_solve_for_input() {
