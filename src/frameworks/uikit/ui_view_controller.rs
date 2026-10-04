@@ -29,6 +29,9 @@ struct UIViewControllerHostObject {
     /// The root view.
     /// `UIView*`
     view: id,
+    /// Nib decoding may install the view before the first `view` access.
+    /// Track the callback separately from whether the view already exists.
+    view_did_load: bool,
     /// Nib name to be used at the load
     /// of the root view, may be nil.
     /// `NSString*`
@@ -77,7 +80,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())dealloc {
-    let &UIViewControllerHostObject { view, nib_name, bundle } = env.objc.borrow(this);
+    let &UIViewControllerHostObject { view, nib_name, bundle, .. } = env.objc.borrow(this);
 
     if view != nil {
         set_view_controller(env, view, nil);
@@ -137,6 +140,9 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (())setView:(id)new_view { // UIView*
     let host_obj = env.objc.borrow_mut::<UIViewControllerHostObject>(this);
     let old_view = std::mem::replace(&mut host_obj.view, new_view);
+    if old_view != new_view || new_view == nil {
+        host_obj.view_did_load = false;
+    }
     if old_view != nil {
         set_view_controller(env, old_view, nil);
     }
@@ -147,15 +153,19 @@ pub const CLASSES: ClassExports = objc_classes! {
     release(env, old_view);
 }
 - (id)view {
-    let view = env.objc.borrow_mut::<UIViewControllerHostObject>(this).view;
+    let view = env.objc.borrow::<UIViewControllerHostObject>(this).view;
     if view == nil {
         () = msg![env; this loadView];
-        let view = env.objc.borrow_mut::<UIViewControllerHostObject>(this).view;
-        () = msg![env; this viewDidLoad];
-        view
-    } else {
-        view
     }
+    let host_obj = env.objc.borrow_mut::<UIViewControllerHostObject>(this);
+    if host_obj.view != nil && !host_obj.view_did_load {
+        // Set this before dispatch: viewDidLoad commonly reads self.view.
+        // Also defer until here so nib outlet connections are available.
+        host_obj.view_did_load = true;
+        log_dbg!("[(UIViewController*){:?} dispatch viewDidLoad]", this);
+        () = msg![env; this viewDidLoad];
+    }
+    env.objc.borrow::<UIViewControllerHostObject>(this).view
 }
 
 // Usually overridden by the application

@@ -45,9 +45,9 @@ android {
     }
     defaultConfig {
         val branding = getTouchHLEBranding()
-        applicationId = "org.touchhle.android.eustrathdiagnostic"
-        resValue("string", "app_name", "touchHLE Eustrath Diagnostic")
-        buildConfigField("String", "APP_NAME", "\"touchHLE Eustrath Diagnostic\"")
+        applicationId = "org.touchhle.android.eustrathviewload"
+        resValue("string", "app_name", "touchHLE Eustrath View Fix")
+        buildConfigField("String", "APP_NAME", "\"touchHLE Eustrath View Fix\"")
         manifestPlaceholders["icon"] = join("@drawable/icon", "_", branding.lowercase())
         buildConfigField("int", "APP_ICON", join("R.drawable.icon", "_", branding.lowercase()))
         versionName = join(getTouchHLEVersionName(), " ", branding)

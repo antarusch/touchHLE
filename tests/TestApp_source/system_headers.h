@@ -554,6 +554,13 @@ typedef enum {
 - (CGRect)convertRect:(CGRect)point fromWindow:(UIWindow *)window;
 - (CGRect)convertRect:(CGRect)point toWindow:(UIWindow *)window;
 @end
+@interface UIViewController : UIResponder
+- (instancetype)initWithCoder:(NSCoder *)coder;
+- (UIView *)view;
+- (void)setView:(UIView *)view;
+- (void)loadView;
+- (void)viewDidLoad;
+@end
 @interface UILabel : UIView
 - (void)setText:(NSString *)text;
 - (void)setTextAlignment:(UITextAlignment)alignment;

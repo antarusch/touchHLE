@@ -56,7 +56,8 @@ int test_RespondsToSelector(void); // RespondsToSelector.m
 int test_Initialize(void);         // Initialize.m
 
 #ifndef DEFINE_ME_WHEN_BUILDING_ON_MACOS
-int test_cpp_virtual_inheritance(void); // CppVirtualInheritance.cpp
+int test_cpp_virtual_inheritance(void);      // CppVirtualInheritance.cpp
+int test_UIViewController_viewDidLoad(void); // UIViewControllerLoad.m
 #endif
 
 // === Main code ===
@@ -6752,6 +6753,7 @@ struct {
 #ifndef DEFINE_ME_WHEN_BUILDING_ON_MACOS
     // This nil-input tolerance is intentionally provided by the emulator.
     FUNC_DEF(test_Eustrath_nil_plist),
+    FUNC_DEF(test_UIViewController_viewDidLoad),
 #endif
     FUNC_DEF(test_NSConditionLock_init),
     FUNC_DEF(test_NSConditionLock_lock_unlock),
