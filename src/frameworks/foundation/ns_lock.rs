@@ -13,15 +13,15 @@ use crate::environment::MutexType::PTHREAD_MUTEX_RECURSIVE;
 use crate::environment::{MutexId, PTHREAD_MUTEX_DEFAULT};
 use crate::frameworks::foundation::NSInteger;
 use crate::libc::pthread::cond::{
-    pthread_cond_broadcast, pthread_cond_destroy, pthread_cond_init, pthread_cond_t,
-    pthread_cond_wait,
+    pthread_cond_broadcast, pthread_cond_destroy, pthread_cond_init, pthread_cond_signal,
+    pthread_cond_t, pthread_cond_wait,
 };
 use crate::libc::pthread::mutex::{
     pthread_mutex_destroy, pthread_mutex_init, pthread_mutex_lock, pthread_mutex_t,
     pthread_mutex_trylock, pthread_mutex_unlock,
 };
 use crate::mem::{guest_size_of, ConstPtr, MutPtr};
-use crate::objc::{id, msg, nil, objc_classes, release, ClassExports, HostObject};
+use crate::objc::{id, msg, nil, objc_classes, release, ClassExports, HostObject, NSZonePtr};
 
 struct NSLockHostObject {
     mutex_id: MutexId,
@@ -37,6 +37,13 @@ struct NSConditionLockHostObject {
     name: id,
 }
 impl HostObject for NSConditionLockHostObject {}
+
+struct NSConditionHostObject {
+    mutex: MutPtr<pthread_mutex_t>,
+    cond: MutPtr<pthread_cond_t>,
+    name: id,
+}
+impl HostObject for NSConditionHostObject {}
 
 pub const CLASSES: ClassExports = objc_classes! {
 
@@ -143,6 +150,62 @@ pub const CLASSES: ClassExports = objc_classes! {
     release(env, env.objc.borrow::<NSLockHostObject>(this).name);
     let host_object = env.objc.borrow::<NSLockHostObject>(this);
     env.mutex_state.destroy_mutex(host_object.mutex_id).unwrap();
+    env.objc.dealloc_object(this, &mut env.mem)
+}
+
+@end
+
+@implementation NSCondition: NSObject
+
++ (id)allocWithZone:(NSZonePtr)_zone {
+    msg![env; this alloc]
+}
+
++ (id)alloc {
+    let mutex = env.mem.alloc(guest_size_of::<pthread_mutex_t>()).cast();
+    let cond = env.mem.alloc(guest_size_of::<pthread_cond_t>()).cast();
+    assert_eq!(pthread_mutex_init(env, mutex, ConstPtr::null()), 0);
+    assert_eq!(pthread_cond_init(env, cond, ConstPtr::null()), 0);
+    let host_object = NSConditionHostObject { mutex, cond, name: nil };
+    env.objc.alloc_object(this, Box::new(host_object), &mut env.mem)
+}
+
+- (())lock {
+    let mutex = env.objc.borrow::<NSConditionHostObject>(this).mutex;
+    assert_eq!(pthread_mutex_lock(env, mutex), 0);
+}
+- (())unlock {
+    let mutex = env.objc.borrow::<NSConditionHostObject>(this).mutex;
+    assert_eq!(pthread_mutex_unlock(env, mutex), 0);
+}
+- (())wait {
+    let &NSConditionHostObject { mutex, cond, .. } = env.objc.borrow(this);
+    assert_eq!(pthread_cond_wait(env, cond, mutex), 0);
+}
+- (())signal {
+    let cond = env.objc.borrow::<NSConditionHostObject>(this).cond;
+    assert_eq!(pthread_cond_signal(env, cond), 0);
+}
+- (())broadcast {
+    let cond = env.objc.borrow::<NSConditionHostObject>(this).cond;
+    assert_eq!(pthread_cond_broadcast(env, cond), 0);
+}
+- (())setName:(id)name {
+    let old_name = env.objc.borrow::<NSConditionHostObject>(this).name;
+    let name = msg![env; name copy];
+    env.objc.borrow_mut::<NSConditionHostObject>(this).name = name;
+    release(env, old_name);
+}
+- (id)name {
+    env.objc.borrow::<NSConditionHostObject>(this).name
+}
+- (())dealloc {
+    let &NSConditionHostObject { mutex, cond, name } = env.objc.borrow(this);
+    release(env, name);
+    assert_eq!(pthread_cond_destroy(env, cond), 0);
+    assert_eq!(pthread_mutex_destroy(env, mutex), 0);
+    env.mem.free(mutex.cast());
+    env.mem.free(cond.cast());
     env.objc.dealloc_object(this, &mut env.mem)
 }
 

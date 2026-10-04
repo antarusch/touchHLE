@@ -1966,6 +1966,119 @@ int test_pthread_mutex_recursive_trylock() {
   return 0;
 }
 
+// === Eustrath Foundation compatibility regression tests ===
+
+NSCondition *eustrath_condition;
+int eustrath_condition_ready;
+
+void *eustrath_condition_worker(void *arg) {
+  (void)arg;
+  [eustrath_condition lock];
+  eustrath_condition_ready = 1;
+  [eustrath_condition signal];
+  [eustrath_condition unlock];
+  return NULL;
+}
+
+int test_Eustrath_NSCondition() {
+  eustrath_condition = [[NSCondition alloc] init];
+  [eustrath_condition setName:@"Eustrath condition"];
+  if (![[eustrath_condition name] isEqual:@"Eustrath condition"])
+    return -1;
+  eustrath_condition_ready = 0;
+  [eustrath_condition lock];
+  pthread_t worker;
+  if (pthread_create(&worker, NULL, eustrath_condition_worker, NULL) != 0)
+    return -2;
+  while (!eustrath_condition_ready)
+    [eustrath_condition wait];
+  [eustrath_condition broadcast];
+  [eustrath_condition unlock];
+  if (pthread_join(worker, NULL) != 0)
+    return -3;
+  [eustrath_condition release];
+  return 0;
+}
+
+int test_Eustrath_NSCountedSet() {
+  NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
+  NSMutableString *first = [[NSMutableString alloc] initWithString:@"same"];
+  NSMutableString *equal = [[NSMutableString alloc] initWithString:@"same"];
+  NSCountedSet *set = [[NSCountedSet alloc] initWithCapacity:2];
+  [set addObject:first];
+  [set addObject:equal];
+  [set addObject:@"other"];
+  if ([set count] != 2 || [set countForObject:equal] != 2)
+    return -1;
+  if ([set member:equal] != first)
+    return -2;
+  [set removeObject:equal];
+  if ([set count] != 2 || [set countForObject:first] != 1)
+    return -3;
+  [set addObject:first];
+  NSCountedSet *copy = [set copy];
+  [set removeAllObjects];
+  if ([copy count] != 2 || [copy countForObject:equal] != 2)
+    return -4;
+  NSUInteger count = 0;
+  for (id object in copy) {
+    if (![object isEqual:@"same"] && ![object isEqual:@"other"])
+      return -5;
+    count++;
+  }
+  if (count != 2)
+    return -6;
+  NSArray *snapshot = [[copy allObjects] retain];
+  NSEnumerator *enumerator = [[copy objectEnumerator] retain];
+  [copy release];
+  [first release];
+  [equal release];
+  [pool release];
+  if ([snapshot count] != 2)
+    return -7;
+  count = 0;
+  while ([enumerator nextObject] != nil)
+    count++;
+  if (count != 2)
+    return -8;
+  [snapshot release];
+  [enumerator release];
+  [set release];
+  return 0;
+}
+
+int test_Eustrath_character_sets() {
+  NSCharacterSet *alphanumeric = [NSCharacterSet alphanumericCharacterSet];
+  NSCharacterSet *digits = [NSCharacterSet decimalDigitCharacterSet];
+  if (![alphanumeric characterIsMember:'A'] ||
+      ![alphanumeric characterIsMember:'7'] ||
+      ![alphanumeric characterIsMember:0x0301] ||
+      ![alphanumeric characterIsMember:0x4E00] ||
+      [alphanumeric characterIsMember:'_'])
+    return -1;
+  if (![digits characterIsMember:'9'] || ![digits characterIsMember:0x0663] ||
+      ![digits characterIsMember:0xFF12] || [digits characterIsMember:0x00B2] ||
+      [digits characterIsMember:'A'])
+    return -2;
+  return 0;
+}
+
+int test_Eustrath_nil_plist() {
+  NSString *error = nil;
+  id plist =
+      [NSPropertyListSerialization propertyListFromData:nil
+                                       mutabilityOption:NSPropertyListImmutable
+                                                 format:NULL
+                                       errorDescription:&error];
+  if (plist != nil || error == nil)
+    return -1;
+  plist = [NSPropertyListSerialization propertyListFromData:nil
+                                           mutabilityOption:0
+                                                     format:NULL
+                                           errorDescription:NULL];
+  return plist == nil ? 0 : -2;
+}
+
 // === NSConditionLock tests ===
 
 // Condition values used by the producer/consumer test below.
@@ -6629,6 +6742,10 @@ struct {
     FUNC_DEF(test_cond_timedwait_sibling_not_dropped),
     FUNC_DEF(test_pthread_mutex_normal),
     FUNC_DEF(test_pthread_mutex_recursive_trylock),
+    FUNC_DEF(test_Eustrath_NSCondition),
+    FUNC_DEF(test_Eustrath_NSCountedSet),
+    FUNC_DEF(test_Eustrath_character_sets),
+    FUNC_DEF(test_Eustrath_nil_plist),
     FUNC_DEF(test_NSConditionLock_init),
     FUNC_DEF(test_NSConditionLock_lock_unlock),
     FUNC_DEF(test_NSConditionLock_tryLockWhenCondition),

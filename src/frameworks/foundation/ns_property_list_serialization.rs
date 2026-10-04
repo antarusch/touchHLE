@@ -59,6 +59,14 @@ pub const CLASSES: ClassExports = objc_classes! {
           mutabilityOption:(NSPropertyListMutabilityOptions)opt
                     format:(MutPtr<NSPropertyListFormat>)format
           errorDescription:(MutPtr<id>)error_string { // NSString **
+    if data == nil {
+        if !error_string.is_null() {
+            let error_message = ns_string::from_rust_string(env, String::from("No plist data"));
+            let error_message = autorelease(env, error_message);
+            env.mem.write(error_string, error_message);
+        }
+        return nil;
+    }
     let slice = ns_data::to_rust_slice(env, data);
 
     if let Ok(root) = Value::from_reader_xml(Cursor::new(slice)) {

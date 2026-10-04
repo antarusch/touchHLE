@@ -11,9 +11,10 @@ use super::ns_enumerator::{fast_enumeration_helper, NSFastEnumerationState};
 use super::NSUInteger;
 use crate::abi::DotDotDot;
 use crate::environment::Environment;
-use crate::mem::MutPtr;
+use crate::mem::{ConstPtr, MutPtr};
 use crate::objc::{
-    autorelease, id, msg, msg_class, nil, objc_classes, retain, ClassExports, HostObject, NSZonePtr,
+    autorelease, id, msg, msg_class, nil, objc_classes, release, retain, ClassExports, HostObject,
+    NSZonePtr,
 };
 
 /// Belongs to _touchHLE_NSSet
@@ -22,6 +23,14 @@ struct SetHostObject {
     dict: DictionaryHostObject,
 }
 impl HostObject for SetHostObject {}
+
+/// Retain one representative per distinct object, with a separate occurrence
+/// count. Equality is Objective-C equality, not guest pointer equality.
+#[derive(Default)]
+struct CountedSetHostObject {
+    objects: Vec<(id, NSUInteger)>,
+}
+impl HostObject for CountedSetHostObject {}
 
 pub const CLASSES: ClassExports = objc_classes! {
 
@@ -325,7 +334,207 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 @end
 
+@implementation NSCountedSet: NSMutableSet
+
++ (id)allocWithZone:(NSZonePtr)_zone {
+    env.objc.alloc_object(this, Box::<CountedSetHostObject>::default(), &mut env.mem)
+}
+
++ (id)setWithObjects:(id)first_obj, ...args {
+    let new: id = msg![env; this alloc];
+    let new: id = msg![env; new init];
+    counted_set_add_objects(env, new, first_obj, args);
+    autorelease(env, new)
+}
+
++ (id)setWithObjects:(ConstPtr<id>)objects count:(NSUInteger)count {
+    let new: id = msg![env; this alloc];
+    let new: id = msg![env; new initWithObjects:objects count:count];
+    autorelease(env, new)
+}
+
++ (id)setWithSet:(id)set {
+    let new: id = msg![env; this alloc];
+    let new: id = msg![env; new initWithSet:set];
+    autorelease(env, new)
+}
+
+- (id)initWithCapacity:(NSUInteger)capacity {
+    env.objc.borrow_mut::<CountedSetHostObject>(this).objects.reserve(capacity as usize);
+    this
+}
+
+- (id)initWithObject:(id)object {
+    () = msg![env; this addObject:object];
+    this
+}
+
+- (id)initWithObjects:(id)first_obj, ...args {
+    counted_set_add_objects(env, this, first_obj, args);
+    this
+}
+
+- (id)initWithObjects:(ConstPtr<id>)objects count:(NSUInteger)count {
+    for i in 0..count {
+        let object = env.mem.read(objects + i);
+        () = msg![env; this addObject:object];
+    }
+    this
+}
+
+- (id)initWithArray:(id)array {
+    let count: NSUInteger = msg![env; array count];
+    for i in 0..count {
+        let object: id = msg![env; array objectAtIndex:i];
+        () = msg![env; this addObject:object];
+    }
+    this
+}
+
+- (id)initWithSet:(id)set {
+    () = msg![env; this unionSet:set];
+    this
+}
+
+- (NSUInteger)count {
+    env.objc.borrow::<CountedSetHostObject>(this).objects.len().try_into().unwrap()
+}
+
+- (NSUInteger)countForObject:(id)object {
+    match counted_set_member_index(env, this, object) {
+        Some(idx) => env.objc.borrow::<CountedSetHostObject>(this).objects[idx].1,
+        None => 0,
+    }
+}
+
+- (id)member:(id)object {
+    match counted_set_member_index(env, this, object) {
+        Some(idx) => env.objc.borrow::<CountedSetHostObject>(this).objects[idx].0,
+        None => nil,
+    }
+}
+
+- (bool)containsObject:(id)object {
+    counted_set_member_index(env, this, object).is_some()
+}
+
+- (id)anyObject {
+    env.objc.borrow::<CountedSetHostObject>(this).objects.first().map_or(nil, |&(object, _)| object)
+}
+
+- (id)allObjects {
+    let objects = env.objc.borrow::<CountedSetHostObject>(this)
+        .objects.iter().map(|&(object, _)| object).collect::<Vec<_>>();
+    let objects = objects.into_iter().map(|object| retain(env, object)).collect();
+    let array = ns_array::from_vec(env, objects);
+    autorelease(env, array)
+}
+
+- (id)objectEnumerator {
+    let array: id = msg![env; this allObjects];
+    msg![env; array objectEnumerator]
+}
+
+- (NSUInteger)countByEnumeratingWithState:(MutPtr<NSFastEnumerationState>)state
+                                  objects:(MutPtr<id>)stackbuf
+                                    count:(NSUInteger)len {
+    fast_enumeration_helper(env, this, |env, idx| {
+        env.objc.borrow::<CountedSetHostObject>(this).objects
+            .get(idx as usize).map_or(nil, |&(object, _)| object)
+    }, state, stackbuf, len)
+}
+
+- (())addObject:(id)object {
+    assert!(object != nil);
+    if let Some(idx) = counted_set_member_index(env, this, object) {
+        let count = &mut env.objc.borrow_mut::<CountedSetHostObject>(this).objects[idx].1;
+        *count = count.checked_add(1).unwrap();
+    } else {
+        let object = retain(env, object);
+        env.objc.borrow_mut::<CountedSetHostObject>(this).objects.push((object, 1));
+    }
+}
+
+- (())removeObject:(id)object {
+    let Some(idx) = counted_set_member_index(env, this, object) else {
+        return;
+    };
+    let objects = &mut env.objc.borrow_mut::<CountedSetHostObject>(this).objects;
+    if objects[idx].1 > 1 {
+        objects[idx].1 -= 1;
+    } else {
+        let (object, _) = objects.remove(idx);
+        release(env, object);
+    }
+}
+
+- (())removeAllObjects {
+    let objects = std::mem::take(&mut env.objc.borrow_mut::<CountedSetHostObject>(this).objects);
+    for (object, _) in objects {
+        release(env, object);
+    }
+}
+
+- (())unionSet:(id)other {
+    let enumerator: id = msg![env; other objectEnumerator];
+    loop {
+        let next: id = msg![env; enumerator nextObject];
+        if next == nil {
+            break;
+        }
+        () = msg![env; this addObject:next];
+    }
+}
+
+- (id)copyWithZone:(NSZonePtr)zone {
+    counted_set_copy(env, this, zone)
+}
+- (id)mutableCopyWithZone:(NSZonePtr)zone {
+    counted_set_copy(env, this, zone)
+}
+
+- (())dealloc {
+    () = msg![env; this removeAllObjects];
+    env.objc.dealloc_object(this, &mut env.mem)
+}
+
+@end
+
 };
+
+fn counted_set_member_index(env: &mut Environment, set: id, object: id) -> Option<usize> {
+    let objects = env.objc.borrow::<CountedSetHostObject>(set).objects.clone();
+    objects
+        .iter()
+        .position(|&(candidate, _)| candidate == object || msg![env; candidate isEqual:object])
+}
+
+fn counted_set_add_objects(env: &mut Environment, set: id, first_obj: id, args: DotDotDot) {
+    if first_obj == nil {
+        return;
+    }
+    () = msg![env; set addObject:first_obj];
+    let mut varargs = args.start();
+    loop {
+        let next: id = varargs.next(env);
+        if next == nil {
+            break;
+        }
+        () = msg![env; set addObject:next];
+    }
+}
+
+fn counted_set_copy(env: &mut Environment, set: id, zone: NSZonePtr) -> id {
+    let objects = env.objc.borrow::<CountedSetHostObject>(set).objects.clone();
+    let new: id = msg_class![env; NSCountedSet allocWithZone:zone];
+    let new: id = msg![env; new init];
+    let objects = objects
+        .into_iter()
+        .map(|(object, count)| (retain(env, object), count))
+        .collect();
+    env.objc.borrow_mut::<CountedSetHostObject>(new).objects = objects;
+    new
+}
 
 /// Helper method shared between `initWithObjects:` of `_touchHLE_NSSet` and
 /// `_touchHLE_NSMutableSet`
