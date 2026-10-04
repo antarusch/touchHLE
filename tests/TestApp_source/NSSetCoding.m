@@ -53,10 +53,8 @@ int test_NSSet_coding(void) {
   NSArray *fixture =
       [NSArray arrayWithObjects:roots[0], roots[1], roots[2], nil];
   NSData *data = [NSKeyedArchiver archivedDataWithRootObject:fixture];
-  ok &= [data
-      writeToFile:[NSString
-                      stringWithUTF8String:"tests/TestApp.app/native_sets.bin"]
-       atomically:NO];
+  ok &= [data writeToFile:[NSString stringWithUTF8String:"native_sets.bin"]
+               atomically:NO];
 #endif
   [pool drain];
   return ok ? 0 : 1;

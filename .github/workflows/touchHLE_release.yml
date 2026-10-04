@@ -11,6 +11,30 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  native-set-archive:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify native set archive
+        run: |
+          mkdir -p tests/TestApp.app
+          cat > /tmp/set_archive_main.m <<'EOF'
+          #include <stdio.h>
+          int test_NSSet_coding(void);
+          int main(void) {
+            int result = test_NSSet_coding();
+            printf("Native set archive result: %d\n", result);
+            return result;
+          }
+          EOF
+          cc tests/TestApp_source/NSSetCoding.m /tmp/set_archive_main.m -framework CoreFoundation -framework Foundation -DDEFINE_ME_WHEN_BUILDING_ON_MACOS -o tests/TestApp.app/set-archive-probe
+          cd tests/TestApp.app
+          ./set-archive-probe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Native_Set_Archive
+          path: tests/TestApp.app/native_sets.bin
+
   build-osx:
 
     runs-on: macos-15
