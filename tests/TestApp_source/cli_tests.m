@@ -2058,6 +2058,7 @@ int test_Eustrath_NSCountedSet() {
 int test_Eustrath_character_sets() {
   NSCharacterSet *alphanumeric = [NSCharacterSet alphanumericCharacterSet];
   NSCharacterSet *digits = [NSCharacterSet decimalDigitCharacterSet];
+  NSCharacterSet *letters = [NSCharacterSet letterCharacterSet];
   if (![alphanumeric characterIsMember:'A'] ||
       ![alphanumeric characterIsMember:'7'] ||
       ![alphanumeric characterIsMember:0x0301] ||
@@ -2068,6 +2069,22 @@ int test_Eustrath_character_sets() {
       ![digits characterIsMember:0xFF12] || [digits characterIsMember:0x00B2] ||
       [digits characterIsMember:'A'])
     return -2;
+  // Foundation letters include Unicode marks as well as letters, but exclude
+  // all numeric categories (not only decimal digits).
+  const unsigned short included[] = {'A',    'z',    0x00E9, 0x01C5,
+                                     0x03A9, 0x0416, 0x0301, 0x0903,
+                                     0x20DD, 0x4E00, 0x3042};
+  const unsigned short excluded[] = {'7',    0x0663, 0xFF12, 0x00B2,
+                                     0x00BD, 0x2163, '_',    ' ',
+                                     0x200D, 0x0378, 0xD800, 0xE000};
+  for (NSUInteger i = 0; i < sizeof(included) / sizeof(included[0]); i++) {
+    if (![letters characterIsMember:included[i]])
+      return -3;
+  }
+  for (NSUInteger i = 0; i < sizeof(excluded) / sizeof(excluded[0]); i++) {
+    if ([letters characterIsMember:excluded[i]])
+      return -4;
+  }
   return 0;
 }
 

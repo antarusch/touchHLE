@@ -112,6 +112,7 @@ static inline NSRange NSMakeRange(NSUInteger loc, NSUInteger len) {
 
 @interface NSCharacterSet : NSObject
 + (instancetype)alphanumericCharacterSet;
++ (instancetype)letterCharacterSet;
 + (instancetype)decimalDigitCharacterSet;
 - (BOOL)characterIsMember:(unsigned short)character;
 @end
