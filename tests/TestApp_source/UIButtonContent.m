@@ -13,6 +13,9 @@
 }
 @end
 @implementation ButtonContentTestCoder
+- (BOOL)containsValueForKey:(NSString *)key {
+  return [values objectForKey:key] != nil;
+}
 - (id)decodeObjectForKey:(NSString *)key {
   return [values objectForKey:key];
 }
