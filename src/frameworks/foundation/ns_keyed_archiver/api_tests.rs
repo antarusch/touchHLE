@@ -88,6 +88,8 @@ fn archive_invocation_and_menu_round_trips() {
     let env = &mut env;
     let pool: id = msg_class![env; NSAutoreleasePool new];
     check_nib_scroll_view(env);
+    check_set_archives(env);
+    check_text_nib(env);
     // A token reader can inspect the full source without moving its cursor.
     let scanner_input = get_static_str(env, " Name42");
     let scanner: id = msg_class![env; NSScanner alloc];
@@ -360,4 +362,226 @@ fn check_nib_scroll_view(env: &mut Environment) {
     assert_eq!((center.x, center.y), (357.0, 117.0));
     release(env, scroll);
     release(env, coder);
+}
+
+fn check_set_graph(env: &mut Environment, decoded: id, class_name: &str) {
+    let restored: id = msg![env; decoded objectAtIndex:0u32];
+    let member: id = msg![env; decoded objectAtIndex:1u32];
+    let repeated: id = msg![env; decoded objectAtIndex:2u32];
+    let class = env.objc.get_known_class(class_name, &mut env.mem);
+    assert!(msg![env; restored isKindOfClass:class]);
+    assert_eq!(restored, repeated);
+    let count: u32 = msg![env; restored count];
+    assert_eq!(count, 2);
+    assert!(msg![env; restored containsObject:member]);
+    let members: id = msg![env; restored allObjects];
+    let first: id = msg![env; members objectAtIndex:0u32];
+    let second: id = msg![env; members objectAtIndex:1u32];
+    assert!(first == member || second == member);
+    if class_name == "NSCountedSet" {
+        let occurrences: u32 = msg![env; restored countForObject:member];
+        assert_eq!(occurrences, 2);
+        let other = if first == member { second } else { first };
+        let occurrences: u32 = msg![env; restored countForObject:other];
+        assert_eq!(occurrences, 1);
+    }
+    if class_name == "NSMutableSet" {
+        let extra = get_static_str(env, "gamma");
+        () = msg![env; restored addObject:extra];
+        let count: u32 = msg![env; restored count];
+        assert_eq!(count, 3);
+    }
+}
+
+fn data_from_bytes(env: &mut Environment, contents: &[u8]) -> id {
+    let length = contents.len().try_into().unwrap();
+    let bytes = env.mem.alloc(length);
+    env.mem
+        .bytes_at_mut(bytes.cast(), length)
+        .copy_from_slice(contents);
+    let data: id = msg_class![env; NSData dataWithBytes:(bytes.cast_const()) length:length];
+    env.mem.free(bytes);
+    data
+}
+
+fn check_set_archives(env: &mut Environment) {
+    let alpha = get_static_str(env, "alpha");
+    let beta = get_static_str(env, "beta");
+    let objects = vec![
+        crate::objc::retain(env, alpha),
+        crate::objc::retain(env, beta),
+        crate::objc::retain(env, alpha),
+    ];
+    let members = crate::frameworks::foundation::ns_array::from_vec(env, objects);
+    for class_name in ["NSSet", "NSMutableSet", "NSCountedSet"] {
+        let class = env.objc.get_known_class(class_name, &mut env.mem);
+        let set: id = msg![env; class alloc];
+        let set: id = msg![env; set initWithArray:members];
+        let first = crate::objc::retain(env, set);
+        let shared = crate::objc::retain(env, alpha);
+        let repeated = crate::objc::retain(env, set);
+        let root =
+            crate::frameworks::foundation::ns_array::from_vec(env, vec![first, shared, repeated]);
+        let data: id = msg_class![env; NSKeyedArchiver archivedDataWithRootObject:root];
+        let decoded: id = msg_class![env; NSKeyedUnarchiver unarchiveObjectWithData:data];
+        check_set_graph(env, decoded, class_name);
+        let count: u32 = msg![env; set count];
+        assert_eq!(count, 2);
+        let empty: id = msg![env; class new];
+        let data: id = msg_class![env; NSKeyedArchiver archivedDataWithRootObject:empty];
+        let restored: id = msg_class![env; NSKeyedUnarchiver unarchiveObjectWithData:data];
+        let count: u32 = msg![env; restored count];
+        assert_eq!(count, 0);
+        assert!(msg![env; restored isKindOfClass:class]);
+        for object in [set, root, empty] {
+            release(env, object);
+        }
+    }
+    release(env, members);
+    // CI's native Foundation test produces an independent Apple archive.
+    if let Some(path) = std::env::var_os("TOUCHHLE_SET_FIXTURE") {
+        let contents = std::fs::read(path).unwrap();
+        let data = data_from_bytes(env, &contents);
+        let decoded: id = msg_class![env; NSKeyedUnarchiver unarchiveObjectWithData:data];
+        for (index, class_name) in ["NSSet", "NSMutableSet", "NSCountedSet"].iter().enumerate() {
+            let root: id = msg![env; decoded objectAtIndex:(index as u32)];
+            check_set_graph(env, root, class_name);
+        }
+    }
+}
+
+fn check_text_nib(env: &mut Environment) {
+    use nibarchive::{ClassName, NIBArchive, Object, Value, ValueVariant};
+    let geometry = |components: &[f32]| {
+        let mut bytes = vec![6];
+        for component in components {
+            bytes.extend(component.to_le_bytes());
+        }
+        ValueVariant::Data(bytes)
+    };
+    let archive = NIBArchive::new(
+        vec![
+            Object::new(0, 0, 8),
+            Object::new(1, 8, 3),
+            Object::new(2, 11, 2),
+            Object::new(3, 13, 1),
+            Object::new(3, 14, 1),
+        ],
+        vec![
+            "UIBounds",
+            "UICenter",
+            "UIContentSize",
+            "UITextColor",
+            "UIFont",
+            "UIText",
+            "UITextAlignment",
+            "UIEditable",
+            "UIColorComponentCount",
+            "UIWhite",
+            "UIAlpha",
+            "UIFontName",
+            "UIFontPointSize",
+            "NS.bytes",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect(),
+        vec![
+            Value::new(0, geometry(&[0.0, 0.0, 400.0, 100.0])),
+            Value::new(1, geometry(&[200.0, 50.0])),
+            Value::new(2, geometry(&[400.0, 100.0])),
+            Value::new(3, ValueVariant::ObjectRef(1)),
+            Value::new(4, ValueVariant::ObjectRef(2)),
+            Value::new(5, ValueVariant::ObjectRef(3)),
+            Value::new(6, ValueVariant::Int8(1)),
+            Value::new(7, ValueVariant::Bool(false)),
+            Value::new(8, ValueVariant::Int8(2)),
+            Value::new(9, ValueVariant::Float(1.0)),
+            Value::new(10, ValueVariant::Float(1.0)),
+            Value::new(11, ValueVariant::ObjectRef(4)),
+            Value::new(12, ValueVariant::Double(24.0)),
+            Value::new(13, ValueVariant::Data(b"Bright dialogue".to_vec())),
+            Value::new(13, ValueVariant::Data(b"ArialMT".to_vec())),
+        ],
+        ["UITextView", "UIColor", "UIFont", "NSString"]
+            .into_iter()
+            .map(|name| ClassName::new(name.into(), vec![]))
+            .collect(),
+    )
+    .unwrap()
+    .to_bytes();
+    let data = data_from_bytes(env, &archive);
+    let coder: id = msg_class![env; _touchHLE_NIBArchiveDecoder alloc];
+    let coder: id = msg![env; coder _touchHLE_initForReadingWithData:data];
+    let view: id = msg_class![env; UITextView alloc];
+    let view: id = msg![env; view initWithCoder:coder];
+    let color: id = msg![env; view textColor];
+    assert_eq!(
+        crate::frameworks::uikit::ui_color::get_rgba(&env.objc, color),
+        (1.0, 1.0, 1.0, 1.0)
+    );
+    let font: id = msg![env; view font];
+    let point_size: f32 = msg![env; font pointSize];
+    assert_eq!(point_size, 24.0);
+    let text: id = msg![env; view text];
+    assert_eq!(
+        crate::frameworks::foundation::ns_string::to_rust_string(env, text),
+        "Bright dialogue"
+    );
+    let alignment: i32 = msg![env; view textAlignment];
+    assert_eq!(alignment, 1);
+    assert!(!msg![env; view isEditable]);
+    // Verify real text drawing produces white pixels, not black glyphs.
+    use crate::frameworks::core_graphics::{
+        cg_bitmap_context, cg_color_space, cg_context, cg_image,
+    };
+    use crate::frameworks::uikit::ui_graphics;
+    let pixels = env.mem.calloc(400 * 100 * 4);
+    let space = cg_color_space::CGColorSpaceCreateDeviceRGB(env);
+    let context = cg_bitmap_context::CGBitmapContextCreate(
+        env,
+        pixels,
+        400,
+        100,
+        8,
+        400 * 4,
+        space,
+        cg_image::kCGImageAlphaPremultipliedLast,
+    );
+    ui_graphics::UIGraphicsPushContext(env, context);
+    let bounds: CGRect = msg![env; view bounds];
+    () = msg![env; view drawRect:bounds];
+    ui_graphics::UIGraphicsPopContext(env);
+    let bytes = env.mem.bytes_at(pixels.cast(), 400 * 100 * 4);
+    assert!(bytes
+        .chunks_exact(4)
+        .any(|pixel| pixel[0] > 0 && pixel[1] > 0 && pixel[2] > 0));
+    cg_context::CGContextRelease(env, context);
+    cg_color_space::CGColorSpaceRelease(env, space);
+    env.mem.free(pixels);
+    // StageTitlePanel expands a narrow label before centring its full title.
+    let label: id = msg_class![env; UILabel alloc];
+    let initial = CGRect {
+        origin: CGPoint { x: 10.0, y: 20.0 },
+        size: CGSize {
+            width: 30.0,
+            height: 20.0,
+        },
+    };
+    let label: id = msg![env; label initWithFrame:initial];
+    let title = get_static_str(env, "An Unexpected Encounter");
+    () = msg![env; label setFont:font];
+    () = msg![env; label setText:title];
+    let expected: CGSize = msg![env; title sizeWithFont:font];
+    () = msg![env; label sizeToFit];
+    let fitted: CGRect = msg![env; label frame];
+    assert_eq!((fitted.origin.x, fitted.origin.y), (10.0, 20.0));
+    assert_eq!(
+        (fitted.size.width, fitted.size.height),
+        (expected.width, expected.height)
+    );
+    assert!(fitted.size.width > initial.size.width);
+    for object in [label, view, coder] {
+        release(env, object);
+    }
 }

@@ -135,6 +135,16 @@ pub const CLASSES: ClassExports = objc_classes! {
     )
 }
 
+- (f64)decodeDoubleForKey:(id)key { // NSString *
+    get_value_to_decode_for_key(env, this, key).map_or(0.0, |value| {
+        match value.value() {
+            ValueVariant::Double(value) => *value,
+            ValueVariant::Float(value) => f64::from(*value),
+            _ => unreachable!(),
+        }
+    })
+}
+
 - (NSInteger)decodeIntegerForKey:(id)key { // NSString *
     // TODO: Check bounds, raise NSRangeException if it doesn't fit
     get_value_to_decode_for_key(env, this, key).map_or(
@@ -152,6 +162,17 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 - (i32)decodeIntForKey:(id)key { // NSString *
     msg![env; this decodeIntegerForKey:key]
+}
+- (i64)decodeInt64ForKey:(id)key { // NSString *
+    get_value_to_decode_for_key(env, this, key).map_or(0, |value| {
+        match value.value() {
+            ValueVariant::Int8(value) => i64::from(*value),
+            ValueVariant::Int16(value) => i64::from(*value),
+            ValueVariant::Int32(value) => i64::from(*value),
+            ValueVariant::Int64(value) => *value,
+            _ => unreachable!(),
+        }
+    })
 }
 
 

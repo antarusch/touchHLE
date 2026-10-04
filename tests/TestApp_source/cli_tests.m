@@ -55,6 +55,7 @@ int test_CGAffineTransform(void);       // CGAffineTransform.c
 int test_RespondsToSelector(void);      // RespondsToSelector.m
 int test_Initialize(void);              // Initialize.m
 int test_NSDictionary_nil_source(void); // NSDictionaryNil.m
+int test_NSSet_coding(void);            // NSSetCoding.m
 
 #ifndef DEFINE_ME_WHEN_BUILDING_ON_MACOS
 int test_cpp_virtual_inheritance(void);             // CppVirtualInheritance.cpp
@@ -6869,6 +6870,7 @@ struct {
     FUNC_DEF(test_NSKeyedArchiver_NSDictionary_of_NSArray_of_NSStrings),
     FUNC_DEF(test_AutoreleasePool),
     FUNC_DEF(test_NSDictionary_nil_source),
+    FUNC_DEF(test_NSSet_coding),
     FUNC_DEF(test_NSNumber_stringValue),
     FUNC_DEF(test_NSMethodSignature),
     FUNC_DEF(test_NSInvocation),

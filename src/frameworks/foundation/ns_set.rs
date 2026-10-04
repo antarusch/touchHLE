@@ -9,8 +9,10 @@ use super::ns_array;
 use super::ns_dictionary::DictionaryHostObject;
 use super::ns_enumerator::{fast_enumeration_helper, NSFastEnumerationState};
 use super::NSUInteger;
+use super::{_nib_archive_decoder, ns_keyed_unarchiver};
 use crate::abi::DotDotDot;
 use crate::environment::Environment;
+use crate::frameworks::foundation::ns_string::{from_rust_string, get_static_str};
 use crate::mem::{ConstPtr, MutPtr};
 use crate::objc::{
     autorelease, id, msg, msg_class, nil, objc_classes, release, retain, ClassExports, HostObject,
@@ -74,6 +76,12 @@ pub const CLASSES: ClassExports = objc_classes! {
     let new: id = msg![env; this alloc];
     env.objc.borrow_mut::<SetHostObject>(new).dict = set_from_objects(env, first_obj, args);
     autorelease(env, new)
+}
+
+- (())encodeWithCoder:(id)coder {
+    // NSSet uses the same keyed object-list format as NSArray.
+    let objects: id = msg![env; this allObjects];
+    () = msg![env; objects encodeWithCoder:coder];
 }
 
 // NSCopying implementation
@@ -181,6 +189,10 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.alloc_object(this, host_object, &mut env.mem)
 }
 
+- (id)initWithCoder:(id)coder {
+    init_with_coder(env, this, coder)
+}
+
 - (id)initWithObject:(id)object {
     let null: id = msg_class![env; NSNull null];
 
@@ -262,6 +274,10 @@ pub const CLASSES: ClassExports = objc_classes! {
         dict: Default::default(),
     });
     env.objc.alloc_object(this, host_object, &mut env.mem)
+}
+
+- (id)initWithCoder:(id)coder {
+    init_with_coder(env, this, coder)
 }
 
 - (id)initWithObject:(id)object {
@@ -400,6 +416,39 @@ pub const CLASSES: ClassExports = objc_classes! {
     let new: id = msg![env; this alloc];
     let new: id = msg![env; new initWithSet:set];
     autorelease(env, new)
+}
+
+- (())encodeWithCoder:(id)coder {
+    let objects = env.objc.borrow::<CountedSetHostObject>(this).objects.clone();
+    let key = get_static_str(env, "NS.count");
+    () = msg![env; coder encodeInt64:(objects.len() as i64) forKey:key];
+    for (index, (object, count)) in objects.into_iter().enumerate() {
+        let key = from_rust_string(env, format!("NS.object{index}"));
+        () = msg![env; coder encodeObject:object forKey:key];
+        release(env, key);
+        let key = from_rust_string(env, format!("NS.count{index}"));
+        () = msg![env; coder encodeInt64:(i64::from(count)) forKey:key];
+        release(env, key);
+    }
+}
+
+- (id)initWithCoder:(id)coder {
+    let key = get_static_str(env, "NS.count");
+    let count: i64 = msg![env; coder decodeInt64ForKey:key];
+    let count: u32 = count.try_into().unwrap();
+    for index in 0..count {
+        let key = from_rust_string(env, format!("NS.object{index}"));
+        let object: id = msg![env; coder decodeObjectForKey:key];
+        release(env, key);
+        let key = from_rust_string(env, format!("NS.count{index}"));
+        let occurrences: i64 = msg![env; coder decodeInt64ForKey:key];
+        release(env, key);
+        let occurrences: NSUInteger = occurrences.try_into().unwrap();
+        assert!(object != nil && occurrences != 0);
+        let object = retain(env, object);
+        env.objc.borrow_mut::<CountedSetHostObject>(this).objects.push((object, occurrences));
+    }
+    this
 }
 
 - (id)initWithCapacity:(NSUInteger)capacity {
@@ -609,4 +658,28 @@ fn set_from_array(env: &mut Environment, array: id) -> DictionaryHostObject {
         dict.insert(env, next, null, /* copy_key: */ false);
     }
     dict
+}
+
+fn init_with_coder(env: &mut Environment, set: id, coder: id) -> id {
+    let class: id = msg![env; coder class];
+    let keyed = env.objc.get_known_class("NSKeyedUnarchiver", &mut env.mem);
+    let nib = env
+        .objc
+        .get_known_class("_touchHLE_NIBArchiveDecoder", &mut env.mem);
+    let objects = if env.objc.class_is_subclass_of(class, keyed) {
+        ns_keyed_unarchiver::decode_current_array(env, coder)
+    } else if env.objc.class_is_subclass_of(class, nib) {
+        _nib_archive_decoder::decode_current_array(env, coder)
+    } else {
+        unimplemented!("NSSet archive reader")
+    };
+    let null: id = msg_class![env; NSNull null];
+    let mut dict = DictionaryHostObject::default();
+    for object in objects {
+        dict.insert(env, object, null, false);
+        release(env, object);
+    }
+    assert_eq!(env.objc.borrow::<SetHostObject>(set).dict.count, 0);
+    env.objc.borrow_mut::<SetHostObject>(set).dict = dict;
+    set
 }

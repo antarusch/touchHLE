@@ -92,6 +92,8 @@ static inline NSRange NSMakeRange(NSUInteger loc, NSUInteger len) {
 @end
 
 @interface NSSet<ObjectType> : NSObject
+- (instancetype)initWithArray:(NSArray *)array;
+- (BOOL)containsObject:(id)object;
 - (ObjectType)anyObject;
 - (NSUInteger)count;
 - (NSArray *)allObjects;

@@ -8,7 +8,7 @@
 use crate::frameworks::core_graphics::cg_context::CGContextSetRGBFillColor;
 use crate::frameworks::core_graphics::cg_geometry::CGPointZero;
 use crate::frameworks::core_graphics::{CGFloat, CGPoint, CGRect, CGSize};
-use crate::frameworks::foundation::ns_string::to_rust_string;
+use crate::frameworks::foundation::ns_string::{get_static_str, to_rust_string};
 use crate::frameworks::foundation::{NSRange, NSUInteger};
 use crate::frameworks::uikit::ui_color;
 use crate::frameworks::uikit::ui_font::{
@@ -93,9 +93,21 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (id)initWithCoder:(id)coder {
     let this: id = msg_super![env; this initWithCoder:coder];
-    // These aren't redundant, the setters fetch the real defaults.
-    () = msg![env; this setFont:nil];
-    () = msg![env; this setTextColor:nil];
+    let key = get_static_str(env, "UIFont");
+    let font: id = msg![env; coder decodeObjectForKey:key];
+    () = msg![env; this setFont:font];
+    let key = get_static_str(env, "UITextColor");
+    let color: id = msg![env; coder decodeObjectForKey:key];
+    () = msg![env; this setTextColor:color];
+    let key = get_static_str(env, "UITextAlignment");
+    let alignment: UITextAlignment = msg![env; coder decodeIntegerForKey:key];
+    () = msg![env; this setTextAlignment:alignment];
+    let key = get_static_str(env, "UIEditable");
+    let editable: bool = msg![env; coder decodeBoolForKey:key];
+    () = msg![env; this setEditable:editable];
+    let key = get_static_str(env, "UIText");
+    let text: id = msg![env; coder decodeObjectForKey:key];
+    () = msg![env; this setText:text];
     this
 }
 

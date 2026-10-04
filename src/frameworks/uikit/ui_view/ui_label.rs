@@ -65,8 +65,25 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (id)initWithCoder:(id)coder {
     let this: id = msg_super![env; this initWithCoder:coder];
 
-    // TODO: Decode other property values from the coder
-    () = msg![env; this setFont:nil];
+    let key_ns_string = get_static_str(env, "UIFont");
+    let font: id = msg![env; coder decodeObjectForKey:key_ns_string];
+    () = msg![env; this setFont:font];
+    for (key, property) in [
+        ("UITextAlignment", 0),
+        ("UINumberOfLines", 1),
+        ("UILineBreakMode", 2),
+    ] {
+        let key = get_static_str(env, key);
+        if msg![env; coder containsValueForKey:key] {
+            let value: NSInteger = msg![env; coder decodeIntegerForKey:key];
+            match property {
+                0 => { () = msg![env; this setTextAlignment:value]; }
+                1 => { () = msg![env; this setNumberOfLines:value]; }
+                2 => { () = msg![env; this setLineBreakMode:value]; }
+                _ => unreachable!(),
+            }
+        }
+    }
 
     let key_ns_string = get_static_str(env, "UIText");
     let text: id = msg![env; coder decodeObjectForKey:key_ns_string];
@@ -241,6 +258,21 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (NSInteger)numberOfLines {
     env.objc.borrow::<UILabelHostObject>(this).number_of_lines
+}
+
+- (CGSize)sizeThatFits:(CGSize)size {
+    let label = env.objc.borrow::<UILabelHostObject>(this);
+    let (text, font, lines, mode) = (label.text, label.font, label.number_of_lines, label.line_break_mode);
+    if lines == 1 {
+        return msg![env; text sizeWithFont:font];
+    }
+    let limit = CGSize { width: size.width, height: f32::MAX };
+    let mut measured: CGSize = msg![env; text sizeWithFont:font constrainedToSize:limit lineBreakMode:mode];
+    if lines > 0 {
+        let line_height: CGFloat = msg![env; font lineHeight];
+        measured.height = measured.height.min(lines as CGFloat * line_height);
+    }
+    measured
 }
 - (())setNumberOfLines:(NSInteger)number {
     env.objc.borrow_mut::<UILabelHostObject>(this).number_of_lines = number;

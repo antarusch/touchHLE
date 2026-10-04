@@ -1003,7 +1003,9 @@ pub const CLASSES: ClassExports = objc_classes! {
     size
 }
 - (())sizeToFit {
-    log!("TODO: [(UIView *){:?} sizeToFit]", this);
+    let mut frame: CGRect = msg![env; this frame];
+    frame.size = msg![env; this sizeThatFits:(frame.size)];
+    () = msg![env; this setFrame:frame];
 }
 
 - (())setContentScaleFactor:(CGFloat)factor {

@@ -9,9 +9,9 @@ use super::ui_graphics::UIGraphicsGetCurrentContext;
 use crate::font::{Font, TextAlignment, WrapMode};
 use crate::frameworks::core_graphics::cg_bitmap_context::CGBitmapContextDrawer;
 use crate::frameworks::core_graphics::{CGFloat, CGPoint, CGRect, CGSize};
-use crate::frameworks::foundation::ns_string::to_rust_string;
+use crate::frameworks::foundation::ns_string::{get_static_str, to_rust_string};
 use crate::frameworks::foundation::NSInteger;
-use crate::objc::{autorelease, id, msg, objc_classes, ClassExports, HostObject};
+use crate::objc::{autorelease, id, msg, nil, objc_classes, ClassExports, HostObject, NSZonePtr};
 use crate::Environment;
 use std::collections::HashMap;
 use std::ops::Range;
@@ -95,6 +95,11 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 @implementation UIFont: NSObject
 
++ (id)allocWithZone:(NSZonePtr)_zone {
+    let object = UIFontHostObject { size: 17.0, kind: FontKind::SansRegular };
+    env.objc.alloc_object(this, Box::new(object), &mut env.mem)
+}
+
 // Values are checked against iPhone 3GS, iOS 4.0.1
 + (CGFloat)labelFontSize {
     17.0
@@ -145,6 +150,24 @@ pub const CLASSES: ClassExports = objc_classes! {
     };
     let new = env.objc.alloc_object(this, Box::new(host_object), &mut env.mem);
     autorelease(env, new)
+}
+
+- (id)initWithCoder:(id)coder {
+    let key = get_static_str(env, "UIFontName");
+    let name: id = msg![env; coder decodeObjectForKey:key];
+    let kind = if name == nil {
+        FontKind::SansRegular
+    } else {
+        get_equivalent_font(&to_rust_string(env, name)).unwrap_or(FontKind::SansRegular)
+    };
+    let key = get_static_str(env, "UIFontPointSize");
+    let size: f64 = msg![env; coder decodeDoubleForKey:key];
+    *env.objc.borrow_mut(this) = UIFontHostObject { size: size as CGFloat, kind };
+    this
+}
+
+- (CGFloat)pointSize {
+    env.objc.borrow::<UIFontHostObject>(this).size
 }
 
 - (CGFloat)ascender {
