@@ -754,22 +754,26 @@ impl Environment {
 
         let launch_image = None;
 
-        assert!(!options.headless);
-        let window = Some(Box::new(window::Window::new(
-            &format!(
-                "touchHLE {}{}{}",
-                super::branding(),
-                if super::branding().is_empty() {
-                    ""
-                } else {
-                    " "
-                },
-                super::VERSION
-            ),
-            Some(icon),
-            launch_image,
-            &options,
-        )));
+        let window = if cfg!(test) && options.headless {
+            None
+        } else {
+            assert!(!options.headless);
+            Some(Box::new(window::Window::new(
+                &format!(
+                    "touchHLE {}{}{}",
+                    super::branding(),
+                    if super::branding().is_empty() {
+                        ""
+                    } else {
+                        " "
+                    },
+                    super::VERSION
+                ),
+                Some(icon),
+                launch_image,
+                &options,
+            )))
+        };
 
         let mut mem = mem::Mem::new();
 

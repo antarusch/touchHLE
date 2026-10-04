@@ -87,8 +87,14 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 + (id)instanceMethodSignatureForSelector:(SEL)sel {
     // TODO: support `host` method signatures
-    let sig = *env.objc.class_get_method_signature(this, sel).unwrap();
-    log_dbg!("instanceMethodSignatureForSelector: '{}' -> {:?}", sel.as_str(&env.mem), env.mem.cstr_at_utf8(sig));
+    let Some(sig) = env.objc.class_get_method_signature(this, sel).copied() else {
+        return nil;
+    };
+    log_dbg!(
+        "instanceMethodSignatureForSelector: '{}' -> {:?}",
+        sel.as_str(&env.mem),
+        env.mem.cstr_at_utf8(sig)
+    );
     msg_class![env; NSMethodSignature signatureWithObjCTypes:sig]
 }
 
@@ -98,6 +104,19 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (id)init {
     this
+}
+
+- (id)methodSignatureForSelector:(SEL)selector {
+    let class = crate::objc::ObjC::read_isa(this, &env.mem);
+    let signature = env
+        .objc
+        .class_get_method_signature(class, selector)
+        .copied();
+    if let Some(signature) = signature {
+        msg_class![env; NSMethodSignature signatureWithObjCTypes:signature]
+    } else {
+        nil
+    }
 }
 
 - (NSUInteger)retainCount {

@@ -28,7 +28,7 @@ use std::time::{Duration, Instant};
 
 #[derive(Default)]
 pub(super) struct State {
-    texture_framebuffer: Option<(GLuint, GLuint)>,
+    texture_framebuffer: Option<(GLuint, GLuint, GLuint)>,
     recomposite_next: Option<Instant>,
     fps_counter: Option<FpsCounter>,
     misc_gl_objects: Option<MiscGlObjects>,
@@ -158,7 +158,7 @@ pub fn recomposite_if_necessary(env: &mut Environment, force: bool) -> Option<In
     // Set up GL objects needed for render-to-texture. We could draw directly
     // to the screen instead, but this way we can reuse the code for scaling and
     // rotating the screen and drawing the virtual cursor.
-    let texture = if let Some((texture, framebuffer)) = env
+    let texture = if let Some((texture, framebuffer, _stencil)) = env
         .framework_state
         .core_animation
         .composition
@@ -205,16 +205,31 @@ pub fn recomposite_if_necessary(env: &mut Environment, force: bool) -> Option<In
                 texture,
                 0,
             );
+            let mut stencil = 0;
+            gles.GenRenderbuffersOES(1, &mut stencil);
+            gles.BindRenderbufferOES(gles11::RENDERBUFFER_OES, stencil);
+            gles.RenderbufferStorageOES(
+                gles11::RENDERBUFFER_OES,
+                0x8D48, /* STENCIL_INDEX8 */
+                fb_width as _,
+                fb_height as _,
+            );
+            gles.FramebufferRenderbufferOES(
+                gles11::FRAMEBUFFER_OES,
+                gles11::STENCIL_ATTACHMENT_OES,
+                gles11::RENDERBUFFER_OES,
+                stencil,
+            );
+            env.framework_state
+                .core_animation
+                .composition
+                .texture_framebuffer = Some((texture, framebuffer, stencil));
             assert_eq!(gles.GetError(), 0);
             assert_eq!(
                 gles.CheckFramebufferStatusOES(gles11::FRAMEBUFFER_OES),
                 gles11::FRAMEBUFFER_COMPLETE_OES
             );
         }
-        env.framework_state
-            .core_animation
-            .composition
-            .texture_framebuffer = Some((texture, framebuffer));
         texture
     };
 
@@ -304,7 +319,10 @@ pub fn recomposite_if_necessary(env: &mut Environment, force: bool) -> Option<In
     unsafe {
         gles.Viewport(0, 0, fb_width as _, fb_height as _);
         gles.ClearColor(0.0, 0.0, 0.0, 1.0);
-        gles.Clear(gles11::COLOR_BUFFER_BIT);
+        gles.Disable(gles11::STENCIL_TEST);
+        gles.StencilMask(u32::MAX);
+        gles.ClearStencil(0);
+        gles.Clear(gles11::COLOR_BUFFER_BIT | gles11::STENCIL_BUFFER_BIT);
         gles.Color4f(1.0, 1.0, 1.0, 1.0);
 
         gles.MatrixMode(gles11::PROJECTION);
@@ -340,6 +358,8 @@ pub fn recomposite_if_necessary(env: &mut Environment, force: bool) -> Option<In
                 root_layer,
                 cumulative_transform,
                 opacity,
+                0,
+                None,
             );
         }
     }
@@ -415,19 +435,28 @@ unsafe fn composite_layer_recursive(
     layer: id,
     cumulative_transform: Matrix<4>,
     opacity: CGFloat,
+    stencil_depth: u32,
+    presentation: Option<CALayerHostObject>,
 ) {
-    // TODO: this can't handle zPosition among other things, but it is not
-    //       supported yet :)
     // TODO: back-to-front drawing is not efficient, could we use front-to-back?
 
     // This is both acting as the presentationLayer and the private render layer
     // It might need to be reworked in the future into a guest presentationLayer
-    let host_obj = animation_state.create_presentation_layer(env, layer);
+    let host_obj =
+        presentation.unwrap_or_else(|| animation_state.create_presentation_layer(env, layer));
 
     if host_obj.hidden {
         return;
     }
 
+    let quad_buffer = env
+        .framework_state
+        .core_animation
+        .composition
+        .misc_gl_objects
+        .as_ref()
+        .unwrap()
+        .basic_square_buffer;
     let window = env.window.as_mut().unwrap();
     let mut gles = window.make_internal_gl_ctx_current();
 
@@ -436,9 +465,7 @@ unsafe fn composite_layer_recursive(
         let CALayerHostObject { bounds, .. } = host_obj;
 
         // Update the transform to match this layer's co-ordinate space.
-        let cumulative_transform =
-            <Matrix<4> as From<_>>::from(host_obj.superlayer_to_layer_transform())
-                .multiply(&cumulative_transform);
+        let cumulative_transform = host_obj.render_transform().multiply(&cumulative_transform);
 
         // Reposition and scale the unit quad (see ARRAY_BUFFER binding)
         // so it will have the right size in this layer's co-ordinate space.
@@ -452,6 +479,26 @@ unsafe fn composite_layer_recursive(
 
         cumulative_transform
     };
+
+    let clipped = host_obj.masks_to_bounds;
+    let depth = stencil_depth + u32::from(clipped);
+    if clipped {
+        change_stencil(
+            quad_buffer,
+            gles.as_mut(),
+            cumulative_transform,
+            host_obj.bounds,
+            stencil_depth,
+            true,
+        );
+    }
+    if depth > 0 {
+        gles.Enable(gles11::STENCIL_TEST);
+        gles.StencilFunc(gles11::EQUAL, depth as _, u32::MAX);
+        gles.StencilOp(gles11::KEEP, gles11::KEEP, gles11::KEEP);
+    } else {
+        gles.Disable(gles11::STENCIL_TEST);
+    }
 
     // Draw background color, if any
     let have_background = if let Some(background_color) = host_obj.background_color {
@@ -595,6 +642,16 @@ unsafe fn composite_layer_recursive(
 
     // Draw texture, if any
     if need_texture {
+        if host_obj.contents_gravity != "resize" && host_obj.contents != nil {
+            let (width, height) = cg_image::borrow_image(&env.objc, host_obj.contents).dimensions();
+            let rect = gravity_rect(&host_obj.contents_gravity, (width, height), host_obj.bounds);
+            load_matrix(
+                gles.as_mut(),
+                Matrix::<4>::from(&Matrix::scale_2d(rect.size.width, rect.size.height))
+                    .multiply(&Matrix::translate_3d(rect.origin.x, rect.origin.y, 0.0))
+                    .multiply(&cumulative_transform),
+            );
+        }
         let stretch_mesh = if host_obj.contents_center != DEFAULT_CONTENTS_CENTER {
             let dimensions = if host_obj.contents != nil {
                 cg_image::borrow_image(&env.objc, host_obj.contents).dimensions()
@@ -688,19 +745,193 @@ unsafe fn composite_layer_recursive(
             0 as *const GLvoid,
         );
     }
+    if let Some(color) = host_obj.border_color {
+        let width = host_obj
+            .border_width
+            .min(host_obj.bounds.size.width * 0.5)
+            .min(host_obj.bounds.size.height * 0.5);
+        if width > 0.0 {
+            let b = host_obj.bounds;
+            let rects = [
+                CGRect {
+                    origin: b.origin,
+                    size: CGSize {
+                        width: b.size.width,
+                        height: width,
+                    },
+                },
+                CGRect {
+                    origin: crate::frameworks::core_graphics::CGPoint {
+                        x: b.origin.x,
+                        y: b.origin.y + b.size.height - width,
+                    },
+                    size: CGSize {
+                        width: b.size.width,
+                        height: width,
+                    },
+                },
+                CGRect {
+                    origin: crate::frameworks::core_graphics::CGPoint {
+                        x: b.origin.x,
+                        y: b.origin.y + width,
+                    },
+                    size: CGSize {
+                        width,
+                        height: b.size.height - 2.0 * width,
+                    },
+                },
+                CGRect {
+                    origin: crate::frameworks::core_graphics::CGPoint {
+                        x: b.origin.x + b.size.width - width,
+                        y: b.origin.y + width,
+                    },
+                    size: CGSize {
+                        width,
+                        height: b.size.height - 2.0 * width,
+                    },
+                },
+            ];
+            gles.Disable(gles11::TEXTURE_2D);
+            gles.DisableClientState(gles11::TEXTURE_COORD_ARRAY);
+            gles.Enable(gles11::BLEND);
+            gles.BlendFunc(gles11::ONE, gles11::ONE_MINUS_SRC_ALPHA);
+            gles.Color4f(
+                color.r * color.a * opacity,
+                color.g * color.a * opacity,
+                color.b * color.a * opacity,
+                color.a * opacity,
+            );
+            for rect in rects {
+                draw_quad(quad_buffer, gles.as_mut(), cumulative_transform, rect);
+            }
+        }
+    }
     std::mem::drop(gles);
 
-    // avoid holding mutable borrow while recursing
-    let original_host_obj = env.objc.borrow_mut::<CALayerHostObject>(layer);
-    for &child_layer in &original_host_obj.sublayers.clone() {
-        // TODO: clipping/masksToBounds support
+    let mut children: Vec<_> = host_obj
+        .sublayers
+        .iter()
+        .map(|&child| (child, animation_state.create_presentation_layer(env, child)))
+        .collect();
+    // Stable sorting preserves insertion order at equal presentation depth.
+    children.sort_by(|(_, a), (_, b)| a.z_position.total_cmp(&b.z_position));
+    for (child, presentation) in children {
         composite_layer_recursive(
             env,
             animation_state,
-            child_layer,
+            child,
             cumulative_transform,
             opacity,
-        )
+            depth,
+            Some(presentation),
+        );
+    }
+    if clipped {
+        let mut gles = env.window.as_mut().unwrap().make_internal_gl_ctx_current();
+        change_stencil(
+            quad_buffer,
+            gles.as_mut(),
+            cumulative_transform,
+            host_obj.bounds,
+            depth,
+            false,
+        );
+    }
+}
+
+unsafe fn draw_quad(quad_buffer: GLuint, gles: &mut dyn GLES, transform: Matrix<4>, rect: CGRect) {
+    load_matrix(
+        gles,
+        Matrix::<4>::from(&Matrix::scale_2d(rect.size.width, rect.size.height))
+            .multiply(&Matrix::translate_3d(rect.origin.x, rect.origin.y, 0.0))
+            .multiply(&transform),
+    );
+    gles.EnableClientState(gles11::VERTEX_ARRAY);
+    gles.BindBuffer(gles11::ARRAY_BUFFER, quad_buffer);
+    gles.VertexPointer(2, gles11::FLOAT, 0, std::ptr::null());
+    gles.DrawElements(
+        gles11::TRIANGLES,
+        SQUARE_INDICES.len() as _,
+        gles11::UNSIGNED_BYTE,
+        std::ptr::null(),
+    );
+}
+
+unsafe fn change_stencil(
+    quad_buffer: GLuint,
+    gles: &mut dyn GLES,
+    transform: Matrix<4>,
+    rect: CGRect,
+    depth: u32,
+    increment: bool,
+) {
+    gles.Enable(gles11::STENCIL_TEST);
+    gles.StencilMask(u32::MAX);
+    gles.StencilFunc(gles11::EQUAL, depth as _, u32::MAX);
+    gles.StencilOp(
+        gles11::KEEP,
+        gles11::KEEP,
+        if increment {
+            gles11::INCR
+        } else {
+            gles11::DECR
+        },
+    );
+    gles.ColorMask(0, 0, 0, 0);
+    gles.Disable(gles11::TEXTURE_2D);
+    gles.DisableClientState(gles11::TEXTURE_COORD_ARRAY);
+    draw_quad(quad_buffer, gles, transform, rect);
+    gles.ColorMask(1, 1, 1, 1);
+    gles.StencilOp(gles11::KEEP, gles11::KEEP, gles11::KEEP);
+    if depth == 1 && !increment {
+        gles.Disable(gles11::STENCIL_TEST);
+    } else {
+        gles.StencilFunc(
+            gles11::EQUAL,
+            (if increment { depth + 1 } else { depth - 1 }) as _,
+            u32::MAX,
+        );
+    }
+}
+
+fn gravity_rect(gravity: &str, source: (u32, u32), bounds: CGRect) -> CGRect {
+    let (mut width, mut height) = (source.0 as f32, source.1 as f32);
+    if width == 0.0 || height == 0.0 {
+        return bounds;
+    }
+    if gravity == "resizeAspect" || gravity == "resizeAspectFill" {
+        let x = bounds.size.width / width;
+        let y = bounds.size.height / height;
+        let scale = if gravity == "resizeAspect" {
+            x.min(y)
+        } else {
+            x.max(y)
+        };
+        width *= scale;
+        height *= scale;
+    } else if gravity == "resize" {
+        return bounds;
+    }
+    let x = if gravity.contains("Left") || gravity == "left" {
+        0.0
+    } else if gravity.contains("Right") || gravity == "right" {
+        bounds.size.width - width
+    } else {
+        (bounds.size.width - width) * 0.5
+    };
+    let y = if gravity.starts_with("top") {
+        0.0
+    } else if gravity.starts_with("bottom") {
+        bounds.size.height - height
+    } else {
+        (bounds.size.height - height) * 0.5
+    };
+    CGRect {
+        origin: crate::frameworks::core_graphics::CGPoint {
+            x: bounds.origin.x + x,
+            y: bounds.origin.y + y,
+        },
+        size: CGSize { width, height },
     }
 }
 

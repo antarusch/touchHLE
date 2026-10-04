@@ -73,6 +73,8 @@ type ContextState = (
     CGBlendMode,                          // blend mode
     CGFloat,                              // line width
     (CGFloat, CGFloat, CGFloat, CGFloat), // RGB stroke color
+    i32,                                  // line cap
+    (CGFloat, Vec<CGFloat>),              // dash phase and pattern
 );
 
 pub(super) struct CGContextHostObject {
@@ -80,6 +82,9 @@ pub(super) struct CGContextHostObject {
     pub(super) rgb_fill_color: (CGFloat, CGFloat, CGFloat, CGFloat),
     pub(super) rgb_stroke_color: (CGFloat, CGFloat, CGFloat, CGFloat),
     pub(super) line_width: CGFloat,
+    pub(super) line_cap: i32,
+    pub(super) line_dash: (CGFloat, Vec<CGFloat>),
+    pub(super) path: super::cg_path::PathData,
     pub(super) font: CGFontRef,
     pub(super) font_size: CGFloat,
     /// Current transform.
@@ -165,7 +170,7 @@ fn CGContextSetGrayStrokeColor(
 ) {
     CGContextSetRGBStrokeColor(env, context, gray, gray, gray, alpha);
 }
-fn CGContextSetRGBStrokeColor(
+pub fn CGContextSetRGBStrokeColor(
     env: &mut Environment,
     context: CGContextRef,
     r: CGFloat,
@@ -303,6 +308,8 @@ fn CGContextSaveGState(env: &mut Environment, context: CGContextRef) {
         host_obj.blend_mode,
         host_obj.line_width,
         host_obj.rgb_stroke_color,
+        host_obj.line_cap,
+        host_obj.line_dash.clone(),
     ));
     CGFontRetain(env, env.objc.borrow::<CGContextHostObject>(context).font);
 }
@@ -323,6 +330,126 @@ fn CGContextRestoreGState(env: &mut Environment, context: CGContextRef) {
     host_obj.blend_mode = state.4;
     host_obj.line_width = state.5;
     host_obj.rgb_stroke_color = state.6;
+    host_obj.line_cap = state.7;
+    host_obj.line_dash = state.8;
+}
+
+fn CGContextBeginPath(env: &mut Environment, context: CGContextRef) {
+    env.objc
+        .borrow_mut::<CGContextHostObject>(context)
+        .path
+        .subpaths
+        .clear();
+}
+fn CGContextMoveToPoint(env: &mut Environment, context: CGContextRef, x: CGFloat, y: CGFloat) {
+    let host = env.objc.borrow_mut::<CGContextHostObject>(context);
+    let point = host.transform.apply_to_point(CGPoint { x, y });
+    host.path.subpaths.push(vec![point]);
+}
+fn CGContextAddLineToPoint(env: &mut Environment, context: CGContextRef, x: CGFloat, y: CGFloat) {
+    let host = env.objc.borrow_mut::<CGContextHostObject>(context);
+    let point = host.transform.apply_to_point(CGPoint { x, y });
+    if let Some(points) = host.path.subpaths.last_mut() {
+        points.push(point);
+    } else {
+        host.path.subpaths.push(vec![point]);
+    }
+}
+fn CGContextAddLines(
+    env: &mut Environment,
+    context: CGContextRef,
+    points: ConstPtr<CGPoint>,
+    count: GuestUSize,
+) {
+    for i in 0..count {
+        let point = env.mem.read(points + i);
+        if i == 0 {
+            CGContextMoveToPoint(env, context, point.x, point.y);
+        } else {
+            CGContextAddLineToPoint(env, context, point.x, point.y);
+        }
+    }
+}
+fn CGContextClosePath(env: &mut Environment, context: CGContextRef) {
+    if let Some(points) = env
+        .objc
+        .borrow_mut::<CGContextHostObject>(context)
+        .path
+        .subpaths
+        .last_mut()
+    {
+        if let Some(first) = points.first().copied() {
+            points.push(first);
+        }
+    }
+}
+fn CGContextSetLineCap(env: &mut Environment, context: CGContextRef, cap: i32) {
+    env.objc.borrow_mut::<CGContextHostObject>(context).line_cap = cap;
+}
+fn CGContextSetLineDash(
+    env: &mut Environment,
+    context: CGContextRef,
+    phase: CGFloat,
+    lengths: ConstPtr<CGFloat>,
+    count: GuestUSize,
+) {
+    let lengths: Vec<_> = (0..count).map(|i| env.mem.read(lengths + i)).collect();
+    assert!(lengths
+        .iter()
+        .all(|length| length.is_finite() && *length >= 0.0));
+    env.objc
+        .borrow_mut::<CGContextHostObject>(context)
+        .line_dash = (phase, lengths);
+}
+fn CGContextStrokePath(env: &mut Environment, context: CGContextRef) {
+    cg_bitmap_context::stroke_path(env, context);
+}
+
+#[cfg(test)]
+pub(crate) fn integration_check(env: &mut Environment) {
+    use super::cg_color_space::{CGColorSpaceCreateDeviceRGB, CGColorSpaceRelease};
+    use super::cg_image::kCGImageAlphaPremultipliedLast;
+    let color_space = CGColorSpaceCreateDeviceRGB(env);
+    let pixels = env.mem.calloc(16 * 8 * 4);
+    let context = cg_bitmap_context::CGBitmapContextCreate(
+        env,
+        pixels,
+        16,
+        8,
+        8,
+        64,
+        color_space,
+        kCGImageAlphaPremultipliedLast,
+    );
+    CGContextSetRGBStrokeColor(env, context, 1.0, 0.0, 0.0, 1.0);
+    CGContextSetLineWidth(env, context, 2.0);
+    let lengths: crate::mem::MutPtr<f32> = env.mem.alloc(8).cast();
+    env.mem.write(lengths, 4.0);
+    env.mem.write(lengths + 1, 4.0);
+    CGContextSetLineDash(env, context, 0.0, lengths.cast().cast_const(), 2);
+    CGContextSaveGState(env, context);
+    CGContextSetLineDash(env, context, 0.0, ConstPtr::null(), 0);
+    CGContextRestoreGState(env, context);
+    CGContextBeginPath(env, context);
+    CGContextMoveToPoint(env, context, 1.0, 4.0);
+    CGContextAddLineToPoint(env, context, 15.0, 4.0);
+    CGContextStrokePath(env, context);
+    let data = env.mem.bytes_at(pixels.cast(), 16 * 8 * 4);
+    let alpha = |x: usize| data[(3 * 16 + x) * 4 + 3];
+    assert_eq!(alpha(2), 255);
+    assert_eq!(alpha(6), 0);
+    assert_eq!(alpha(10), 255);
+    assert!(env
+        .objc
+        .borrow::<CGContextHostObject>(context)
+        .path
+        .subpaths
+        .is_empty());
+    CGContextRelease(env, context);
+    CGColorSpaceRelease(env, color_space);
+    for pointer in [pixels, lengths.cast::<std::ffi::c_void>()] {
+        env.mem.free(pointer);
+    }
 }
 
 fn CGContextSetInterpolationQuality(
@@ -458,6 +585,14 @@ fn CGContextShowGlyphsAtPositions(
 }
 
 pub const FUNCTIONS: FunctionExports = &[
+    export_c_func!(CGContextBeginPath(_)),
+    export_c_func!(CGContextMoveToPoint(_, _, _)),
+    export_c_func!(CGContextAddLineToPoint(_, _, _)),
+    export_c_func!(CGContextAddLines(_, _, _)),
+    export_c_func!(CGContextClosePath(_)),
+    export_c_func!(CGContextSetLineCap(_, _)),
+    export_c_func!(CGContextSetLineDash(_, _, _, _)),
+    export_c_func!(CGContextStrokePath(_)),
     export_c_func!(CGContextRetain(_)),
     export_c_func!(CGContextRelease(_)),
     export_c_func!(CGContextSetBlendMode(_, _)),

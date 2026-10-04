@@ -655,7 +655,25 @@ fn fcvt(
     fcvt_buf
 }
 
+fn __assert_rtn(
+    env: &mut Environment,
+    function: crate::mem::ConstPtr<u8>,
+    file: crate::mem::ConstPtr<u8>,
+    line: i32,
+    expression: crate::mem::ConstPtr<u8>,
+) {
+    let read = |pointer| env.mem.cstr_at_utf8(pointer).unwrap_or("<unknown>");
+    panic!(
+        "Assertion failed: {}, function {}, file {}, line {}",
+        read(expression),
+        read(function),
+        read(file),
+        line
+    );
+}
+
 pub const FUNCTIONS: FunctionExports = &[
+    export_c_func!(__assert_rtn(_, _, _, _)),
     export_c_func!(malloc(_)),
     export_c_func!(malloc_size(_)),
     export_c_func!(calloc(_, _)),

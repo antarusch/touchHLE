@@ -17,6 +17,7 @@ use crate::Environment;
 
 pub mod _nib_archive_decoder;
 pub mod ns_array;
+pub mod ns_assertion_handler;
 pub mod ns_autorelease_pool;
 pub mod ns_bundle;
 pub mod ns_character_set;
@@ -59,6 +60,7 @@ pub mod ns_url_request;
 pub mod ns_user_defaults;
 pub mod ns_value;
 pub mod ns_xml_parser;
+mod type_encoding;
 
 pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
     path: "/System/Library/Frameworks/Foundation.framework/Foundation",
@@ -66,6 +68,7 @@ pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
     class_exports: &[
         _nib_archive_decoder::CLASSES,
         ns_array::CLASSES,
+        ns_assertion_handler::CLASSES,
         ns_autorelease_pool::CLASSES,
         ns_bundle::CLASSES,
         ns_character_set::CLASSES,
@@ -82,6 +85,8 @@ pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
         ns_index_path::CLASSES,
         ns_invocation::CLASSES,
         ns_keyed_archiver::CLASSES,
+        #[cfg(test)]
+        ns_keyed_archiver::api_tests::CLASSES,
         ns_keyed_unarchiver::CLASSES,
         ns_locale::CLASSES,
         ns_lock::CLASSES,
@@ -139,6 +144,7 @@ pub struct State {
 
 #[derive(Default)]
 pub struct ThreadLocalState {
+    ns_assertion_handler: ns_assertion_handler::State,
     ns_autorelease_pool: ns_autorelease_pool::ThreadLocalState,
     ns_run_loop: ns_run_loop::ThreadLocalState,
 }
@@ -204,4 +210,20 @@ fn hash_helper<T: std::hash::Hash>(hashable: &T) -> NSUInteger {
     (hash_u64 as u32) ^ ((hash_u64 >> 32) as u32)
 }
 
-const FUNCTIONS: FunctionExports = &[export_c_func!(NSStringFromRange(_))];
+fn NSUnionRange(_env: &mut Environment, a: NSRange, b: NSRange) -> NSRange {
+    let location = a.location.min(b.location);
+    let end = a
+        .location
+        .checked_add(a.length)
+        .unwrap()
+        .max(b.location.checked_add(b.length).unwrap());
+    NSRange {
+        location,
+        length: end - location,
+    }
+}
+
+const FUNCTIONS: FunctionExports = &[
+    export_c_func!(NSStringFromRange(_)),
+    export_c_func!(NSUnionRange(_, _)),
+];

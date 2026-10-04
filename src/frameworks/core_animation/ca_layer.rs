@@ -7,6 +7,7 @@
 
 use crate::dyld::{ConstantExports, HostConstant};
 use crate::frameworks::core_animation::ca_transaction;
+use crate::frameworks::core_animation::ca_transform_3d::CATransform3D;
 use crate::frameworks::core_foundation::time::CFTimeInterval;
 use crate::frameworks::core_graphics::cg_affine_transform::{
     CGAffineTransform, CGAffineTransformIdentity,
@@ -44,6 +45,13 @@ pub(super) struct CALayerHostObject {
     pub(super) position: CGPoint,
     pub(super) anchor_point: CGPoint,
     pub(super) affine_transform: CGAffineTransform,
+    pub(super) transform: CATransform3D,
+    pub(super) z_position: CGFloat,
+    pub(super) masks_to_bounds: bool,
+    pub(super) border_color: Option<CGColorHostObject>,
+    pub(super) border_width: CGFloat,
+    pub(super) contents_gravity: String,
+    actions: id,
     pub(super) hidden: bool,
     pub(super) opaque: bool,
     pub(super) opacity: f32,
@@ -71,6 +79,16 @@ pub(super) struct CALayerHostObject {
 impl HostObject for CALayerHostObject {}
 
 impl CALayerHostObject {
+    pub(super) fn render_transform(&self) -> crate::matrix::Matrix<4> {
+        use crate::matrix::Matrix;
+        Matrix::translate_3d(
+            -self.bounds.origin.x - self.bounds.size.width * self.anchor_point.x,
+            -self.bounds.origin.y - self.bounds.size.height * self.anchor_point.y,
+            0.0,
+        )
+        .multiply(&self.transform.into())
+        .multiply(&Matrix::translate_3d(self.position.x, self.position.y, 0.0))
+    }
     /// Internal helper method: generate a transformation matrix to transform
     /// from the superlayer's co-ordinate space (the space that the layer's
     /// position is specified in) to the layer's internal co-ordinate space
@@ -93,6 +111,7 @@ impl CALayerHostObject {
 pub const kCAFilterLinear: &str = "kCAFilterLinear";
 pub const kCAFilterNearest: &str = "kCAFilterNearest";
 pub const kCAFilterTrilinear: &str = "kCAFilterTrilinear";
+pub const kCAGravityCenter: &str = "center";
 
 pub(super) const DEFAULT_CONTENTS_CENTER: CGRect = CGRect {
     origin: CGPoint { x: 0.0, y: 0.0 },
@@ -103,6 +122,10 @@ pub(super) const DEFAULT_CONTENTS_CENTER: CGRect = CGRect {
 };
 
 pub const CONSTANTS: ConstantExports = &[
+    (
+        "_kCAGravityCenter",
+        HostConstant::NSString(kCAGravityCenter),
+    ),
     ("_kCAFilterLinear", HostConstant::NSString(kCAFilterLinear)),
     (
         "_kCAFilterNearest",
@@ -127,11 +150,21 @@ pub const CLASSES: ClassExports = objc_classes! {
         superlayer: nil,
         bounds: CGRect {
             origin: CGPoint { x: 0.0, y: 0.0 },
-            size: CGSize { width: 0.0, height: 0.0 }
+            size: CGSize {
+                width: 0.0,
+                height: 0.0,
+            },
         },
         position: CGPoint { x: 0.0, y: 0.0 },
         anchor_point: CGPoint { x: 0.5, y: 0.5 },
         affine_transform: CGAffineTransformIdentity,
+        transform: CATransform3D::default(),
+        z_position: 0.0,
+        masks_to_bounds: false,
+        border_color: None,
+        border_width: 0.0,
+        contents_gravity: "resize".into(),
+        actions: nil,
         hidden: false,
         opaque: false,
         opacity: 1.0,
@@ -158,6 +191,9 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())dealloc {
+    () = msg![env; this removeAllAnimations];
+    let actions = env.objc.borrow::<CALayerHostObject>(this).actions;
+    release(env, actions);
     let &mut CALayerHostObject {
         drawable_properties,
         contents,
@@ -182,7 +218,9 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     assert!(superlayer == nil);
     for sublayer in sublayers {
-        env.objc.borrow_mut::<CALayerHostObject>(sublayer).superlayer = nil;
+        env.objc
+            .borrow_mut::<CALayerHostObject>(sublayer)
+            .superlayer = nil;
         release(env, sublayer);
     }
 
@@ -199,7 +237,47 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (id)superlayer {
     env.objc.borrow::<CALayerHostObject>(this).superlayer
 }
-// TODO: sublayers accessors
+- (id)sublayers {
+    let layers = env.objc.borrow::<CALayerHostObject>(this).sublayers.clone();
+    for layer in &layers {
+        retain(env, *layer);
+    }
+    let array = crate::frameworks::foundation::ns_array::from_vec(env, layers);
+    autorelease(env, array)
+}
+- (())setSublayers:(id)layers {
+    let old = env.objc.borrow::<CALayerHostObject>(this).sublayers.clone();
+    let count: u32 = msg![env; layers count];
+    let new: Vec<id> = (0..count)
+        .map(|i| msg![env; layers objectAtIndex:i])
+        .collect();
+    for layer in &new {
+        retain(env, *layer);
+    }
+    for layer in old {
+        () = msg![env; layer removeFromSuperlayer];
+    }
+    for layer in new {
+        () = msg![env; this addSublayer:layer];
+        release(env, layer);
+    }
+}
+
+- (())insertSublayer:(id)layer above:(id)sibling {
+    if layer == sibling {
+        return;
+    }
+    retain(env, layer);
+    () = msg![env; layer removeFromSuperlayer];
+    let layers = &mut env.objc.borrow_mut::<CALayerHostObject>(this).sublayers;
+    let index = if sibling == nil {
+        0
+    } else {
+        layers.iter().position(|&value| value == sibling).unwrap() + 1
+    };
+    layers.insert(index, layer);
+    env.objc.borrow_mut::<CALayerHostObject>(layer).superlayer = this;
+}
 
 - (())addSublayer:(id)layer {
     if env.objc.borrow::<CALayerHostObject>(layer).superlayer == this {
@@ -208,7 +286,10 @@ pub const CLASSES: ClassExports = objc_classes! {
         retain(env, layer);
         () = msg![env; layer removeFromSuperlayer];
         env.objc.borrow_mut::<CALayerHostObject>(layer).superlayer = this;
-        env.objc.borrow_mut::<CALayerHostObject>(this).sublayers.push(layer);
+        env.objc
+            .borrow_mut::<CALayerHostObject>(this)
+            .sublayers
+            .push(layer);
     }
 }
 
@@ -292,21 +373,111 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 - (())setAffineTransform:(CGAffineTransform)affine_transform {
     let host_object = env.objc.borrow_mut::<CALayerHostObject>(this);
-    let old_affine_transform = std::mem::replace(&mut host_object.affine_transform, affine_transform);
+    let old_affine_transform =
+        std::mem::replace(&mut host_object.affine_transform, affine_transform);
+    host_object.transform = affine_transform.into();
     if is_implicit_animation_enabled(env, this) && old_affine_transform != affine_transform {
         log!("TODO: Implicit animation for affineTransform change from {old_affine_transform:?} to {affine_transform:?}");
     }
 }
 
+- (CATransform3D)transform {
+    env.objc.borrow::<CALayerHostObject>(this).transform
+}
+- (())setTransform:(CATransform3D)value {
+    let host = env.objc.borrow_mut::<CALayerHostObject>(this);
+    let old = std::mem::replace(&mut host.transform, value);
+    host.affine_transform = value.affine();
+    if is_implicit_animation_enabled(env, this) && old != value {
+        let old: id = msg_class![env; NSValue valueWithCATransform3D:old];
+        let value: id = msg_class![env; NSValue valueWithCATransform3D:value];
+        add_default_implied_basic_animation(env, this, "transform", old, value);
+    }
+}
+- (CGFloat)zPosition {
+    env.objc.borrow::<CALayerHostObject>(this).z_position
+}
+- (())setZPosition:(CGFloat)value {
+    let old = std::mem::replace(
+        &mut env.objc.borrow_mut::<CALayerHostObject>(this).z_position,
+        value,
+    );
+    if is_implicit_animation_enabled(env, this) && old != value {
+        let old: id = msg_class![env; NSNumber numberWithFloat:old];
+        let value: id = msg_class![env; NSNumber numberWithFloat:value];
+        add_default_implied_basic_animation(env, this, "zPosition", old, value);
+    }
+}
+- (bool)masksToBounds {
+    env.objc.borrow::<CALayerHostObject>(this).masks_to_bounds
+}
+- (())setMasksToBounds:(bool)value {
+    env.objc
+        .borrow_mut::<CALayerHostObject>(this)
+        .masks_to_bounds = value;
+}
+- (CGFloat)borderWidth {
+    env.objc.borrow::<CALayerHostObject>(this).border_width
+}
+- (())setBorderWidth:(CGFloat)value {
+    env.objc.borrow_mut::<CALayerHostObject>(this).border_width = value.max(0.0);
+}
+- (CGColorRef)borderColor {
+    let color = env.objc.borrow::<CALayerHostObject>(this).border_color;
+    if let Some(color) = color {
+        let class = env.objc.get_known_class("_touchHLE_CGColor", &mut env.mem);
+        let value = env.objc.alloc_object(class, Box::new(color), &mut env.mem);
+        autorelease(env, value)
+    } else {
+        nil
+    }
+}
+- (())setBorderColor:(CGColorRef)value {
+    let color = if value == nil {
+        None
+    } else {
+        Some(*env.objc.borrow::<CGColorHostObject>(value))
+    };
+    env.objc.borrow_mut::<CALayerHostObject>(this).border_color = color;
+}
+- (id)contentsGravity {
+    let value = env
+        .objc
+        .borrow::<CALayerHostObject>(this)
+        .contents_gravity
+        .clone();
+    let value = ns_string::from_rust_string(env, value);
+    autorelease(env, value)
+}
+- (())setContentsGravity:(id)value {
+    let value = to_rust_string(env, value).to_string();
+    env.objc
+        .borrow_mut::<CALayerHostObject>(this)
+        .contents_gravity = value;
+}
+- (id)actions {
+    env.objc.borrow::<CALayerHostObject>(this).actions
+}
+- (())setActions:(id)value {
+    let value: id = msg![env; value copy];
+    let old = std::mem::replace(
+        &mut env.objc.borrow_mut::<CALayerHostObject>(this).actions,
+        value,
+    );
+    release(env, old);
+}
+
 - (CGRect)frame {
-    let host_obj @ &CALayerHostObject {
-        bounds,
-        ..
-    } = env.objc.borrow(this);
-    host_obj.superlayer_to_layer_transform().apply_to_rect(CGRect {
-        origin: CGPoint { x: bounds.origin.x, y: bounds.origin.y },
-        size: bounds.size,
-    })
+    let host_obj @ &CALayerHostObject { bounds, .. } = env.objc.borrow(this);
+    host_obj
+        .superlayer_to_layer_transform()
+        .apply_to_rect(CGRect {
+            origin: CGPoint {
+                x: bounds.origin.x,
+                y: bounds.origin.y,
+            },
+            size: bounds.size,
+        })
 }
 - (())setFrame:(CGRect)frame {
     let CALayerHostObject {
@@ -590,7 +761,15 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())addAnimation:(id)anim // CAAnimation*
-            forKey:(id)key { // NSString*
+            forKey:(id)key {
+    // NSString*
+    if anim == nil {
+        if key != nil {
+            () = msg![env; this removeAnimationForKey:key];
+        }
+        return;
+    }
+    let anim: id = msg![env; anim copy];
     let duration: CFTimeInterval = msg![env; anim duration];
     if duration == 0.0 {
         // From the docs:
@@ -603,22 +782,63 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
 
     if key == nil {
-        log_dbg!("[(CALayer*){:?} addAnimation:{:?} forKey:{:?}]", this, anim, key);
-        let inserted = env.objc.borrow_mut::<CALayerHostObject>(this).anonymous_animations.insert(anim);
+        log_dbg!(
+            "[(CALayer*){:?} addAnimation:{:?} forKey:{:?}]",
+            this,
+            anim,
+            key
+        );
+        let inserted = env
+            .objc
+            .borrow_mut::<CALayerHostObject>(this)
+            .anonymous_animations
+            .insert(anim);
         assert!(inserted);
     } else {
         let key_string = to_rust_string(env, key);
-        log_dbg!("[(CALayer*){:?} addAnimation:{:?} forKey:{:?} ({:?})]", this, anim, key, key_string);
-        env.objc.borrow_mut::<CALayerHostObject>(this).animations.insert(key_string.to_string(), anim);
+        log_dbg!(
+            "[(CALayer*){:?} addAnimation:{:?} forKey:{:?} ({:?})]",
+            this,
+            anim,
+            key,
+            key_string
+        );
+        if let Some(old) = env
+            .objc
+            .borrow_mut::<CALayerHostObject>(this)
+            .animations
+            .insert(key_string.to_string(), anim)
+        {
+            release_animation(env, old);
+        }
     }
-    retain(env, anim);
 }
 
-- (())removeAnimationForKey:(id)key { // NSString*
+- (())removeAllAnimations {
+    let host = env.objc.borrow_mut::<CALayerHostObject>(this);
+    let mut animations: Vec<_> = host.animations.drain().map(|(_, value)| value).collect();
+    animations.extend(host.anonymous_animations.drain());
+    for animation in animations {
+        release_animation(env, animation);
+    }
+}
+
+- (())removeAnimationForKey:(id)key {
+    // NSString*
     let key_string = to_rust_string(env, key);
-    log_dbg!("[(CALayer*){:?} removeAnimationForKey:{:?} ({:?})]", this, key, key_string);
-    if let Some(anim) = env.objc.borrow_mut::<CALayerHostObject>(this).animations.remove(&*key_string) {
-        release(env, anim);
+    log_dbg!(
+        "[(CALayer*){:?} removeAnimationForKey:{:?} ({:?})]",
+        this,
+        key,
+        key_string
+    );
+    if let Some(anim) = env
+        .objc
+        .borrow_mut::<CALayerHostObject>(this)
+        .animations
+        .remove(&*key_string)
+    {
+        release_animation(env, anim);
     };
 }
 
@@ -628,14 +848,29 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 };
 
+fn release_animation(env: &mut Environment, animation: id) {
+    let first_completion = super::ca_animation::mark_completion(env, animation);
+    let delegate: id = msg![env; animation delegate];
+    if first_completion && delegate != nil {
+        let selector = env
+            .objc
+            .register_host_selector("animationDidStop:finished:".into(), &mut env.mem);
+        if msg![env; delegate respondsToSelector:selector] {
+            () = msg![env; delegate animationDidStop:animation finished:false];
+        }
+    }
+    release(env, animation);
+}
+
 pub fn remove_anonymous_animation(env: &mut Environment, layer: id, animation: id) {
     let removed = env
         .objc
         .borrow_mut::<CALayerHostObject>(layer)
         .anonymous_animations
         .remove(&animation);
-    assert!(removed);
-    release(env, animation);
+    if removed {
+        release(env, animation);
+    }
 }
 
 fn transform_for_conversion(env: &mut Environment, this: id, other: id) -> CGAffineTransform {
@@ -723,6 +958,44 @@ fn add_default_implied_basic_animation(
     to_value: id,
 ) {
     let key_path = get_static_str(env, key_path);
+    let actions = env.objc.borrow::<CALayerHostObject>(layer).actions;
+    let action: id = msg![env; actions objectForKey:key_path];
+    if action != nil {
+        let null: id = msg_class![env; NSNull null];
+        if action == null {
+            return;
+        }
+        let animation_class = env.objc.get_known_class("CAAnimation", &mut env.mem);
+        if msg![env; action isKindOfClass:animation_class] {
+            ca_transaction::ThreadLocalState::add_animation(env, layer, action);
+        } else {
+            () = msg![env; action runActionForKey:key_path object:layer arguments:nil];
+        }
+        return;
+    }
+    let flag_key = get_static_str(env, "_touchHLE_animationBeginsFromCurrentState");
+    let flag: id = msg_class![env; CATransaction valueForKey:flag_key];
+    let begins_from_current: bool = msg![env; flag boolValue];
+    let host = env.objc.borrow::<CALayerHostObject>(layer);
+    let active = !host.animations.is_empty() || !host.anonymous_animations.is_empty();
+    let from_value = if begins_from_current && active {
+        let mut state = super::animation::State::default();
+        let current = state.create_presentation_layer(env, layer);
+        let key = to_rust_string(env, key_path).to_string();
+        let value = match key.as_str() {
+            "bounds" => msg_class![env; NSValue valueWithCGRect:(current.bounds)],
+            "position" => msg_class![env; NSValue valueWithCGPoint:(current.position)],
+            "anchorPoint" => msg_class![env; NSValue valueWithCGPoint:(current.anchor_point)],
+            "opacity" => msg_class![env; NSNumber numberWithFloat:(current.opacity)],
+            "transform" => msg_class![env; NSValue valueWithCATransform3D:(current.transform)],
+            "zPosition" => msg_class![env; NSNumber numberWithFloat:(current.z_position)],
+            _ => from_value,
+        };
+        state.update_started_and_finished_animations(env);
+        value
+    } else {
+        from_value
+    };
     let animation = msg_class![env; CABasicAnimation animationWithKeyPath:key_path];
     () = msg![env; animation setFromValue: from_value];
     () = msg![env; animation setToValue: to_value];

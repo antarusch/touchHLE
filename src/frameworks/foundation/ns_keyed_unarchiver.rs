@@ -73,17 +73,22 @@ pub const CLASSES: ClassExports = objc_classes! {
     msg![env; this unarchiveObjectWithData:data]
 }
 
-+ (id)unarchiveObjectWithData:(id)data { // NSData *
++ (id)unarchiveObjectWithData:(id)data {
+    // NSData *
     let new: id = msg![env; this alloc];
     let new: id = msg![env; new initForReadingWithData:data];
     let root_key = get_static_str(env, NSKeyedArchiveRootObjectKey);
     let result: id = msg![env; new decodeObjectForKey:root_key];
+    retain(env, result);
+    () = msg![env; new finishDecoding];
+    release(env, new);
     autorelease(env, result)
 }
 
 // TODO: other init methods.
 
-- (id)initForReadingWithData:(id)data { // NSData *
+- (id)initForReadingWithData:(id)data {
+    // NSData *
     if data == nil {
         return nil;
     }
@@ -105,6 +110,9 @@ pub const CLASSES: ClassExports = objc_classes! {
     let key_count = plist["$objects"].as_array().unwrap().len();
 
     host_obj.already_unarchived = vec![None; key_count];
+    if key_count > 0 {
+        host_obj.already_unarchived[0] = Some(nil);
+    }
     host_obj.plist = plist;
 
     this
@@ -124,6 +132,21 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
 
     env.objc.dealloc_object(this, &mut env.mem)
+}
+
+- (())finishDecoding {
+    let delegate = env
+        .objc
+        .borrow::<NSKeyedUnarchiverHostObject>(this)
+        .delegate;
+    if delegate != nil {
+        let sel = env
+            .objc
+            .register_host_selector("unarchiverDidFinish:".into(), &mut env.mem);
+        if msg![env; delegate respondsToSelector:sel] {
+            () = msg![env; delegate unarchiverDidFinish:this];
+        }
+    }
 }
 
 // TODO: implement calls to delegate methods
@@ -319,6 +342,9 @@ fn unarchive_key(env: &mut Environment, unarchiver: id, key: Uid) -> id {
             host_obj.current_key = Some(key);
 
             let new_object: id = msg![env; class alloc];
+            // Allow initWithCoder: to decode a reference back to this object.
+            borrow_host_obj(env, unarchiver).already_unarchived[key.get() as usize] =
+                Some(new_object);
             let new_object: id = msg![env; new_object initWithCoder:unarchiver];
 
             let host_obj = borrow_host_obj(env, unarchiver); // reborrow
@@ -458,8 +484,12 @@ pub fn decode_current_number(env: &mut Environment, unarchiver: id) -> id {
     let bool_key = get_static_str(env, "NS.boolval");
     if let Some(value) = get_value_to_decode_for_key(env, unarchiver, int_key) {
         // TODO: deal with type coercion
-        let longlong = value.as_signed_integer().unwrap();
-        msg![env; num initWithLongLong:longlong]
+        if let Some(longlong) = value.as_signed_integer() {
+            msg![env; num initWithLongLong:longlong]
+        } else {
+            let unsigned = value.as_unsigned_integer().unwrap();
+            msg![env; num initWithUnsignedLongLong:unsigned]
+        }
     } else if let Some(value) = get_value_to_decode_for_key(env, unarchiver, dbl_key) {
         // TODO: deal with type coercion
         let double = value.as_real().unwrap();

@@ -49,12 +49,12 @@ use classes::{
     class_getInstanceSize, class_getMethodImplementation, class_getProperty, class_getSuperclass,
     class_replaceMethod, objc_getClass, ClassHostObject, FakeClass, UnimplementedClass,
 };
-pub(crate) use messages::objc_msgSend;
-use messages::{objc_msgSendSuper2, objc_msgSend_stret, MsgSendSignature, MsgSendSuperSignature};
+pub(crate) use messages::{objc_msgSend, objc_msgSend_stret};
+use messages::{objc_msgSendSuper2, MsgSendSignature, MsgSendSuperSignature};
 use methods::method_list_t;
 use objects::{objc_object, object_getClass, HostObjectEntry};
 use properties::{ivar_list_t, objc_copyStruct, objc_getProperty, objc_setProperty};
-use selectors::sel_registerName;
+use selectors::{sel_getName, sel_registerName};
 use synchronization::{objc_sync_enter, objc_sync_exit};
 
 /// Typedef for `NSZone *`. This is a [fossil type] found in the signature of
@@ -151,5 +151,11 @@ const FUNCTIONS: FunctionExports = &[
     export_c_func!(objc_sync_exit(_)),
     export_c_func!(object_getClass(_)),
     export_c_func!(sel_registerName(_)),
+    export_c_func!(sel_getName(_)),
+    export_c_func!(objc_enumerationMutation(_)),
     export_c_func!(_Block_object_dispose(_, _)),
 ];
+
+fn objc_enumerationMutation(_env: &mut Environment, object: id) {
+    panic!("Collection {object:?} was mutated during enumeration");
+}

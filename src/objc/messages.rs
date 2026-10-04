@@ -361,7 +361,7 @@ pub(crate) fn _touchHLE_objc_msgSend_no_initialize(
 /// pass-through behaviour. Of course, the pass-through only works if the [IMP]
 /// also has the pointer parameter. The caller therefore has to pick the
 /// appropriate `objc_msgSend` variant depending on the method it wants to call.
-pub(super) fn objc_msgSend_stret(
+pub(crate) fn objc_msgSend_stret(
     env: &mut Environment,
     _stret: MutVoidPtr,
     receiver: id,

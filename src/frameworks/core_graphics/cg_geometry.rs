@@ -407,7 +407,60 @@ pub(super) fn CGRectIntegral(_env: &mut Environment, rect: CGRect) -> CGRect {
     }
 }
 
+fn CGRectContainsRect(_env: &mut Environment, outer: CGRect, inner: CGRect) -> bool {
+    if outer == CGRectNull || inner == CGRectNull {
+        return false;
+    }
+    let edges = |r: CGRect| {
+        (
+            r.origin.x.min(r.origin.x + r.size.width),
+            r.origin.y.min(r.origin.y + r.size.height),
+            r.origin.x.max(r.origin.x + r.size.width),
+            r.origin.y.max(r.origin.y + r.size.height),
+        )
+    };
+    let (a, b) = (edges(outer), edges(inner));
+    a.0 <= b.0 && a.1 <= b.1 && a.2 >= b.2 && a.3 >= b.3
+}
+fn CGRectUnion(_env: &mut Environment, a: CGRect, b: CGRect) -> CGRect {
+    if a == CGRectNull {
+        return b;
+    }
+    if b == CGRectNull {
+        return a;
+    }
+    let x = a
+        .origin
+        .x
+        .min(a.origin.x + a.size.width)
+        .min(b.origin.x.min(b.origin.x + b.size.width));
+    let y = a
+        .origin
+        .y
+        .min(a.origin.y + a.size.height)
+        .min(b.origin.y.min(b.origin.y + b.size.height));
+    let right = a
+        .origin
+        .x
+        .max(a.origin.x + a.size.width)
+        .max(b.origin.x.max(b.origin.x + b.size.width));
+    let bottom = a
+        .origin
+        .y
+        .max(a.origin.y + a.size.height)
+        .max(b.origin.y.max(b.origin.y + b.size.height));
+    CGRect {
+        origin: CGPoint { x, y },
+        size: CGSize {
+            width: right - x,
+            height: bottom - y,
+        },
+    }
+}
+
 pub const FUNCTIONS: FunctionExports = &[
+    export_c_func!(CGRectContainsRect(_, _)),
+    export_c_func!(CGRectUnion(_, _)),
     export_c_func!(CGPointEqualToPoint(_, _)),
     export_c_func!(CGSizeEqualToSize(_, _)),
     export_c_func!(CGRectEqualToRect(_, _)),

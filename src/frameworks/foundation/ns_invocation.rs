@@ -5,7 +5,7 @@
  */
 //! `NSInvocation`.
 
-use crate::abi::{extend_stack_for_args, write_next_arg, GuestArg};
+use crate::abi::{extend_stack_for_args, write_next_arg};
 use crate::cpu::Cpu;
 use crate::frameworks::foundation::{NSInteger, NSUInteger};
 use crate::libc::string::strdup;
@@ -19,6 +19,7 @@ use crate::objc::{
 struct NSInvocationHostObject {
     /// `NSMethodSignature *`
     sig: id,
+    return_value: Vec<u8>,
     /// Argument type strings resolved from `sig` at creation time
     argument_types: Vec<String>,
     target: id,
@@ -40,7 +41,8 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 @implementation NSInvocation: NSObject
 
-+ (id)invocationWithMethodSignature:(id)sig { // NSMethodSignature *
++ (id)invocationWithMethodSignature:(id)sig {
+    // NSMethodSignature *
     retain(env, sig);
     let num_of_args: NSUInteger = msg![env; sig numberOfArguments];
     let mut argument_types: Vec<String> = Vec::with_capacity(num_of_args as usize);
@@ -50,6 +52,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
     let host_object = Box::new(NSInvocationHostObject {
         sig,
+        return_value: Vec::new(),
         argument_types,
         target: nil,
         selector: None,
@@ -76,14 +79,19 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())setSelector:(SEL)selector {
-    assert!(env.objc.borrow_mut::<NSInvocationHostObject>(this).selector.is_none()); // TODO
     env.objc.borrow_mut::<NSInvocationHostObject>(this).selector = Some(selector);
 }
 
 - (())retainArguments {
     // TODO: handle return val
     // TODO: copy blocks
-    assert!(!env.objc.borrow::<NSInvocationHostObject>(this).arguments_retained); // TODO
+    if env
+        .objc
+        .borrow::<NSInvocationHostObject>(this)
+        .arguments_retained
+    {
+        return;
+    }
 
     let target = env.objc.borrow::<NSInvocationHostObject>(this).target;
     retain(env, target);
@@ -92,10 +100,16 @@ pub const CLASSES: ClassExports = objc_classes! {
     let mut copied_strings: Vec<MutPtr<u8>> = Vec::new();
 
     // Skip index 0 (self) and 1 (SEL): handled via target/selector fields.
-    let num_of_args = env.objc.borrow::<NSInvocationHostObject>(this).argument_types.len();
+    let num_of_args = env
+        .objc
+        .borrow::<NSInvocationHostObject>(this)
+        .argument_types
+        .len();
     for i in 2..num_of_args {
         let host = env.objc.borrow::<NSInvocationHostObject>(this);
-        let Some(arg_loc) = host.arguments[i] else { continue };
+        let Some(arg_loc) = host.arguments[i] else {
+            continue;
+        };
         match host.argument_types[i].as_str() {
             "@" => {
                 let obj: id = env.mem.read(arg_loc.cast().cast_const());
@@ -120,11 +134,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (())setArgument:(MutVoidPtr)arg_loc
           atIndex:(NSInteger)idx {
-    let &NSInvocationHostObject {
-        ref arguments,
-        arguments_retained,
-        ..
-    } = env.objc.borrow::<NSInvocationHostObject>(this);
+    let NSInvocationHostObject { arguments, .. } = env.objc.borrow::<NSInvocationHostObject>(this);
 
     // 0 and 1 are reserved for `self` and `_cmd`
     // TODO: can they be set too?
@@ -134,36 +144,22 @@ pub const CLASSES: ClassExports = objc_classes! {
         env.mem.free(prev_arg.cast());
     }
 
-    let argument_types: &Vec<String> = env.objc.borrow::<NSInvocationHostObject>(this).argument_types.as_ref();
+    let argument_types: &Vec<String> = env
+        .objc
+        .borrow::<NSInvocationHostObject>(this)
+        .argument_types
+        .as_ref();
     let arg_type = argument_types.get(idx as usize).unwrap();
-    let new: MutVoidPtr = match arg_type.as_str() {
-        "f" => {
-            let arg_loc: MutPtr<f32> = arg_loc.cast();
-            let arg = env.mem.read(arg_loc);
-            env.mem.alloc_and_write(arg).cast()
-        }
-        "@" => {
-            assert!(!arguments_retained); // TODO
-            let arg_loc: MutPtr<id> = arg_loc.cast();
-            let arg = env.mem.read(arg_loc);
-            env.mem.alloc_and_write(arg).cast()
-        }
-        "*" => {
-            assert!(!arguments_retained); // TODO
-            let arg_loc: MutPtr<MutPtr<u8>> = arg_loc.cast();
-            let arg = env.mem.read(arg_loc);
-            env.mem.alloc_and_write(arg).cast()
-        }
-        // pointer cases
-        _ if arg_type.starts_with('^') => {
-            let arg_loc: MutPtr<MutVoidPtr> = arg_loc.cast();
-            let arg = env.mem.read(arg_loc);
-            env.mem.alloc_and_write(arg).cast()
-        }
-        _ => unimplemented!("unhandled argument type {arg_type}"),
-    };
+    let size = super::type_encoding::parse(arg_type.as_bytes()).1;
+    let bytes = env.mem.bytes_at(arg_loc.cast(), size).to_vec();
+    let new = env.mem.alloc(size);
+    env.mem
+        .bytes_at_mut(new.cast(), size)
+        .copy_from_slice(&bytes);
 
-    env.objc.borrow_mut::<NSInvocationHostObject>(this).arguments[idx as usize] = Some(new);
+    env.objc
+        .borrow_mut::<NSInvocationHostObject>(this)
+        .arguments[idx as usize] = Some(new);
 }
 
 - (())invokeWithTarget:(id)target {
@@ -173,105 +169,94 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (())invoke {
     // Safeguard: all arguments must be set (except first two)
-    let arguments: &Vec<Option<MutVoidPtr>> = env.objc.borrow::<NSInvocationHostObject>(this).arguments.as_ref();
+    let arguments: &Vec<Option<MutVoidPtr>> = env
+        .objc
+        .borrow::<NSInvocationHostObject>(this)
+        .arguments
+        .as_ref();
     let set_count = arguments.iter().flatten().count();
     let all_count = arguments.len();
     assert_eq!(set_count + 2, all_count);
 
-    let sig = env.objc.borrow::<NSInvocationHostObject>(this).sig;
-    let ret_type: ConstPtr<u8> = msg![env; sig methodReturnType];
-    assert!(env.mem.read(ret_type) == b'v'); // TODO
-
-    // `call_from_host` re-use
-    // TODO: retval_ptr
-    // TODO: cross check against frame length from NSMethodSignature
-    let mut reg_count = 0;
-    let argument_types: &Vec<String> = env.objc.borrow::<NSInvocationHostObject>(this).argument_types.as_ref();
-    for arg_type in argument_types.iter() {
-        // TODO: refactor and simplify
-        reg_count += match arg_type.as_str() {
-            "@" => <id as GuestArg>::REG_COUNT,
-            ":" => <SEL as GuestArg>::REG_COUNT,
-            "f" => <f32 as GuestArg>::REG_COUNT,
-            "c" => <u8 as GuestArg>::REG_COUNT,
-            "*" => <MutPtr<u8> as GuestArg>::REG_COUNT,
-            // pointer cases
-            _ if arg_type.starts_with('^') => <MutVoidPtr as GuestArg>::REG_COUNT,
-            _ => unimplemented!("reg_count for {arg_type}")
-        }
+    let host = env.objc.borrow::<NSInvocationHostObject>(this);
+    let sig = host.sig;
+    let types = host.argument_types.clone();
+    let args = host.arguments.clone();
+    let target = host.target;
+    let selector = host.selector.unwrap();
+    let return_type: ConstPtr<u8> = msg![env; sig methodReturnType];
+    let return_type = env.mem.cstr_at_utf8(return_type).unwrap().to_string();
+    let return_size = super::type_encoding::parse(return_type.as_bytes()).1;
+    let indirect = return_size > 4 && return_type.starts_with(['{', '[', '(']);
+    let return_buffer = if indirect {
+        env.mem.alloc(return_size)
+    } else {
+        MutVoidPtr::null()
+    };
+    let mut count = u32::from(indirect) as usize;
+    for typ in &types {
+        let (_, size, _) = super::type_encoding::parse(typ.as_bytes());
+        count += size.div_ceil(4) as usize;
     }
-    let regs = env.cpu.regs_mut();
-    let old_sp = extend_stack_for_args(
-        reg_count,
-        regs,
-    );
-
-    let arguments: &Vec<Option<MutVoidPtr>> = env.objc.borrow::<NSInvocationHostObject>(this).arguments.as_ref();
-    let mut reg_offset = 0;
-    for i in 0..arguments.len() {
-        // TODO: do not handle target and sel as special cases
-        if i == 0 {
-            assert!(argument_types[i] == "@");
-            // target
-            let target = env.objc.borrow::<NSInvocationHostObject>(this).target;
-            let regs = env.cpu.regs_mut();
-            write_next_arg::<id>(&mut reg_offset, regs, &mut env.mem, target);
+    let old_sp = extend_stack_for_args(count, env.cpu.regs_mut());
+    let mut offset = 0;
+    if indirect {
+        write_next_arg(&mut offset, env.cpu.regs_mut(), &mut env.mem, return_buffer);
+    }
+    for (index, typ) in types.iter().enumerate() {
+        if index == 0 {
+            write_next_arg(&mut offset, env.cpu.regs_mut(), &mut env.mem, target);
             continue;
         }
-        if i == 1 {
-            assert!(argument_types[i] == ":");
-            // selector
-            let selector = env.objc.borrow::<NSInvocationHostObject>(this).selector.unwrap();
-            let regs = env.cpu.regs_mut();
-            write_next_arg::<SEL>(&mut reg_offset, regs, &mut env.mem, selector);
+        if index == 1 {
+            write_next_arg(&mut offset, env.cpu.regs_mut(), &mut env.mem, selector);
             continue;
         }
-        let arg_slot = arguments[i].unwrap();
-        let arg_type = argument_types[i].as_str();
-        // TODO: refactor and simplify
-        match arg_type {
-            "@" => {
-                let arg: ConstPtr<id> = arg_slot.cast().cast_const();
-                let arg_val = env.mem.read(arg);
-                let regs = env.cpu.regs_mut();
-                write_next_arg::<id>(&mut reg_offset, regs, &mut env.mem, arg_val);
-            },
-            "f" => {
-                let arg: ConstPtr<f32> = arg_slot.cast().cast_const();
-                let arg_val = env.mem.read(arg);
-                let regs = env.cpu.regs_mut();
-                write_next_arg::<f32>(&mut reg_offset, regs, &mut env.mem, arg_val);
-            },
-            "c" => {
-                let arg: ConstPtr<u8> = arg_slot.cast().cast_const();
-                let arg_val = env.mem.read(arg);
-                let regs = env.cpu.regs_mut();
-                write_next_arg::<u8>(&mut reg_offset, regs, &mut env.mem, arg_val);
-            }
-            "*" => {
-                let arg: ConstPtr<MutPtr<u8>> = arg_slot.cast().cast_const();
-                let arg_val = env.mem.read(arg);
-                let regs = env.cpu.regs_mut();
-                write_next_arg::<MutPtr<u8>>(&mut reg_offset, regs, &mut env.mem, arg_val);
-            }
-            // pointer cases
-            _ if arg_type.starts_with('^') => {
-                let arg: ConstPtr<MutVoidPtr> = arg_slot.cast().cast_const();
-                let arg_val = env.mem.read(arg);
-                let regs = env.cpu.regs_mut();
-                write_next_arg::<MutVoidPtr>(&mut reg_offset, regs, &mut env.mem, arg_val);
-            }
-            _ => unimplemented!("write_next_arg for {arg_type}")
+        let (_, size, _) = super::type_encoding::parse(typ.as_bytes());
+        let bytes = env.mem.bytes_at(args[index].unwrap().cast(), size).to_vec();
+        for chunk in bytes.chunks(4) {
+            let mut word = [0u8; 4];
+            word[..chunk.len()].copy_from_slice(chunk);
+            write_next_arg(
+                &mut offset,
+                env.cpu.regs_mut(),
+                &mut env.mem,
+                u32::from_le_bytes(word),
+            );
         }
     }
+    if indirect {
+        crate::objc::objc_msgSend_stret(env, return_buffer, target, selector);
+    } else {
+        objc_msgSend(env, target, selector);
+    }
+    let return_value = if indirect {
+        let value = env.mem.bytes_at(return_buffer.cast(), return_size).to_vec();
+        env.mem.free(return_buffer);
+        value
+    } else {
+        let mut value = Vec::new();
+        for word in &env.cpu.regs()[..return_size.div_ceil(4) as usize] {
+            value.extend_from_slice(&word.to_le_bytes());
+        }
+        value.truncate(return_size as usize);
+        value
+    };
+    env.cpu.regs_mut()[Cpu::SP] = old_sp;
+    env.objc
+        .borrow_mut::<NSInvocationHostObject>(this)
+        .return_value = return_value;
+}
 
-    // actual invocation
-    let &NSInvocationHostObject { target, selector, .. } = env.objc.borrow::<NSInvocationHostObject>(this);
-    objc_msgSend(env, target, selector.unwrap());
-
-    let regs = env.cpu.regs_mut(); // re-borrow
-    regs[Cpu::SP] = old_sp;
-    // TODO: non-void return
+- (())getReturnValue:(MutVoidPtr)buffer {
+    let value = env
+        .objc
+        .borrow::<NSInvocationHostObject>(this)
+        .return_value
+        .clone();
+    env.mem
+        .bytes_at_mut(buffer.cast(), value.len() as u32)
+        .copy_from_slice(&value);
 }
 
 - (())dealloc {

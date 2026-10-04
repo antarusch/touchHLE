@@ -104,6 +104,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 // methods that would be inappropriate for mutability.
 @implementation NSMutableSet: NSSet
 
+
 + (id)allocWithZone:(NSZonePtr)zone {
     // NSSet might be subclassed by something which needs allocWithZone:
     // to have the normal behaviour. Unimplemented: call superclass alloc then.
@@ -124,9 +125,27 @@ pub const CLASSES: ClassExports = objc_classes! {
     autorelease(env, new)
 }
 
+- (())setSet:(id)other {
+    if this == other {
+        return;
+    }
+    let objects: id = msg![env; other allObjects];
+    retain(env, objects);
+    () = msg![env; this removeAllObjects];
+    let count: NSUInteger = msg![env; objects count];
+    for index in 0..count {
+        let object: id = msg![env; objects objectAtIndex:index];
+        () = msg![env; this addObject:object];
+    }
+    release(env, objects);
+}
+
+
 // NSCopying implementation
 - (id)copyWithZone:(NSZonePtr)_zone {
-    todo!(); // TODO: this should produce an immutable copy
+    let objects: id = msg![env; this allObjects];
+    let copy: id = msg_class![env; NSSet alloc];
+    msg![env; copy initWithArray:objects]
 }
 
 @end

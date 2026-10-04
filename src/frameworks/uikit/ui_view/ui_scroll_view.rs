@@ -7,7 +7,9 @@
 
 pub mod ui_text_view;
 use crate::frameworks::core_graphics::{CGPoint, CGRect, CGSize};
+use crate::frameworks::foundation::ns_string::get_static_str;
 use crate::frameworks::foundation::NSInteger;
+use crate::frameworks::uikit::ui_geometry::UIEdgeInsets;
 use crate::objc::{
     id, impl_HostObject_with_superclass, msg, nil, objc_classes, todo_objc_setter, ClassExports,
     NSZonePtr, SEL,
@@ -22,6 +24,7 @@ pub struct UIScrollViewHostObject {
     scroll_enabled: bool,
     content_offset: CGPoint,
     content_size: CGSize,
+    content_inset: UIEdgeInsets,
 }
 impl_HostObject_with_superclass!(UIScrollViewHostObject);
 impl Default for UIScrollViewHostObject {
@@ -35,6 +38,7 @@ impl Default for UIScrollViewHostObject {
                 width: 0.0,
                 height: 0.0,
             },
+            content_inset: Default::default(),
         }
     }
 }
@@ -48,6 +52,22 @@ pub const CLASSES: ClassExports = objc_classes! {
 + (id)allocWithZone:(NSZonePtr)_zone {
     let host_object = Box::<UIScrollViewHostObject>::default();
     env.objc.alloc_object(this, host_object, &mut env.mem)
+}
+
+- (id)initWithCoder:(id)coder {
+    let this: id = crate::msg_super![env; this initWithCoder:coder];
+    let key = get_static_str(env, "UIContentSize");
+    let size: CGSize = msg![env; coder decodeCGSizeForKey:key];
+    env.objc
+        .borrow_mut::<UIScrollViewHostObject>(this)
+        .content_size = size;
+    () = msg![env; this setClipsToBounds:true];
+    this
+}
+- (id)initWithFrame:(CGRect)frame {
+    let this: id = crate::msg_super![env; this initWithFrame:frame];
+    () = msg![env; this setClipsToBounds:true];
+    this
 }
 
 - (id)delegate {
@@ -103,6 +123,28 @@ pub const CLASSES: ClassExports = objc_classes! {
     () = msg![env; this setNeedsDisplay];
 }
 
+- (())setContentOffset:(CGPoint)offset animated:(bool)animated {
+    if animated {
+        () = crate::msg_class![env; UIView beginAnimations:nil context:(crate::mem::ConstVoidPtr::null())];
+        () = crate::msg_class![env; UIView setAnimationDuration:0.25f64];
+    }
+    () = msg![env; this setContentOffset:offset];
+    if animated {
+        () = crate::msg_class![env; UIView commitAnimations];
+    }
+}
+- (UIEdgeInsets)contentInset {
+    env.objc
+        .borrow::<UIScrollViewHostObject>(this)
+        .content_inset
+}
+- (())setContentInset:(UIEdgeInsets)value {
+    env.objc
+        .borrow_mut::<UIScrollViewHostObject>(this)
+        .content_inset = value;
+    () = msg![env; this setNeedsDisplay];
+}
+
 - (CGSize)contentSize {
     env.objc.borrow::<UIScrollViewHostObject>(this).content_size
 }
@@ -115,7 +157,8 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())touchesMoved:(id)touches // NSSet* of UITouch*
-         withEvent:(id)_event { // UIEvent*
+         withEvent:(id)_event {
+    // UIEvent*
     let scroll_enabled: bool = msg![env; this scrollEnabled];
     if !scroll_enabled {
         return;
@@ -142,14 +185,28 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     // Very rudimentary scrolling.
     // We emulate sliding up to scroll down like on the real iPhone.
-    let mut new_content_offset: CGPoint = CGPoint { x: offset.x - delta_x, y: offset.y - delta_y };
+    let mut new_content_offset: CGPoint = CGPoint {
+        x: offset.x - delta_x,
+        y: offset.y - delta_y,
+    };
 
     // Update content offset within bounds
-    new_content_offset.y = new_content_offset.y.min(content_size.height - bounds.size.height).max(0.0);
-    new_content_offset.x = new_content_offset.x.min(content_size.width - bounds.size.width).max(0.0);
+    let inset: UIEdgeInsets = msg![env; this contentInset];
+    new_content_offset.y = new_content_offset
+        .y
+        .min((content_size.height - bounds.size.height + inset.bottom).max(-inset.top))
+        .max(-inset.top);
+    new_content_offset.x = new_content_offset
+        .x
+        .min((content_size.width - bounds.size.width + inset.right).max(-inset.left))
+        .max(-inset.left);
 
     // Trigger rerender only if required.
-    log_dbg!("content offset: old {:?}, new {:?}", offset, new_content_offset);
+    log_dbg!(
+        "content offset: old {:?}, new {:?}",
+        offset,
+        new_content_offset
+    );
     if new_content_offset != offset {
         () = msg![env; this setContentOffset:new_content_offset];
 

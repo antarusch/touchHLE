@@ -10,7 +10,7 @@ use super::NSTimeInterval;
 use super::{ns_run_loop, ns_string};
 use crate::objc::{
     autorelease, id, msg, msg_class, msg_send, nil, objc_classes, release, retain, ClassExports,
-    HostObject, SEL,
+    HostObject, NSZonePtr, SEL,
 };
 use crate::Environment;
 use std::time::{Duration, Instant};
@@ -25,6 +25,7 @@ struct NSTimerHostObject {
     /// Strong reference
     user_info: id,
     repeats: bool,
+    invokes_invocation: bool,
     due_by: Option<Instant>,
     /// If the timer is currently running its callback, this is set so that the
     /// re-entering the run loop from inside the callback doesn't cause an
@@ -41,6 +42,25 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 // NSTimer doesn't seem to be an abstract class?
 @implementation NSTimer: NSObject
+
++ (id)allocWithZone:(NSZonePtr)_zone {
+    let selector = env
+        .objc
+        .register_host_selector("_touchHLE_timerNoop:".into(), &mut env.mem);
+    let host = Box::new(NSTimerHostObject {
+        ns_interval: 0.0001,
+        rust_interval: Duration::from_secs_f64(0.0001),
+        target: nil,
+        selector,
+        user_info: nil,
+        repeats: false,
+        invokes_invocation: false,
+        due_by: None,
+        is_running_callback: false,
+        run_loop: nil,
+    });
+    env.objc.alloc_object(this, host, &mut env.mem)
+}
 
 + (id)timerWithTimeInterval:(NSTimeInterval)ns_interval
                      target:(id)target
@@ -60,9 +80,10 @@ pub const CLASSES: ClassExports = objc_classes! {
         selector,
         user_info,
         repeats,
+        invokes_invocation: false,
         due_by: Some(Instant::now().checked_add(rust_interval).unwrap()),
         run_loop: nil,
-        is_running_callback: false
+        is_running_callback: false,
     });
     let new = env.objc.alloc_object(this, host_object, &mut env.mem);
 
@@ -97,11 +118,49 @@ pub const CLASSES: ClassExports = objc_classes! {
     timer
 }
 
++ (id)timerWithTimeInterval:(NSTimeInterval)interval invocation:(id)invocation repeats:(bool)repeats {
+    () = msg![env; invocation retainArguments];
+    let selector = env
+        .objc
+        .register_host_selector("invoke".into(), &mut env.mem);
+    let timer: id = msg![env; this timerWithTimeInterval:interval target:invocation selector:selector userInfo:nil repeats:repeats];
+    env.objc
+        .borrow_mut::<NSTimerHostObject>(timer)
+        .invokes_invocation = true;
+    timer
+}
++ (id)scheduledTimerWithTimeInterval:(NSTimeInterval)interval invocation:(id)invocation repeats:(bool)repeats {
+    let timer: id =
+        msg![env; this timerWithTimeInterval:interval invocation:invocation repeats:repeats];
+    let run_loop: id = msg_class![env; NSRunLoop currentRunLoop];
+    let mode = ns_string::get_static_str(env, NSDefaultRunLoopMode);
+    () = msg![env; run_loop addTimer:timer forMode:mode];
+    timer
+}
+- (id)initWithFireDate:(id)date interval:(NSTimeInterval)interval target:(id)target selector:(SEL)selector userInfo:(id)user_info repeats:(bool)repeats {
+    let delay: f64 = msg![env; date timeIntervalSinceNow];
+    retain(env, target);
+    retain(env, user_info);
+    let old = env.objc.borrow::<NSTimerHostObject>(this);
+    let refs = [old.target, old.user_info];
+    let interval = interval.max(0.0001);
+    let host = env.objc.borrow_mut::<NSTimerHostObject>(this);
+    host.ns_interval = interval;
+    host.rust_interval = Duration::from_secs_f64(interval);
+    host.target = target;
+    host.selector = selector;
+    host.user_info = user_info;
+    host.repeats = repeats;
+    host.due_by = Instant::now().checked_add(Duration::from_secs_f64(delay.max(0.0)));
+    for value in refs {
+        release(env, value);
+    }
+    this
+}
+
 - (())dealloc {
     let &NSTimerHostObject {
-        target,
-        user_info,
-        ..
+        target, user_info, ..
     } = env.objc.borrow(this);
     release(env, target);
     release(env, user_info);
@@ -128,7 +187,9 @@ pub const CLASSES: ClassExports = objc_classes! {
     // Timer might already be invalid, don't try to remove it twice.
     if timer.due_by.take().is_some() {
         let run_loop = timer.run_loop;
-        ns_run_loop::remove_timer(env, run_loop, this);
+        if run_loop != nil {
+            ns_run_loop::remove_timer(env, run_loop, this);
+        }
     }
 }
 
@@ -143,7 +204,15 @@ pub const CLASSES: ClassExports = objc_classes! {
     let pool: id = msg_class![env; NSAutoreleasePool new];
 
     // Signature should be `- (void)timerDidFire:(NSTimer *)which`.
-    let _: () = msg_send(env, (target, selector, this));
+    if env
+        .objc
+        .borrow::<NSTimerHostObject>(this)
+        .invokes_invocation
+    {
+        () = msg![env; target invoke];
+    } else {
+        let _: () = msg_send(env, (target, selector, this));
+    }
 
     release(env, pool);
 
@@ -238,7 +307,9 @@ pub(super) fn handle_timer(env: &mut Environment, timer: id) -> Option<Instant> 
         let advance_by = rust_interval.checked_mul(advance_by).unwrap();
         Some(due_by.checked_add(advance_by).unwrap())
     } else {
-        ns_run_loop::remove_timer(env, run_loop, timer);
+        if run_loop != nil {
+            ns_run_loop::remove_timer(env, run_loop, timer);
+        }
         None
     };
     env.objc.borrow_mut::<NSTimerHostObject>(timer).due_by = new_due_by;
@@ -256,7 +327,15 @@ pub(super) fn handle_timer(env: &mut Environment, timer: id) -> Option<Instant> 
     let pool: id = msg_class![env; NSAutoreleasePool new];
 
     // Signature should be `- (void)timerDidFire:(NSTimer *)which`.
-    let _: () = msg_send(env, (target, selector, timer));
+    if env
+        .objc
+        .borrow::<NSTimerHostObject>(timer)
+        .invokes_invocation
+    {
+        () = msg![env; target invoke];
+    } else {
+        let _: () = msg_send(env, (target, selector, timer));
+    }
 
     env.objc
         .borrow_mut::<NSTimerHostObject>(timer)

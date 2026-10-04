@@ -9,6 +9,7 @@ use super::ns_string::{from_rust_ordering, from_rust_string};
 use super::{
     _nib_archive_decoder, ns_keyed_unarchiver, NSComparisonResult, NSOrderedSame, NSUInteger,
 };
+use crate::frameworks::core_animation::ca_transform_3d::CATransform3D;
 use crate::frameworks::core_foundation::cf_number::{
     kCFNumberCharType, kCFNumberFloat32Type, kCFNumberFloatType, kCFNumberIntType,
     kCFNumberSInt16Type, kCFNumberSInt32Type, kCFNumberSInt8Type, kCFNumberShortType, CFNumberType,
@@ -29,6 +30,8 @@ pub(super) enum NSValueHostObject {
     CGPoint(CGPoint),
     CGSize(CGSize),
     CGRect(CGRect),
+    CATransform3D(CATransform3D),
+    Bytes(Vec<u8>),
 }
 impl HostObject for NSValueHostObject {}
 
@@ -131,11 +134,55 @@ pub const CLASSES: ClassExports = objc_classes! {
     autorelease(env, new)
 }
 
++ (id)valueWithCATransform3D:(CATransform3D)value {
+    let host = Box::new(NSValueHostObject::CATransform3D(value));
+    let object = env.objc.alloc_object(this, host, &mut env.mem);
+    autorelease(env, object)
+}
+
++ (id)valueWithBytes:(ConstVoidPtr)bytes objCType:(crate::mem::ConstPtr<u8>)encoding {
+    let encoding = env.mem.cstr_at_utf8(encoding).unwrap().to_string();
+    let (_, size, _) = super::type_encoding::parse(encoding.as_bytes());
+    let value = if encoding.starts_with("{CATransform3D=") {
+        NSValueHostObject::CATransform3D(env.mem.read(bytes.cast()))
+    } else if encoding.starts_with("{CGPoint=") || encoding.starts_with("{_NSPoint=") {
+        NSValueHostObject::CGPoint(env.mem.read(bytes.cast()))
+    } else if encoding.starts_with("{CGSize=") || encoding.starts_with("{_NSSize=") {
+        NSValueHostObject::CGSize(env.mem.read(bytes.cast()))
+    } else if encoding.starts_with("{CGRect=") || encoding.starts_with("{_NSRect=") {
+        NSValueHostObject::CGRect(env.mem.read(bytes.cast()))
+    } else {
+        NSValueHostObject::Bytes(env.mem.bytes_at(bytes.cast(), size).to_vec())
+    };
+    let object = env.objc.alloc_object(this, Box::new(value), &mut env.mem);
+    autorelease(env, object)
+}
+
+- (())getValue:(MutVoidPtr)buffer {
+    match env.objc.borrow::<NSValueHostObject>(this) {
+        NSValueHostObject::CGPoint(value) => env.mem.write(buffer.cast(), *value),
+        NSValueHostObject::CGSize(value) => env.mem.write(buffer.cast(), *value),
+        NSValueHostObject::CGRect(value) => env.mem.write(buffer.cast(), *value),
+        NSValueHostObject::CATransform3D(value) => env.mem.write(buffer.cast(), *value),
+        NSValueHostObject::Bytes(bytes) => {
+            env.mem
+                .bytes_at_mut(buffer.cast(), bytes.len() as u32)
+                .copy_from_slice(bytes);
+        }
+    }
+}
+- (CATransform3D)CATransform3DValue {
+    match env.objc.borrow::<NSValueHostObject>(this) {
+        NSValueHostObject::CATransform3D(value) => *value,
+        _ => panic!("NSValue does not contain a CATransform3D"),
+    }
+}
+
 - (CGPoint)CGPointValue {
     let host_object = env.objc.borrow::<NSValueHostObject>(this);
     match host_object {
         NSValueHostObject::CGPoint(cg_point) => *cg_point,
-        _ => unimplemented!()
+        _ => unimplemented!(),
     }
 }
 
@@ -306,7 +353,25 @@ pub const CLASSES: ClassExports = objc_classes! {
         NSNumberHostObject::Int(i) => ("NS.intval", plist::Value::Integer((*i).into())),
         NSNumberHostObject::Double(d) => ("NS.dblval", plist::Value::Real(*d)),
         NSNumberHostObject::Bool(b) => ("NS.boolval", plist::Value::Boolean(*b)),
-        _ => unimplemented!("{:?}", host_object)
+        NSNumberHostObject::Float(value) => ("NS.dblval", plist::Value::Real(f64::from(*value))),
+        NSNumberHostObject::UnsignedLongLong(value) => {
+            ("NS.intval", plist::Value::Integer((*value).into()))
+        }
+        NSNumberHostObject::UnsignedInt(value) => {
+            ("NS.intval", plist::Value::Integer((*value).into()))
+        }
+        NSNumberHostObject::LongLong(value) => {
+            ("NS.intval", plist::Value::Integer((*value).into()))
+        }
+        NSNumberHostObject::Short(value) => {
+            ("NS.intval", plist::Value::Integer(i64::from(*value).into()))
+        }
+        NSNumberHostObject::UnsignedShort(value) => {
+            ("NS.intval", plist::Value::Integer(u64::from(*value).into()))
+        }
+        NSNumberHostObject::Char(value) => {
+            ("NS.intval", plist::Value::Integer(i64::from(*value).into()))
+        }
     };
 
     let scope = get_value_to_encode_for_current_key(env, coder);

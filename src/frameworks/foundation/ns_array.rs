@@ -164,6 +164,24 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
     NSNotFound as NSUInteger
 }
+
+- (NSUInteger)indexOfObjectIdenticalTo:(id)object {
+    let count: NSUInteger = msg![env; this count];
+    for index in 0..count {
+        let candidate: id = msg![env; this objectAtIndex:index];
+        if candidate == object {
+            return index;
+        }
+    }
+    super::NSNotFound as NSUInteger
+}
+- (id)arrayByAddingObject:(id)object {
+    let array: id = msg![env; this mutableCopy];
+    () = msg![env; array addObject:object];
+    let result: id = msg![env; array copy];
+    release(env, array);
+    autorelease(env, result)
+}
 - (bool)containsObject:(id)object {
     let idx: NSUInteger = msg![env; this indexOfObject:object];
     idx != NSNotFound as NSUInteger
@@ -275,6 +293,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 // methods that would be inappropriate for mutability.
 @implementation NSMutableArray: NSArray
 
+
 + (id)allocWithZone:(NSZonePtr)zone {
     // NSArray might be subclassed by something which needs allocWithZone:
     // to have the normal behaviour. Unimplemented: call superclass alloc then.
@@ -352,6 +371,17 @@ pub const CLASSES: ClassExports = objc_classes! {
         () = msg![env; this addObject:next];
     }
 }
+
+- (())removeObjectsInArray:(id)objects {
+    let objects: id = msg![env; objects copy];
+    let count: NSUInteger = msg![env; objects count];
+    for index in 0..count {
+        let object: id = msg![env; objects objectAtIndex:index];
+        () = msg![env; this removeObject:object];
+    }
+    release(env, objects);
+}
+
 
 // NSCopying implementation
 - (id)copyWithZone:(NSZonePtr)_zone {

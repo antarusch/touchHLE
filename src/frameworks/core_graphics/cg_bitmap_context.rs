@@ -88,6 +88,9 @@ pub fn CGBitmapContextCreate(
         rgb_fill_color: (0.0, 0.0, 0.0, 0.0),
         rgb_stroke_color: (0.0, 0.0, 0.0, 1.0),
         line_width: 1.0,
+        line_cap: 0,
+        line_dash: (0.0, Vec::new()),
+        path: Default::default(),
         font: Ptr::null(),
         font_size: 14.0,
         transform: CGAffineTransformIdentity,
@@ -672,8 +675,108 @@ fn test_iter_transformed_pixels() {
         .eq(inverted_square_2x2_at_0_0.into_iter()));
 }
 
-/// Implementation of `CGContextFillRect` (`clear` == [false]) and
-/// `CGContextClearRect` (`clear` == [true]) for `CGBitmapContext`.
+/// Stroke the current polyline path, then clear it.
+pub(super) fn stroke_path(env: &mut Environment, context: CGContextRef) {
+    let host = env.objc.borrow_mut::<CGContextHostObject>(context);
+    let path = std::mem::take(&mut host.path);
+    let width = host.line_width;
+    let cap = host.line_cap;
+    let dash = host.line_dash.clone();
+    let transform = host.transform;
+    let stroke = host.rgb_stroke_color;
+    let mut drawer = CGBitmapContextDrawer::new(&env.objc, &mut env.mem, context);
+    let color = drawer.convert_color(stroke);
+    for points in path.subpaths {
+        let mut distance = 0.0;
+        for pair in points.windows(2) {
+            let (a, b) = (pair[0], pair[1]);
+            let delta = b - a;
+            let length = (delta.x * delta.x + delta.y * delta.y).sqrt();
+            if length == 0.0 || !length.is_finite() {
+                continue;
+            }
+            let scale = transform.apply_to_size(CGSize {
+                width: 0.0,
+                height: width,
+            });
+            let radius =
+                ((scale.width * scale.width + scale.height * scale.height).sqrt() * 0.5).max(0.5);
+            if !radius.is_finite() {
+                continue;
+            }
+            let min_x = (a.x.min(b.x) - radius - 1.0).floor().max(0.0) as i32;
+            let max_x = (a.x.max(b.x) + radius + 1.0)
+                .ceil()
+                .min(drawer.width() as f32) as i32;
+            let min_y = (a.y.min(b.y) - radius - 1.0).floor().max(0.0) as i32;
+            let max_y = (a.y.max(b.y) + radius + 1.0)
+                .ceil()
+                .min(drawer.height() as f32) as i32;
+            for y in min_y..max_y {
+                for x in min_x..max_x {
+                    let offset = CGPoint {
+                        x: x as f32 + 0.5 - a.x,
+                        y: y as f32 + 0.5 - a.y,
+                    };
+                    let t = (offset.x * delta.x + offset.y * delta.y) / (length * length);
+                    let extension = if cap == 2 { radius / length } else { 0.0 };
+                    if cap != 1 && (t < -extension || t > 1.0 + extension) {
+                        continue;
+                    }
+                    if !dash_visible(distance + t.clamp(0.0, 1.0) * length, dash.0, &dash.1) {
+                        continue;
+                    }
+                    let t = if cap == 1 { t.clamp(0.0, 1.0) } else { t };
+                    let dx = offset.x - delta.x * t;
+                    let dy = offset.y - delta.y * t;
+                    let coverage = (radius + 0.5 - (dx * dx + dy * dy).sqrt()).clamp(0.0, 1.0);
+                    if coverage > 0.0 {
+                        drawer.put_pixel(
+                            (x, y),
+                            (
+                                color.0 * coverage,
+                                color.1 * coverage,
+                                color.2 * coverage,
+                                color.3 * coverage,
+                            ),
+                            true,
+                        );
+                    }
+                }
+            }
+            distance += length;
+        }
+    }
+}
+
+fn dash_visible(distance: f32, phase: f32, lengths: &[f32]) -> bool {
+    let sum: f32 = lengths.iter().sum();
+    if lengths.is_empty() || sum <= 0.0 {
+        return true;
+    }
+    let count = lengths.len()
+        * if lengths.len().is_multiple_of(2) {
+            1
+        } else {
+            2
+        };
+    let total = sum
+        * if lengths.len().is_multiple_of(2) {
+            1.0
+        } else {
+            2.0
+        };
+    let mut position = (distance + phase).rem_euclid(total);
+    for i in 0..count {
+        let length = lengths[i % lengths.len()];
+        if position < length {
+            return i % 2 == 0;
+        }
+        position -= length;
+    }
+    true
+}
+
 pub(super) fn fill_rect(env: &mut Environment, context: CGContextRef, rect: CGRect, clear: bool) {
     let mut drawer = CGBitmapContextDrawer::new(&env.objc, &mut env.mem, context);
     let color = if clear {

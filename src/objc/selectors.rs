@@ -69,6 +69,10 @@ impl SEL {
     }
 }
 
+pub fn sel_getName(_env: &mut crate::Environment, selector: SEL) -> ConstPtr<u8> {
+    selector.0
+}
+
 unsafe impl SafeRead for SEL {}
 
 impl ObjC {

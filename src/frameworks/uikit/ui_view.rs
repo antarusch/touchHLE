@@ -15,6 +15,7 @@ pub mod ui_label;
 pub mod ui_page_control;
 pub mod ui_picker_view;
 pub mod ui_scroll_view;
+pub mod ui_table_view;
 pub mod ui_web_view;
 pub mod ui_window;
 
@@ -215,8 +216,17 @@ pub const CLASSES: ClassExports = objc_classes! {
     () = msg_class![env; CATransaction setAnimationTimingFunction:timing_function];
 }
 
+ + (())setAnimationBeginsFromCurrentState:(bool)value {
+    let key = get_static_str(env, "_touchHLE_animationBeginsFromCurrentState");
+    let value: id = msg_class![env; NSNumber numberWithBool:value];
+    () = msg_class![env; CATransaction setValue:value forKey:key];
+}
+
 + (())setAnimationRepeatAutoreverses:(bool)repeat_autoreverses {
-    log_dbg!("[UIView setAnimationRepeatAutoreverses:{:?}]", repeat_autoreverses);
+    log_dbg!(
+        "[UIView setAnimationRepeatAutoreverses:{:?}]",
+        repeat_autoreverses
+    );
     let value: id = msg_class![env; NSNumber numberWithBool:repeat_autoreverses];
     () = msg_class![env; CATransaction setValue:value forKey:(get_static_str(env, touchHLE_kCATransactionAnimationRepeatAutoreverses))];
 }
@@ -422,6 +432,26 @@ pub const CLASSES: ClassExports = objc_classes! {
     () = msg![env; this setBackgroundColor:bg_color];
     () = msg![env; this setTag:tag];
     () = msg![env; this setMultipleTouchEnabled:multi_touch_enabled];
+    for (key, property) in [
+        ("UIClipsToBounds", 0),
+        ("UIUserInteractionDisabled", 1),
+        ("UIContentMode", 2),
+    ] {
+        let key = get_static_str(env, key);
+        if msg![env; coder containsValueForKey:key] {
+            if property == 2 {
+                let mode: NSInteger = msg![env; coder decodeIntegerForKey:key];
+                () = msg![env; this setContentMode:mode];
+            } else {
+                let value: bool = msg![env; coder decodeBoolForKey:key];
+                if property == 0 {
+                    () = msg![env; this setClipsToBounds:value];
+                } else {
+                    () = msg![env; this setUserInteractionEnabled:(!value)];
+                }
+            }
+        }
+    }
 
     for i in 0..subview_count {
         let subview: id = msg![env; subviews objectAtIndex:i];
@@ -687,7 +717,12 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())setClipsToBounds:(bool)clips {
-    todo_objc_setter!(this, clips);
+    let layer = env.objc.borrow::<UIViewHostObject>(this).layer;
+    () = msg![env; layer setMasksToBounds:clips];
+}
+- (bool)clipsToBounds {
+    let layer = env.objc.borrow::<UIViewHostObject>(this).layer;
+    msg![env; layer masksToBounds]
 }
 
 - (bool)isOpaque {
@@ -782,8 +817,33 @@ pub const CLASSES: ClassExports = objc_classes! {
     msg![env; layer setAffineTransform:transform]
 }
 
-- (())setContentMode:(NSInteger)content_mode { // should be UIViewContentMode
-    todo_objc_setter!(this, content_mode);
+- (())setContentMode:(NSInteger)content_mode {
+    // should be UIViewContentMode
+    let modes = [
+        "resize",
+        "resizeAspect",
+        "resizeAspectFill",
+        "resize",
+        "center",
+        "top",
+        "bottom",
+        "left",
+        "right",
+        "topLeft",
+        "topRight",
+        "bottomLeft",
+        "bottomRight",
+    ];
+    let mode = modes
+        .get(content_mode as usize)
+        .copied()
+        .unwrap_or("resize");
+    let mode = get_static_str(env, mode);
+    let layer = env.objc.borrow::<UIViewHostObject>(this).layer;
+    () = msg![env; layer setContentsGravity:mode];
+    if content_mode == 3 {
+        () = msg![env; layer setNeedsDisplayOnBoundsChange:true];
+    }
 }
 
 - (CGRect)contentStretch {

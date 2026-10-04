@@ -229,6 +229,12 @@ pub const CLASSES: ClassExports = objc_classes! {
     ThreadLocalState::pop_explicit_transaction(env).commit(env);
 }
 
++ (())flush {
+    if ThreadLocalState::get(env).explicit_transactions.is_empty() {
+        ThreadLocalState::commit_implicit_transaction(env);
+    }
+}
+
 + (bool)disableActions {
     let key = get_static_str(env, kCATransactionDisableActions);
     let value = msg![env; this valueForKey: key];

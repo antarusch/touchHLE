@@ -49,6 +49,14 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.borrow::<NSMethodSignatureHostObject>(this).return_type
 }
 
+- (NSUInteger)methodReturnLength {
+    let encoding = env
+        .objc
+        .borrow::<NSMethodSignatureHostObject>(this)
+        .return_type;
+    super::type_encoding::parse(env.mem.cstr_at(encoding)).1
+}
+
 - (())dealloc {
     let host_obj = env.objc.borrow::<NSMethodSignatureHostObject>(this);
     env.mem.free(host_obj.return_type.cast_mut().cast());
@@ -98,23 +106,13 @@ fn parse_signature(
 }
 
 fn parse_signature_inner(env: &mut Environment, curr: ConstPtr<u8>) -> (GuestUSize, u32, u32) {
-    let mut idx = 0;
-    let c = env.mem.read(curr);
-    match c {
-        b'^' => {
-            // pointer
-            let (scanned, read, size) = parse_signature_inner(env, curr + 1);
-            (scanned + 1, read + 1, size)
-        }
-        b'v' | b'@' | b':' | b'f' | b'c' | b'*' | b'i' => {
-            idx += 1;
-            let mut size = 0;
-            while let cc @ b'0'..=b'9' = env.mem.read(curr + idx) {
-                size = size * 10 + (cc - b'0') as u32;
-                idx += 1;
-            }
-            (idx, 1, size)
-        }
-        _ => unimplemented!("parse_signature_inner: {}", c as char),
+    let bytes = env.mem.cstr_at(curr);
+    let (read, _, _) = super::type_encoding::parse(bytes);
+    let mut end = read;
+    let mut offset = 0;
+    while bytes.get(end).is_some_and(u8::is_ascii_digit) {
+        offset = offset * 10 + u32::from(bytes[end] - b'0');
+        end += 1;
     }
+    (end as u32, read as u32, offset)
 }
