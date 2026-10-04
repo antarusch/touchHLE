@@ -7,8 +7,7 @@
 
 use super::{ns_array, ns_data, ns_dictionary, ns_string, NSUInteger};
 use super::{
-    ns_array::ArrayHostObject, ns_data::NSDataHostObject, ns_dictionary::DictionaryHostObject,
-    ns_value::NSNumberHostObject,
+    ns_array::ArrayHostObject, ns_dictionary::DictionaryHostObject, ns_value::NSNumberHostObject,
 };
 use crate::frameworks::core_foundation::time::apple_epoch;
 use crate::frameworks::foundation::ns_date::NSDateHostObject;
@@ -19,8 +18,8 @@ use crate::objc::{
 };
 use crate::Environment;
 use plist::Value;
+use std::collections::HashSet;
 use std::io::Cursor;
-use std::ops::Add;
 use std::time::{Duration, SystemTime};
 
 pub type NSPropertyListMutabilityOptions = NSUInteger;
@@ -41,13 +40,28 @@ pub const CLASSES: ClassExports = objc_classes! {
 + (id)dataFromPropertyList:(id)plist
                     format:(NSPropertyListFormat)format
                 errorDescription:(MutPtr<id>)error_string { // NSString **
-    assert_eq!(format, NSPropertyListBinaryFormat_v1_0); // TODO
-    assert!(error_string.is_null()); // TODO
-
-    let value = serialize_plist(env, plist);
-    log_dbg!("dataFromPropertyList value {:?}", value);
-    let mut buf = Vec::new();
-    value.to_writer_binary(&mut buf).unwrap();
+    let result = serialize_plist(env, plist, &mut HashSet::new()).and_then(|value| {
+        let mut buf = Vec::new();
+        let result = match format {
+            NSPropertyListXMLFormat_v1_0 => value.to_writer_xml(&mut buf),
+            NSPropertyListBinaryFormat_v1_0 => value.to_writer_binary(&mut buf),
+            _ => return Err(format!("Unsupported property list format: {}", format)),
+        };
+        result.map_err(|error| error.to_string())?;
+        Ok(buf)
+    });
+    let buf = match result {
+        Ok(buf) => buf,
+        Err(error) => {
+            // The legacy errorDescription API returns an owned string, which
+            // the caller must release.
+            if !error_string.is_null() {
+                let error = ns_string::from_rust_string(env, error);
+                env.mem.write(error_string, error);
+            }
+            return nil;
+        }
+    };
     let len: u32 = buf.len().try_into().unwrap();
     log_dbg!("dataFromPropertyList buf len {}", len);
     let ptr = env.mem.alloc(len);
@@ -203,7 +217,10 @@ fn deserialize_plist(
         }
         Value::Date(date_val) => {
             let time: SystemTime = (*date_val).into();
-            let time_interval = time.duration_since(apple_epoch()).unwrap().as_secs_f64();
+            let time_interval = match time.duration_since(apple_epoch()) {
+                Ok(interval) => interval.as_secs_f64(),
+                Err(error) => -error.duration().as_secs_f64(),
+            };
             let date: id = msg_class![env; NSDate alloc];
             msg![env; date initWithTimeIntervalSinceReferenceDate:time_interval]
         }
@@ -245,81 +262,96 @@ fn deserialize_plist(
     }
 }
 
-fn serialize_plist(env: &mut Environment, plist: id) -> Value {
-    let class: Class = msg![env; plist class];
+fn serialize_plist(
+    env: &mut Environment,
+    plist: id,
+    active: &mut HashSet<id>,
+) -> Result<Value, String> {
+    if plist == nil {
+        return Err("A property list cannot contain nil".into());
+    }
+    if !active.insert(plist) {
+        return Err("A property list cannot contain a cycle".into());
+    }
+    let result = serialize_plist_value(env, plist, active);
+    active.remove(&plist);
+    result
+}
 
+fn serialize_plist_value(
+    env: &mut Environment,
+    plist: id,
+    active: &mut HashSet<id>,
+) -> Result<Value, String> {
+    let class: Class = msg![env; plist class];
     let dict_class = env.objc.get_known_class("NSDictionary", &mut env.mem);
     let arr_class = env.objc.get_known_class("NSArray", &mut env.mem);
     let str_class = env.objc.get_known_class("NSString", &mut env.mem);
+    let data_class = env.objc.get_known_class("NSData", &mut env.mem);
 
     if env.objc.class_is_subclass_of(class, dict_class) {
-        // only our internal implementation is supported
-        assert!(env.objc.get_class_name(class).starts_with("_touchHLE_NS"));
-
+        // Snapshot references so recursive serialization never empties a
+        // container, including when objects appear more than once.
+        let key_vals: Vec<_> = env
+            .objc
+            .borrow::<DictionaryHostObject>(plist)
+            .map
+            .values()
+            .flatten()
+            .copied()
+            .collect();
         let mut dict = plist::dictionary::Dictionary::new();
-        let dict_host_obj: DictionaryHostObject = std::mem::take(env.objc.borrow_mut(plist));
-        let mut key_vals = Vec::with_capacity(dict_host_obj.count as usize);
-        for collisions in dict_host_obj.map.values() {
-            for &(key, value) in collisions {
-                key_vals.push((key, value));
-            }
-        }
-        *env.objc.borrow_mut(plist) = dict_host_obj;
         for (key, val) in key_vals {
             let key_class: Class = msg![env; key class];
-
-            // only string keys are supported
-            assert!(env.objc.class_is_subclass_of(key_class, str_class));
-            assert!(env
-                .objc
-                .get_class_name(key_class)
-                .starts_with("_touchHLE_NS"));
-
-            let key_string = ns_string::to_rust_string(env, key);
-            let val_plist = serialize_plist(env, val);
-            dict.insert(String::from(key_string), val_plist);
+            if !env.objc.class_is_subclass_of(key_class, str_class) {
+                return Err("Property list dictionary keys must be strings".into());
+            }
+            let key_string = ns_string::to_rust_string(env, key).to_string();
+            dict.insert(key_string, serialize_plist(env, val, active)?);
         }
-        Value::Dictionary(dict)
+        Ok(Value::Dictionary(dict))
     } else if env.objc.class_is_subclass_of(class, arr_class) {
-        // only our internal implementation is supported
-        assert!(env.objc.get_class_name(class).starts_with("_touchHLE_NS"));
-
-        let arr_host_obj: ArrayHostObject = std::mem::take(env.objc.borrow_mut(plist));
-        let arr: Vec<Value> = arr_host_obj
-            .array
-            .iter()
-            .map(|&value| serialize_plist(env, value))
-            .collect();
-        *env.objc.borrow_mut(plist) = arr_host_obj;
-        Value::Array(arr)
+        let objects = env.objc.borrow::<ArrayHostObject>(plist).array.clone();
+        let values = objects
+            .into_iter()
+            .map(|value| serialize_plist(env, value, active))
+            .collect::<Result<_, _>>()?;
+        Ok(Value::Array(values))
     } else if env.objc.class_is_subclass_of(class, str_class) {
-        // only our internal implementation is supported
-        assert!(env.objc.get_class_name(class).starts_with("_touchHLE_NS"));
-
-        let s = ns_string::to_rust_string(env, plist);
-        Value::String(s.to_string())
+        Ok(Value::String(
+            ns_string::to_rust_string(env, plist).to_string(),
+        ))
     } else if class == env.objc.get_known_class("NSNumber", &mut env.mem) {
         let num = env.objc.borrow::<NSNumberHostObject>(plist);
-        match num {
+        Ok(match num {
             NSNumberHostObject::Bool(b) => Value::Boolean(*b),
             NSNumberHostObject::Int(i) => Value::from(*i),
             NSNumberHostObject::UnsignedInt(ui) => Value::from(*ui),
             NSNumberHostObject::Float(f) => Value::from(*f),
             NSNumberHostObject::Double(d) => Value::from(*d),
             NSNumberHostObject::LongLong(ll) => Value::from(*ll),
+            NSNumberHostObject::UnsignedLongLong(ull) => Value::from(*ull),
             NSNumberHostObject::Short(s) => Value::from(*s),
+            NSNumberHostObject::UnsignedShort(us) => Value::from(*us),
             NSNumberHostObject::Char(c) => Value::from(*c),
-            _ => todo!("num {:?}", num),
-        }
-    } else if class == env.objc.get_known_class("NSData", &mut env.mem) {
-        let data = env.objc.borrow::<NSDataHostObject>(plist);
-        let buffer_slice = env.mem.bytes_at(data.bytes.cast(), data.length);
-        Value::Data(buffer_slice.to_vec())
+        })
+    } else if env.objc.class_is_subclass_of(class, data_class) {
+        Ok(Value::Data(ns_data::to_rust_slice(env, plist).to_vec()))
     } else if class == env.objc.get_known_class("NSDate", &mut env.mem) {
-        let date = env.objc.borrow::<NSDateHostObject>(plist);
-        let time = apple_epoch().add(Duration::from_secs_f64(date.time_interval));
-        Value::Date(time.into())
+        let interval = env.objc.borrow::<NSDateHostObject>(plist).time_interval;
+        let duration = Duration::try_from_secs_f64(interval.abs())
+            .map_err(|_| "Invalid property list date".to_string())?;
+        let time = if interval < 0.0 {
+            apple_epoch().checked_sub(duration)
+        } else {
+            apple_epoch().checked_add(duration)
+        }
+        .ok_or_else(|| "Property list date is out of range".to_string())?;
+        Ok(Value::Date(time.into()))
     } else {
-        unimplemented!("class {}", env.objc.get_class_name(class))
+        Err(format!(
+            "Unsupported property list class: {}",
+            env.objc.get_class_name(class)
+        ))
     }
 }

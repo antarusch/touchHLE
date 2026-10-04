@@ -87,6 +87,7 @@ fn archive_invocation_and_menu_round_trips() {
     let mut env = Environment::new_without_app(options, icon).unwrap();
     let env = &mut env;
     let pool: id = msg_class![env; NSAutoreleasePool new];
+    check_property_lists(env);
     check_nib_scroll_view(env);
     check_set_archives(env);
     check_foundation_archives(env);
@@ -757,4 +758,123 @@ fn check_legacy_string_readers(env: &mut Environment) {
     assert!(msg![env; decoded isEqualToString:changed]);
     release(env, decoded);
     release(env, coder);
+}
+
+fn check_property_lists(env: &mut Environment) {
+    use crate::frameworks::foundation::ns_property_list_serialization::*;
+    use crate::mem::MutPtr;
+    use plist::{Dictionary, Value};
+    let error_ptr: MutPtr<id> = env.mem.alloc(std::mem::size_of::<id>() as u32).cast();
+    let format_ptr: MutPtr<u32> = env.mem.alloc(4).cast();
+    env.mem.write(error_ptr, nil);
+    // Reproduces the game's XML-format request, including NSString ** output.
+    let root: id = msg_class![env; NSMutableDictionary dictionary];
+    let key = get_static_str(env, "About Will");
+    let seen: id = msg_class![env; NSNumber numberWithBool:true];
+    () = msg![env; root setObject:seen forKey:key];
+    let xml: id = msg_class![env; NSPropertyListSerialization dataFromPropertyList:root
+        format:NSPropertyListXMLFormat_v1_0 errorDescription:error_ptr];
+    assert_ne!(xml, nil);
+    let bytes = crate::frameworks::foundation::ns_data::to_rust_slice(env, xml);
+    let value = Value::from_reader_xml(std::io::Cursor::new(bytes)).unwrap();
+    assert_eq!(
+        value.as_dictionary().unwrap().get("About Will"),
+        Some(&Value::Boolean(true))
+    );
+
+    let mut expected = Dictionary::new();
+    expected.insert("text".into(), "Café 火 😀 <&>".into());
+    expected.insert("seen".into(), true.into());
+    expected.insert("integer".into(), (-42i64).into());
+    expected.insert("real".into(), 0.625f64.into());
+    expected.insert("bytes".into(), Value::Data(vec![0, 1, 0, 255]));
+    expected.insert("empty".into(), Value::Data(vec![]));
+    expected.insert(
+        "date".into(),
+        Value::Date(plist::Date::from_xml_format("2000-01-01T00:00:00Z").unwrap()),
+    );
+    expected.insert(
+        "items".into(),
+        Value::Array(vec!["one".into(), "two".into()]),
+    );
+    let expected = Value::Dictionary(expected);
+    let mut input = Vec::new();
+    expected.to_writer_xml(&mut input).unwrap();
+    let data = data_from_bytes(env, &input);
+    let root: id = msg_class![env; NSPropertyListSerialization propertyListFromData:data
+        mutabilityOption:NSPropertyListMutableContainersAndLeaves format:format_ptr errorDescription:error_ptr];
+    assert_ne!(root, nil);
+    assert_eq!(env.mem.read(format_ptr), NSPropertyListXMLFormat_v1_0);
+    let mutable = env
+        .objc
+        .get_known_class("NSMutableDictionary", &mut env.mem);
+    assert!(msg![env; root isKindOfClass:mutable]);
+    let key = get_static_str(env, "bytes");
+    let leaf: id = msg![env; root objectForKey:key];
+    let mutable = env.objc.get_known_class("NSMutableData", &mut env.mem);
+    assert!(msg![env; leaf isKindOfClass:mutable]);
+    for format in [
+        NSPropertyListXMLFormat_v1_0,
+        NSPropertyListBinaryFormat_v1_0,
+    ] {
+        let encoded: id = msg_class![env; NSPropertyListSerialization dataFromPropertyList:root
+            format:format errorDescription:error_ptr];
+        assert_ne!(encoded, nil);
+        let bytes = crate::frameworks::foundation::ns_data::to_rust_slice(env, encoded);
+        let actual = Value::from_reader(std::io::Cursor::new(bytes)).unwrap();
+        assert_eq!(actual, expected);
+        let decoded: id = msg_class![env; NSPropertyListSerialization propertyListFromData:encoded
+            mutabilityOption:NSPropertyListImmutable format:format_ptr errorDescription:error_ptr];
+        assert_ne!(decoded, nil);
+        assert_eq!(env.mem.read(format_ptr), format);
+    }
+    // Repeated acyclic containers are legal; self-references are not.
+    let array: id = msg_class![env; NSMutableArray array];
+    () = msg![env; array addObject:root];
+    () = msg![env; array addObject:root];
+    let encoded: id = msg_class![env; NSPropertyListSerialization dataFromPropertyList:array
+        format:NSPropertyListXMLFormat_v1_0 errorDescription:error_ptr];
+    assert_ne!(encoded, nil);
+    let bytes = crate::frameworks::foundation::ns_data::to_rust_slice(env, encoded);
+    let value = Value::from_reader(std::io::Cursor::new(bytes)).unwrap();
+    assert_eq!(
+        value.as_array().unwrap(),
+        &[expected.clone(), expected.clone()]
+    );
+    () = msg![env; array addObject:array];
+    let failed: id = msg_class![env; NSPropertyListSerialization dataFromPropertyList:array
+        format:NSPropertyListXMLFormat_v1_0 errorDescription:error_ptr];
+    assert_eq!(failed, nil);
+    let error = env.mem.read(error_ptr);
+    assert_ne!(error, nil);
+    release(env, error);
+    () = msg![env; array removeLastObject];
+    for (object, format) in [
+        (root, 999u32),
+        (msg_class![env; NSNull null], NSPropertyListXMLFormat_v1_0),
+    ] {
+        let failed: id = msg_class![env; NSPropertyListSerialization dataFromPropertyList:object
+            format:format errorDescription:error_ptr];
+        assert_eq!(failed, nil);
+        release(env, env.mem.read(error_ptr));
+    }
+    if let Some(directory) = std::env::var_os("TOUCHHLE_PLIST_FIXTURES") {
+        for name in ["native_plist.xml", "native_plist.bin"] {
+            let bytes = std::fs::read(std::path::Path::new(&directory).join(name)).unwrap();
+            let native = Value::from_reader(std::io::Cursor::new(&bytes)).unwrap();
+            assert_eq!(native, expected);
+            let data = data_from_bytes(env, &bytes);
+            let root: id = msg_class![env; NSPropertyListSerialization propertyListFromData:data
+                mutabilityOption:NSPropertyListMutableContainersAndLeaves format:format_ptr errorDescription:error_ptr];
+            let encoded: id = msg_class![env; NSPropertyListSerialization dataFromPropertyList:root
+                format:NSPropertyListXMLFormat_v1_0 errorDescription:error_ptr];
+            let bytes = crate::frameworks::foundation::ns_data::to_rust_slice(env, encoded);
+            assert_eq!(
+                Value::from_reader_xml(std::io::Cursor::new(bytes)).unwrap(),
+                expected
+            );
+        }
+    }
+    env.mem.free(error_ptr.cast());
+    env.mem.free(format_ptr.cast());
 }

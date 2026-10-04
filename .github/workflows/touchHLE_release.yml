@@ -22,13 +22,14 @@ jobs:
           #include <stdio.h>
           int test_NSSet_coding(void);
           int test_Foundation_coding(void);
+          int test_PropertyList_coding(void);
           int main(void) {
-            int result = test_NSSet_coding() || test_Foundation_coding();
+            int result = test_NSSet_coding() || test_Foundation_coding() || test_PropertyList_coding();
             printf("Native set archive result: %d\n", result);
             return result;
           }
           EOF
-          cc tests/TestApp_source/NSSetCoding.m tests/TestApp_source/FoundationCoding.m /tmp/set_archive_main.m -framework CoreFoundation -framework Foundation -DDEFINE_ME_WHEN_BUILDING_ON_MACOS -o tests/TestApp.app/set-archive-probe
+          cc tests/TestApp_source/NSSetCoding.m tests/TestApp_source/FoundationCoding.m tests/TestApp_source/PropertyListCoding.m /tmp/set_archive_main.m -framework CoreFoundation -framework Foundation -DDEFINE_ME_WHEN_BUILDING_ON_MACOS -o tests/TestApp.app/set-archive-probe
           cd tests/TestApp.app
           ./set-archive-probe
       - uses: actions/upload-artifact@v4
@@ -37,6 +38,8 @@ jobs:
           path: |
             tests/TestApp.app/native_sets.bin
             tests/TestApp.app/native_foundation.bin
+            tests/TestApp.app/native_plist.xml
+            tests/TestApp.app/native_plist.bin
 
   build-osx:
 
@@ -102,7 +105,7 @@ jobs:
           CMAKE: ${{ github.workspace }}/vendor/cmake/bin/cmake
       # This step ensures that our non-iOS-specific tests are passing on macOS itself!
       - name: Sanity check tests
-        run: cc tests/TestApp_source/cli_tests.m tests/TestApp_source/CGAffineTransform.c tests/TestApp_source/SyncTester.m tests/TestApp_source/RespondsToSelector.m tests/TestApp_source/AutoReleasePoolTest.m tests/TestApp_source/Initialize.m tests/TestApp_source/NSDictionaryNil.m tests/TestApp_source/NSSetCoding.m tests/TestApp_source/FoundationCoding.m -framework CoreFoundation -framework Foundation -framework CoreGraphics -DDEFINE_ME_WHEN_BUILDING_ON_MACOS -DTestApp_cli_tests_main=main -ObjC && ./a.out
+        run: cc tests/TestApp_source/cli_tests.m tests/TestApp_source/CGAffineTransform.c tests/TestApp_source/SyncTester.m tests/TestApp_source/RespondsToSelector.m tests/TestApp_source/AutoReleasePoolTest.m tests/TestApp_source/Initialize.m tests/TestApp_source/NSDictionaryNil.m tests/TestApp_source/NSSetCoding.m tests/TestApp_source/FoundationCoding.m tests/TestApp_source/PropertyListCoding.m -framework CoreFoundation -framework Foundation -framework CoreGraphics -DDEFINE_ME_WHEN_BUILDING_ON_MACOS -DTestApp_cli_tests_main=main -ObjC && ./a.out
       - name: Build
         run: cargo build --target x86_64-apple-darwin --release
         env:
