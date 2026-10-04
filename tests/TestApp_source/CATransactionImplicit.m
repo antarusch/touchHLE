@@ -6,17 +6,13 @@
 #import "system_headers.h"
 #include <pthread.h>
 
-// Resolve the framework class dynamically, while declaring scalar return ABIs.
-@interface CATransaction : NSObject
-+ (void)begin;
-+ (void)commit;
+// Supplement the shared test headers with the missing declarations.
+@interface CATransaction (ImplicitTransactionTest)
 + (void)flush;
-+ (id)valueForKey:(NSString *)key;
-+ (void)setValue:(id)value forKey:(NSString *)key;
-+ (double)animationDuration;
-+ (void)setAnimationDuration:(double)duration;
-+ (BOOL)disableActions;
-+ (void)setDisableActions:(BOOL)disabled;
+@end
+
+@interface NSNumber (ImplicitTransactionTest)
+- (int)intValue;
 @end
 
 static void *transactionWorker(void *resultPointer) {
