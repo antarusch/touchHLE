@@ -1331,6 +1331,7 @@ impl Environment {
     /// Run the emulator. This is the main loop and won't return until app exit.
     /// Only `main.rs` should call this.
     pub fn run(mut self) {
+        let mut freeze_reporter = crate::log::FreezeReporter::start();
         let mut curr_host_context = self.threads[0].host_context.take().unwrap();
         let panic_cell = self.panic_cell.clone();
         if let Some(mut gdb_server) = self.gdb_server.take() {
@@ -1338,6 +1339,11 @@ impl Environment {
             self.gdb_server = Some(gdb_server);
         }
         loop {
+            if let Some(reporter) = freeze_reporter.as_mut() {
+                if reporter.capture_due() {
+                    reporter.capture(self.freeze_snapshot());
+                }
+            }
             if self.threads[self.current_thread].state == ThreadState::Stepping {
                 self.remaining_ticks = None;
             } else {
@@ -1494,6 +1500,32 @@ impl Environment {
         }
     }
 
+    /// No stack walking or guest callbacks: sampling cannot invoke app code.
+    fn freeze_snapshot(&self) -> String {
+        use std::fmt::Write;
+        let mut text = format!("Current guest thread: {}\n", self.current_thread);
+        for (tid, thread) in self.threads.iter().enumerate() {
+            let _ = writeln!(text, "Thread #{tid}: {thread:?}");
+            let regs = if tid == self.current_thread {
+                Some(self.cpu.regs())
+            } else {
+                thread.guest_context.as_ref().map(|context| &context.regs)
+            };
+            if let Some(regs) = regs {
+                let _ = writeln!(text, "  Registers r0-r15: {regs:08x?}");
+            }
+        }
+        let _ = write!(text, "{}", self.mutex_state.diagnostic_summary());
+        for (cond, state) in &self.libc_state.pthread.cond.condition_variables {
+            let _ = writeln!(
+                text,
+                "Condition {cond:?}: mutex {:?}, waiting {:?}, waking {:?}",
+                state.curr_mutex, state.waiting, state.waking
+            );
+        }
+        text
+    }
+
     /// Run the emulator until the app returns control to the host. This is for
     /// host-to-guest function calls (see [abi::CallFromHost::call_from_host]).
     ///
@@ -1608,6 +1640,13 @@ impl Environment {
                             svc_pc,
                             svc,
                         ) {
+                            let _diagnostic_call = crate::log::DiagnosticHostCall::enter(
+                                self.current_thread,
+                                format!(
+                                    "SVC {svc:#x} at {svc_pc:#x}, LR {:#x}",
+                                    self.cpu.regs()[cpu::Cpu::LR]
+                                ),
+                            );
                             f.call_from_guest(self);
                             if let Some(len) = self.options.zero_stack_after_guest_to_host_call {
                                 log_once!("Applying zeroing of stack after guest to host call.");

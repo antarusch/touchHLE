@@ -247,6 +247,10 @@ fn objc_msgSend_inner(
                 log_dbg!("Found method on: {}", name);
                 match imp {
                     IMP::Host(host_imp) => {
+                        let _diagnostic_call = crate::log::DiagnosticHostCall::enter(
+                            env.current_thread,
+                            format!("{name} {} receiver {receiver:?}", selector.as_str(&env.mem)),
+                        );
                         // TODO: do type checks when calling GuestIMPs too.
                         // That requires using Objective-C type strings,
                         // rather than Rust types, and should probably

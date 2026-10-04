@@ -167,27 +167,36 @@ pub const CLASSES: ClassExports = objc_classes! {
     assert_eq!(pthread_mutex_init(env, mutex, ConstPtr::null()), 0);
     assert_eq!(pthread_cond_init(env, cond, ConstPtr::null()), 0);
     let host_object = NSConditionHostObject { mutex, cond, name: nil };
-    env.objc.alloc_object(this, Box::new(host_object), &mut env.mem)
+    let object = env.objc.alloc_object(this, Box::new(host_object), &mut env.mem);
+    log_dbg!("NSCondition {:?} allocated: mutex {:?}, condition {:?}", object, mutex, cond);
+    object
 }
 
 - (())lock {
     let mutex = env.objc.borrow::<NSConditionHostObject>(this).mutex;
+    log_dbg!("Thread {}: NSCondition {:?} lock", env.current_thread, this);
     assert_eq!(pthread_mutex_lock(env, mutex), 0);
+    log_dbg!("Thread {}: NSCondition {:?} acquired", env.current_thread, this);
 }
 - (())unlock {
     let mutex = env.objc.borrow::<NSConditionHostObject>(this).mutex;
+    log_dbg!("Thread {}: NSCondition {:?} unlock", env.current_thread, this);
     assert_eq!(pthread_mutex_unlock(env, mutex), 0);
 }
 - (())wait {
     let &NSConditionHostObject { mutex, cond, .. } = env.objc.borrow(this);
+    log_dbg!("Thread {}: NSCondition {:?} wait", env.current_thread, this);
     assert_eq!(pthread_cond_wait(env, cond, mutex), 0);
+    log_dbg!("Thread {}: NSCondition {:?} resumed", env.current_thread, this);
 }
 - (())signal {
     let cond = env.objc.borrow::<NSConditionHostObject>(this).cond;
+    log_dbg!("Thread {}: NSCondition {:?} signal", env.current_thread, this);
     assert_eq!(pthread_cond_signal(env, cond), 0);
 }
 - (())broadcast {
     let cond = env.objc.borrow::<NSConditionHostObject>(this).cond;
+    log_dbg!("Thread {}: NSCondition {:?} broadcast", env.current_thread, this);
     assert_eq!(pthread_cond_broadcast(env, cond), 0);
 }
 - (())setName:(id)name {

@@ -62,6 +62,24 @@ impl TryFrom<i32> for MutexType {
 pub const PTHREAD_MUTEX_DEFAULT: MutexType = MutexType::PTHREAD_MUTEX_NORMAL;
 
 impl MutexState {
+    pub(super) fn diagnostic_summary(&self) -> String {
+        use std::fmt::Write;
+        let mut ids = self.mutexes.keys().copied().collect::<Vec<_>>();
+        ids.sort_unstable();
+        let mut text = String::new();
+        for id in ids {
+            let mutex = &self.mutexes[&id];
+            if mutex.locked.is_some() || mutex.waiting_count != 0 {
+                let _ = writeln!(
+                    text,
+                    "Mutex #{id}: {:?}, owner/count {:?}, waiting {}",
+                    mutex.type_, mutex.locked, mutex.waiting_count
+                );
+            }
+        }
+        text
+    }
+
     /// Initializes a mutex and returns a handle to it. Similar to
     /// `pthread_mutex_init`, but for host code.
     pub fn init_mutex(&mut self, mutex_type: MutexType) -> MutexId {
