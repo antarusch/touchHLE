@@ -158,9 +158,11 @@ typedef enum {
 @interface NSNumber : NSValue
 + (NSNumber *)numberWithFloat:(float)value;
 + (NSNumber *)numberWithBool:(bool)value;
++ (NSNumber *)numberWithInt:(int)value;
 @end
 
 NSString *NSStringFromClass(Class);
+Class NSClassFromString(NSString *);
 
 typedef double NSTimeInterval;
 
@@ -616,6 +618,7 @@ typedef enum {
 + (instancetype)imageWithCGImage:(CGImageRef)cgImage;
 @end
 @interface UIImageView : UIView
+- (UIImage *)image;
 - (void)setImage:(UIImage *)image;
 @end
 @interface UIControl : UIView
@@ -626,6 +629,16 @@ typedef enum {
 @interface UIButton : UIControl
 + (instancetype)buttonWithType:(UIButtonType)type;
 - (void)setTitle:(NSString *)title forState:(UIControlState)state;
+- (instancetype)initWithCoder:(NSCoder *)coder;
+- (UIImage *)currentImage;
+- (NSString *)currentTitle;
+- (UIImage *)backgroundImageForState:(UIControlState)state;
+- (UIImageView *)imageView;
+- (UIImageView *)backgroundImageView;
+- (void)setImage:(UIImage *)image forState:(UIControlState)state;
+- (void)setHighlighted:(BOOL)highlighted;
+- (void)setSelected:(BOOL)selected;
+- (void)setEnabled:(BOOL)enabled;
 @end
 
 int UIApplicationMain(int, char **, NSString *, NSString *);

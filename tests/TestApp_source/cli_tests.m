@@ -60,6 +60,7 @@ int test_cpp_virtual_inheritance(void);      // CppVirtualInheritance.cpp
 int test_UIViewController_viewDidLoad(void); // UIViewControllerLoad.m
 int test_UIEvent_dispatch(void);             // UIEventDispatch.m
 int test_UIView_transition(void);            // UIViewTransition.m
+int test_UIButton_archived_images(void);     // UIButtonContent.m
 #endif
 
 // === Main code ===
@@ -6811,6 +6812,7 @@ struct {
     FUNC_DEF(test_UIViewController_viewDidLoad),
     FUNC_DEF(test_UIEvent_dispatch),
     FUNC_DEF(test_UIView_transition),
+    FUNC_DEF(test_UIButton_archived_images),
 #endif
     FUNC_DEF(test_NSConditionLock_init),
     FUNC_DEF(test_NSConditionLock_lock_unlock),
