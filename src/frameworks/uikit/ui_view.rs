@@ -59,6 +59,13 @@ const touchHLE_kCATransactionAnimationWillStartSelector: &str =
     "_touchHLE_kCATransactionAnimationWillStartSelector";
 const touchHLE_kCATransactionAnimationDidStopSelector: &str =
     "_touchHLE_kCATransactionAnimationDidStopSelector";
+const touchHLE_kCATransactionTransition: &str = "_touchHLE_kCATransactionTransition";
+const touchHLE_kCATransactionTransitionView: &str = "_touchHLE_kCATransactionTransitionView";
+
+// Timing-only fallback until the compositor supports flip/curl snapshots.
+pub(crate) const TRANSITION_TIMING_KEY_PATH: &str = "_touchHLE_transitionTiming";
+
+type UIViewAnimationTransition = NSInteger;
 
 type UIViewAnimationCurve = NSInteger;
 const UIViewAnimationCurveEaseInOut: UIViewAnimationCurve = 0;
@@ -165,6 +172,19 @@ pub const CLASSES: ClassExports = objc_classes! {
     () = msg_class![env; CATransaction setAnimationDuration:duration];
 }
 
++ (())setAnimationTransition:(UIViewAnimationTransition)transition
+                    forView:(id)view
+                      cache:(bool)cache {
+    assert!((0..=4).contains(&transition), "Unknown UIViewAnimationTransition {transition}");
+    log_dbg!("[UIView setAnimationTransition:{transition} forView:{view:?} cache:{cache}]");
+    let value: id = msg_class![env; NSNumber numberWithInt:transition];
+    () = msg_class![env; CATransaction setValue:value forKey:(get_static_str(env, touchHLE_kCATransactionTransition))];
+    () = msg_class![env; CATransaction setValue:view forKey:(get_static_str(env, touchHLE_kCATransactionTransitionView))];
+    // The hierarchy change is applied normally. The transition's duration,
+    // delay and delegate callbacks are preserved, but not its visual effect.
+    // cache is a rendering hint and has no effect without snapshot rendering.
+}
+
 + (())setAnimationDelay:(NSTimeInterval)delay {
     log_dbg!("[UIView setAnimationDelay:{:?}]", delay);
     let value: id = msg_class![env; NSNumber numberWithDouble:delay];
@@ -247,6 +267,16 @@ pub const CLASSES: ClassExports = objc_classes! {
 + (())commitAnimations {
     log_dbg!("[UIView commitAnimations]");
 
+    let transition: id = msg_class![env; CATransaction valueForKey:(get_static_str(env, touchHLE_kCATransactionTransition))];
+    let transition: UIViewAnimationTransition = msg![env; transition intValue];
+    let view: id = msg_class![env; CATransaction valueForKey:(get_static_str(env, touchHLE_kCATransactionTransitionView))];
+    if transition != 0 && view != nil {
+        log!("UIView transition {transition}: using timing-only fallback for view {view:?}");
+        let layer: id = msg![env; view layer];
+        let animation: id = msg_class![env; CABasicAnimation animationWithKeyPath:(get_static_str(env, TRANSITION_TIMING_KEY_PATH))];
+        ca_transaction::ThreadLocalState::add_animation(env, layer, animation);
+    }
+
     // TODO: What if there's interleaved UIView animations and CATransactions?
     let animations = ca_transaction::ThreadLocalState::get_current_transaction(env).unwrap().get_animations();
 
@@ -283,7 +313,7 @@ pub const CLASSES: ClassExports = objc_classes! {
             }
             let total_animation_count = animations.len() as u32;
             () = msg![env; animation_delegate setTotalAnimationCount:total_animation_count];
-            animation_delegate
+            autorelease(env, animation_delegate)
         };
         let delay: id = msg_class![env; CATransaction valueForKey:(get_static_str(env, touchHLE_kCATransactionAnimationDelay))];
         let repeat_count: id = msg_class![env; CATransaction valueForKey:(get_static_str(env, touchHLE_kCATransactionAnimationRepeatCount))];
@@ -999,7 +1029,6 @@ pub const CLASSES: ClassExports = objc_classes! {
     } = *env.objc.borrow::<UIViewAnimationDelegateHostObject>(this);
     if finished_animation_count == total_animation_count && delegate != nil && did_stop_selector.is_some() {
         let did_stop_selector = did_stop_selector.unwrap();
-        let finished: id = msg_class![env; NSNumber numberWithBool:finished];
         log_dbg!("Notifying delegate {:?} {:?} {} with args {:?}, {:?}, {:?}", delegate, did_stop_selector, did_stop_selector.as_str(&env.mem), animation_id, finished, context);
         () = msg_send(env, (delegate, did_stop_selector, animation_id, finished, context));
     }

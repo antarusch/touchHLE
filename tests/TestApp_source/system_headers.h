@@ -418,8 +418,10 @@ CFTimeInterval CACurrentMediaTime();
 + (instancetype)functionWithName:(CAMediaTimingFunctionName)name;
 @end
 @interface CAAnimation : NSObject
-- (void)setTimingFunction:(CAMediaTimingFunction *)timingFunction;
+- (id)delegate;
 - (CFTimeInterval)duration;
+- (CFTimeInterval)beginTime;
+- (void)setTimingFunction:(CAMediaTimingFunction *)timingFunction;
 - (void)setDuration:(CFTimeInterval)duration;
 - (void)setBeginTime:(CFTimeInterval)beginTime;
 - (void)setRepeatCount:(float)repeatCount;
@@ -535,6 +537,17 @@ typedef enum {
 @end
 @class UIWindow;
 @interface UIView : UIResponder
++ (Class)layerClass;
++ (void)beginAnimations:(NSString *)animationID context:(void *)context;
++ (void)commitAnimations;
++ (void)setAnimationDuration:(NSTimeInterval)duration;
++ (void)setAnimationDelay:(NSTimeInterval)delay;
++ (void)setAnimationDelegate:(id)delegate;
++ (void)setAnimationWillStartSelector:(SEL)selector;
++ (void)setAnimationDidStopSelector:(SEL)selector;
++ (void)setAnimationTransition:(NSInteger)transition
+                       forView:(UIView *)view
+                         cache:(BOOL)cache;
 - (instancetype)initWithFrame:(CGRect)frame;
 - (void)setMultipleTouchEnabled:(BOOL)enabled;
 - (void)touchesBegan:(NSSet *)touches withEvent:(UIEvent *)event;

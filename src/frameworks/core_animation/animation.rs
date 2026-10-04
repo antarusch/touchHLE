@@ -153,6 +153,10 @@ impl State {
             // Only these properties are animatable
             // TODO: Implement for all properties
             match &*key_path {
+                crate::frameworks::uikit::ui_view::TRANSITION_TIMING_KEY_PATH => {
+                    // UIView's transition fallback participates in the normal
+                    // animation lifecycle without changing layer properties.
+                }
                 "anchorPoint" => {
                     let from_value =
                         id_as_option(from_value).map(|obj| msg![env; obj CGPointValue]);
