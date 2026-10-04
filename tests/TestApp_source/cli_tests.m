@@ -56,11 +56,12 @@ int test_RespondsToSelector(void); // RespondsToSelector.m
 int test_Initialize(void);         // Initialize.m
 
 #ifndef DEFINE_ME_WHEN_BUILDING_ON_MACOS
-int test_cpp_virtual_inheritance(void);      // CppVirtualInheritance.cpp
-int test_UIViewController_viewDidLoad(void); // UIViewControllerLoad.m
-int test_UIEvent_dispatch(void);             // UIEventDispatch.m
-int test_UIView_transition(void);            // UIViewTransition.m
-int test_UIButton_archived_images(void);     // UIButtonContent.m
+int test_cpp_virtual_inheritance(void);             // CppVirtualInheritance.cpp
+int test_UIViewController_viewDidLoad(void);        // UIViewControllerLoad.m
+int test_UIEvent_dispatch(void);                    // UIEventDispatch.m
+int test_UIView_transition(void);                   // UIViewTransition.m
+int test_UIButton_archived_images(void);            // UIButtonContent.m
+int test_UIImageView_highlight_and_animation(void); // UIImageViewHighlight.m
 #endif
 
 // === Main code ===
@@ -6813,6 +6814,7 @@ struct {
     FUNC_DEF(test_UIEvent_dispatch),
     FUNC_DEF(test_UIView_transition),
     FUNC_DEF(test_UIButton_archived_images),
+    FUNC_DEF(test_UIImageView_highlight_and_animation),
 #endif
     FUNC_DEF(test_NSConditionLock_init),
     FUNC_DEF(test_NSConditionLock_lock_unlock),

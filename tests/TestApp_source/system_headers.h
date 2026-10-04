@@ -451,6 +451,7 @@ CFTimeInterval CACurrentMediaTime();
 - (void)setToValue:(id)value;
 @end
 @interface CALayer : NSObject
+- (id)contents;
 - (void)setAffineTransform:(CGAffineTransform)transform;
 - (void)setAnchorPoint:(CGPoint)point;
 - (void)setCornerRadius:(CGFloat)radius;
@@ -566,6 +567,7 @@ typedef enum {
                          cache:(BOOL)cache;
 - (instancetype)initWithFrame:(CGRect)frame;
 - (void)setMultipleTouchEnabled:(BOOL)enabled;
+- (BOOL)isUserInteractionEnabled;
 - (void)touchesBegan:(NSSet *)touches withEvent:(UIEvent *)event;
 - (void)touchesMoved:(NSSet *)touches withEvent:(UIEvent *)event;
 - (void)touchesEnded:(NSSet *)touches withEvent:(UIEvent *)event;
@@ -616,8 +618,26 @@ typedef enum {
 @end
 @interface UIImage : NSObject
 + (instancetype)imageWithCGImage:(CGImageRef)cgImage;
+- (CGImageRef)CGImage;
 @end
 @interface UIImageView : UIView
+- (instancetype)initWithImage:(UIImage *)image;
+- (instancetype)initWithImage:(UIImage *)image
+             highlightedImage:(UIImage *)highlightedImage;
+- (instancetype)initWithCoder:(NSCoder *)coder;
+- (UIImage *)highlightedImage;
+- (void)setHighlightedImage:(UIImage *)image;
+- (BOOL)isHighlighted;
+- (void)setHighlighted:(BOOL)highlighted;
+- (NSArray *)animationImages;
+- (void)setAnimationImages:(NSArray *)images;
+- (NSTimeInterval)animationDuration;
+- (void)setAnimationDuration:(NSTimeInterval)duration;
+- (NSInteger)animationRepeatCount;
+- (void)setAnimationRepeatCount:(NSInteger)count;
+- (BOOL)isAnimating;
+- (void)startAnimating;
+- (void)stopAnimating;
 - (UIImage *)image;
 - (void)setImage:(UIImage *)image;
 @end
