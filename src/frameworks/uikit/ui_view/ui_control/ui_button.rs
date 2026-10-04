@@ -288,6 +288,30 @@ pub const CLASSES: ClassExports = objc_classes! {
     layout(env, this);
 }
 
+- (CGSize)sizeThatFits:(CGSize)size {
+    let image: id = msg![env; this currentImage];
+    let background: id = msg![env; this currentBackgroundImage];
+    let title: id = msg![env; this currentTitle];
+    let image_size: CGSize = msg![env; image size];
+    let background_size: CGSize = msg![env; background size];
+    let title_size = if title != nil {
+        let label: id = msg![env; this titleLabel];
+        let font: id = msg![env; label font];
+        msg![env; title sizeWithFont:font]
+    } else {
+        CGSize { width: 0.0, height: 0.0 }
+    };
+    // Image buttons are commonly created with CGRectZero, then sized before
+    // placement. Their content size must not be constrained by those bounds.
+    if image == nil && background == nil && title == nil {
+        return msg_super![env; this sizeThatFits:size];
+    }
+    CGSize {
+        width: (image_size.width + title_size.width).max(background_size.width).ceil(),
+        height: image_size.height.max(title_size.height).max(background_size.height).ceil(),
+    }
+}
+
 - (UIButtonType)buttonType {
     env.objc.borrow_mut::<UIButtonHostObject>(this).type_
 }
@@ -364,7 +388,14 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (())setBackgroundImage:(id)image forState:(UIControlState)state {
     retain(env,image);
     let host_obj = env.objc.borrow_mut::<UIButtonHostObject>(this);
-    if let Some(old) = host_obj.background_images_for_states.insert(state, image) {
+    // A nil alternate image clears that state's override, allowing UIKit's
+    // normal-state fallback when artwork is absent.
+    let old = if image == nil && state != UIControlStateNormal {
+        host_obj.background_images_for_states.remove(&state)
+    } else {
+        host_obj.background_images_for_states.insert(state, image)
+    };
+    if let Some(old) = old {
         release(env, old);
     }
     update(env, this);
@@ -404,7 +435,14 @@ pub const CLASSES: ClassExports = objc_classes! {
       forState:(UIControlState)state {
     retain(env, image);
     let host_obj = env.objc.borrow_mut::<UIButtonHostObject>(this);
-    if let Some(old) = host_obj.images_for_states.insert(state, image) {
+    // A nil alternate image clears that state's override, allowing UIKit's
+    // normal-state fallback when artwork is absent.
+    let old = if image == nil && state != UIControlStateNormal {
+        host_obj.images_for_states.remove(&state)
+    } else {
+        host_obj.images_for_states.insert(state, image)
+    };
+    if let Some(old) = old {
         release(env, old);
     }
     update(env, this);

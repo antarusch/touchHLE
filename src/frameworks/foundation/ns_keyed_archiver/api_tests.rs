@@ -38,6 +38,9 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (f64)add:(i32)integer double:(f64)double {
     f64::from(integer) + double
 }
+- (())commandButtonPressed:(id)button {
+    () = msg![env; button setTag:73i32];
+}
 - (CGRect)rectangle {
     CGRect {
         origin: CGPoint { x: 2.0, y: 3.0 },
@@ -87,6 +90,7 @@ fn archive_invocation_and_menu_round_trips() {
     let mut env = Environment::new_without_app(options, icon).unwrap();
     let env = &mut env;
     let pool: id = msg_class![env; NSAutoreleasePool new];
+    check_image_button_sizing(env);
     check_property_lists(env);
     check_nib_scroll_view(env);
     check_set_archives(env);
@@ -877,4 +881,105 @@ fn check_property_lists(env: &mut Environment) {
     }
     env.mem.free(error_ptr.cast());
     env.mem.free(format_ptr.cast());
+}
+
+fn check_image_button_sizing(env: &mut Environment) {
+    use crate::frameworks::core_graphics::cg_image;
+    let cg = cg_image::from_image(
+        env,
+        crate::image::Image::from_pixel_vec(vec![255; 64 * 48 * 4], (64, 48)),
+    );
+    let image: id = msg_class![env; UIImage imageWithCGImage:cg];
+    cg_image::CGImageRelease(env, cg);
+    let button: id = msg_class![env; UIButton buttonWithType:0i32];
+    let initial: CGRect = msg![env; button bounds];
+    assert_eq!(
+        initial.size,
+        CGSize {
+            width: 0.0,
+            height: 0.0
+        }
+    );
+    () = msg![env; button setImage:image forState:0u32];
+    // Game sequence: zero-frame custom button, image, sizeToFit, center, show.
+    () = msg![env; button sizeToFit];
+    let bounds: CGRect = msg![env; button bounds];
+    assert_eq!(
+        bounds.size,
+        CGSize {
+            width: 64.0,
+            height: 48.0
+        }
+    );
+    let center = CGPoint { x: 100.0, y: 200.0 };
+    () = msg![env; button setCenter:center];
+    () = msg![env; button setHidden:false];
+    () = msg![env; button layoutSubviews];
+    let frame: CGRect = msg![env; button frame];
+    assert_eq!(frame.origin, CGPoint { x: 68.0, y: 176.0 });
+    let inside = CGPoint { x: 32.0, y: 24.0 };
+    let hit: id = msg![env; button hitTest:inside withEvent:nil];
+    assert_eq!(hit, button);
+    let image_view: id = msg![env; button imageView];
+    let image_frame: CGRect = msg![env; image_view frame];
+    assert_eq!(image_frame.size, bounds.size);
+    let layer: id = msg![env; image_view layer];
+    let contents: id = msg![env; layer contents];
+    assert_ne!(contents, nil);
+    let target: id = msg_class![env; ArchiveProbe new];
+    let action = env
+        .objc
+        .register_host_selector("commandButtonPressed:".into(), &mut env.mem);
+    () = msg![env; button sendAction:action to:target forEvent:nil];
+    let tag: i32 = msg![env; button tag];
+    assert_eq!(tag, 73);
+    release(env, target);
+    // The game explicitly sets nil for missing selected/disabled PNGs.
+    () = msg![env; button setImage:nil forState:4u32];
+    () = msg![env; button setSelected:true];
+    let selected: id = msg![env; button currentImage];
+    assert_eq!(selected, image);
+    () = msg![env; button setSelected:false];
+    () = msg![env; button setImage:nil forState:2u32];
+    // Disabled buttons without alternate artwork still fit their normal image.
+    () = msg![env; button setEnabled:false];
+    let fits: CGSize = msg![env; button sizeThatFits:(CGSize { width: 0.0, height: 0.0 })];
+    assert_eq!(fits, bounds.size);
+    () = msg![env; button setEnabled:true];
+    let background: id = msg_class![env; UIButton buttonWithType:0i32];
+    () = msg![env; background setBackgroundImage:image forState:0u32];
+    () = msg![env; background setBackgroundImage:nil forState:2u32];
+    () = msg![env; background setEnabled:false];
+    let fallback: id = msg![env; background currentBackgroundImage];
+    assert_eq!(fallback, image);
+    () = msg![env; background sizeToFit];
+    let fitted: CGRect = msg![env; background bounds];
+    assert_eq!(fitted.size, bounds.size);
+    if let Some(directory) = std::env::var_os("TOUCHHLE_COMMAND_IMAGES") {
+        for name in [
+            "Command_Defend_Normal.png",
+            "Command_Wait_Normal.png",
+            "Command_Ability_Normal.png",
+        ] {
+            let bytes = std::fs::read(std::path::Path::new(&directory).join(name)).unwrap();
+            let data = data_from_bytes(env, &bytes);
+            let image: id = msg_class![env; UIImage imageWithData:data];
+            assert_ne!(image, nil);
+            let expected: CGSize = msg![env; image size];
+            assert!(expected.width > 0.0 && expected.height > 0.0);
+            () = msg![env; button setImage:image forState:0u32];
+            () = msg![env; button sizeToFit];
+            let fitted: CGRect = msg![env; button bounds];
+            assert_eq!(fitted.size, expected);
+            () = msg![env; button layoutSubviews];
+            let displayed: CGRect = msg![env; image_view frame];
+            assert_eq!(displayed.size, expected);
+            let point = CGPoint {
+                x: expected.width / 2.0,
+                y: expected.height / 2.0,
+            };
+            let hit: id = msg![env; button hitTest:point withEvent:nil];
+            assert_eq!(hit, button);
+        }
+    }
 }
