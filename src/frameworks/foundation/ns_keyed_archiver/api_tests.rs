@@ -1030,7 +1030,7 @@ fn game_command_button_geometry() {
             for name in ["Command_Defend", "Command_Wait", "Command_Ability"] {
                 let name = get_static_str(env, name);
                 // Execute the game's UIButton(Darkland) category, including its
-                // original ARM sizeToFit call. Do not force a layout from the test.
+                // original ARM sizeToFit call, without forcing layout here.
                 let button: id = msg_class![env; UIButton buttonWithImageNamed:name];
                 let bounds: CGRect = msg![env; button bounds];
                 assert_eq!(
