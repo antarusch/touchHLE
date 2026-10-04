@@ -254,13 +254,11 @@ pub fn printf_inner<const NS_LOG: bool, F: Fn(&Mem, GuestUSize) -> u8>(
                 }
             }
             b'd' | b'i' | b'u' => {
-                assert!(!left_justified);
-                // Note: on 32-bit system int and long are i32,
-                // so single length_modifier is ignored (but not double one!)
-                let int: i64 = if specifier == b'u' {
+                // Both int and long are 32 bits in the guest ABI.
+                let int: i128 = if specifier == b'u' {
                     if length_modifier == Some("ll") {
                         let uint: u64 = args.next(env);
-                        uint.try_into().unwrap()
+                        uint.into()
                     } else if length_modifier == Some("hh") {
                         let uint: u8 = args.next(env);
                         uint.into()
@@ -273,7 +271,8 @@ pub fn printf_inner<const NS_LOG: bool, F: Fn(&Mem, GuestUSize) -> u8>(
                         uint.into()
                     }
                 } else if length_modifier == Some("ll") {
-                    args.next(env)
+                    let int: i64 = args.next(env);
+                    int.into()
                 } else if length_modifier == Some("hh") {
                     let int: i8 = args.next(env);
                     int.into()
@@ -285,35 +284,15 @@ pub fn printf_inner<const NS_LOG: bool, F: Fn(&Mem, GuestUSize) -> u8>(
                     let int: i32 = args.next(env);
                     int.into()
                 };
-
-                let int_with_precision = if precision.is_some_and(|value| value > 0) {
-                    format!("{:01$}", int, precision.unwrap())
-                } else {
-                    format!("{int}")
-                };
-
-                if pad_width > 0 {
-                    let pad_width = pad_width as usize;
-                    if pad_char == '0' && precision.is_none() {
-                        if prepend_sign {
-                            assert!(int != 0); // TODO
-                            assert!(pad_width > 0);
-                            if int > 0 {
-                                write!(&mut res, "+{:0>1$}", int, pad_width - 1).unwrap();
-                            } else {
-                                write!(&mut res, "-{:0>1$}", int.abs(), pad_width - 1).unwrap();
-                            }
-                        } else {
-                            write!(&mut res, "{int:0>pad_width$}").unwrap();
-                        }
-                    } else {
-                        assert!(!prepend_sign);
-                        write!(&mut res, "{int_with_precision:>pad_width$}").unwrap();
-                    }
-                } else {
-                    assert!(!prepend_sign);
-                    res.extend_from_slice(int_with_precision.as_bytes());
-                }
+                let formatted = decimal_format(
+                    int,
+                    prepend_sign && specifier != b'u',
+                    pad_width as usize,
+                    pad_char,
+                    left_justified,
+                    precision,
+                );
+                res.extend_from_slice(formatted.as_bytes());
             }
             b'@' if NS_LOG => {
                 assert!(!prepend_sign);
@@ -510,6 +489,45 @@ pub fn printf_inner<const NS_LOG: bool, F: Fn(&Mem, GuestUSize) -> u8>(
     log_dbg!("=> {:?}", std::str::from_utf8(&res));
 
     res
+}
+
+fn decimal_format(
+    value: i128,
+    prepend_sign: bool,
+    width: usize,
+    pad_char: char,
+    left_justified: bool,
+    precision: Option<usize>,
+) -> String {
+    let sign = if value < 0 {
+        "-"
+    } else if prepend_sign {
+        "+"
+    } else {
+        ""
+    };
+    let digits = if value == 0 && precision == Some(0) {
+        String::new()
+    } else {
+        value.unsigned_abs().to_string()
+    };
+    let precision_zeros = precision.unwrap_or(0).saturating_sub(digits.len());
+    let padding = width.saturating_sub(sign.len() + precision_zeros + digits.len());
+    let zero_padding = pad_char == '0' && precision.is_none() && !left_justified;
+    let mut result = String::new();
+    if !left_justified && !zero_padding {
+        result.push_str(&" ".repeat(padding));
+    }
+    result.push_str(sign);
+    if zero_padding {
+        result.push_str(&"0".repeat(padding));
+    }
+    result.push_str(&"0".repeat(precision_zeros));
+    result.push_str(&digits);
+    if left_justified {
+        result.push_str(&" ".repeat(padding));
+    }
+    result
 }
 
 fn f_format(float: f64, pad_width: usize, pad_char: char, precision: usize) -> String {

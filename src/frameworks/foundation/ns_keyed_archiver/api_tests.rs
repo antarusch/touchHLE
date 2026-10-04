@@ -123,6 +123,7 @@ fn archive_invocation_and_menu_round_trips() {
     check_controller_nib_name(env);
     check_scheduled_playback(env);
     check_animation_metadata(env);
+    check_signed_number_formatting(env);
     check_set_archives(env);
     check_foundation_archives(env);
     check_text_nib(env);
@@ -1057,6 +1058,20 @@ fn game_command_button_geometry() {
     let mut coroutine = corosensei::Coroutine::new(|yielder, mut env: Environment| {
         env.with_yielder(yielder, |env| {
             let pool: id = msg_class![env; NSAutoreleasePool new];
+            // Use the original game's signed-number format from the crash.
+            let argument = env.mem.alloc(4).cast::<i32>();
+            for (value, expected) in [(469, "+469"), (-469, "-469"), (0, "+0")] {
+                use crate::abi::{GuestArg, VaList};
+                env.mem.write(argument, value);
+                let args = VaList::from_regs(&[argument.to_bits()]);
+                assert_eq!(
+                    crate::frameworks::foundation::ns_string::with_format(
+                        env, id::from_bits(0x76354), args
+                    ),
+                    expected
+                );
+            }
+            env.mem.free(argument.cast());
             for name in ["Command_Defend", "Command_Wait", "Command_Ability"] {
                 let name = get_static_str(env, name);
                 // Execute the game's UIButton(Darkland) category, including its
@@ -1153,6 +1168,49 @@ fn check_game_audio_playback(env: &mut Environment) {
     () = msg![env; manager playSoundData:data afterDelay:0.0f32];
     assert_eq!(handle_perform_requests(env, run_loop), None);
     release(env, manager);
+}
+
+fn check_signed_number_formatting(env: &mut Environment) {
+    use crate::abi::{GuestArg, VaList};
+    use crate::frameworks::foundation::ns_string::with_format;
+    let args = env.mem.alloc(8).cast::<i64>();
+    for (format, value, expected) in [
+        ("%+d", 469i64, "+469"),
+        ("%+d", -469, "-469"),
+        ("%+d", 0, "+0"),
+        ("%+i", 469, "+469"),
+        ("%02d", 3, "03"),
+        ("%3d", 3, "  3"),
+        ("%d", -469, "-469"),
+        ("%+6d", 469, "  +469"),
+        ("%+06d", -469, "-00469"),
+        ("%+06d", 0, "+00000"),
+        ("%06d", -469, "-00469"),
+        ("%+6.4d", 469, " +0469"),
+        ("%.4d", -469, "-0469"),
+        ("%-6d", 469, "469   "),
+        ("%+-6d", 469, "+469  "),
+        ("%0-6d", 469, "469   "),
+        ("%+06.4d", 469, " +0469"),
+        ("%.0d", 0, ""),
+        ("%+.0d", 0, "+"),
+        ("%lld", i64::MIN, "-9223372036854775808"),
+        ("%+lld", i64::MAX, "+9223372036854775807"),
+        ("%llu", -1, "18446744073709551615"),
+    ] {
+        env.mem.write(args, value);
+        let format_object = get_static_str(env, format);
+        let list = VaList::from_regs(&[args.to_bits()]);
+        assert_eq!(with_format(env, format_object, list), expected);
+        let list = VaList::from_regs(&[args.to_bits()]);
+        let bytes = crate::libc::stdio::printf::printf_inner::<false, _>(
+            env,
+            |_, index| format.as_bytes().get(index as usize).copied().unwrap_or(0),
+            list,
+        );
+        assert_eq!(bytes, expected.as_bytes());
+    }
+    env.mem.free(args.cast());
 }
 
 fn check_animation_metadata(env: &mut Environment) {
