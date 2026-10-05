@@ -365,9 +365,29 @@ pub(super) fn handle_players(env: &mut Environment) {
         }
     }
     for (name_str, object) in notifs_to_run {
+        // Playback completion is delivered synchronously to observers below.
+        // Clear the active-player slot before the callback runs so an app can
+        // start the next movie from its completion handler without `play`
+        // trying to stop the just-finished player re-entrantly.
+        let release_active_player = name_str == MPMoviePlayerPlaybackDidFinishNotification
+            && State::get(env).active_player == Some(object);
+        if release_active_player {
+            State::get(env).active_player = None;
+            env.objc
+                .borrow_mut::<MPMoviePlayerControllerHostObject>(object)
+                .playback_state = MPMoviePlaybackStateStopped;
+        }
+
         let name = ns_string::get_static_str(env, name_str);
         let center: id = msg_class![env; NSNotificationCenter defaultCenter];
         // TODO: should there be some user info attached?
         let _: () = msg![env; center postNotificationName:name object:object];
+
+        // `play` takes one runtime retain while the player is active. Keep
+        // that retain through the completion callback so the notification's
+        // object stays valid, then release it after observers return.
+        if release_active_player {
+            release(env, object);
+        }
     }
 }
