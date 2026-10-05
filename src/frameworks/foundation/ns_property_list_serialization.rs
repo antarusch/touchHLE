@@ -84,7 +84,6 @@ pub const CLASSES: ClassExports = objc_classes! {
     let slice = ns_data::to_rust_slice(env, data);
 
     if let Ok(root) = Value::from_reader_xml(Cursor::new(slice)) {
-        assert!(root.as_array().is_some() || root.as_dictionary().is_some());
         if !format.is_null() {
             env.mem.write(format, NSPropertyListXMLFormat_v1_0);
         }
@@ -93,7 +92,6 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
 
     if let Ok(root) = Value::from_reader(Cursor::new(slice)) {
-        assert!(root.as_array().is_some() || root.as_dictionary().is_some());
         if !format.is_null() {
             env.mem.write(format, NSPropertyListBinaryFormat_v1_0);
         }
