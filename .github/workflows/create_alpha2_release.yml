@@ -1,0 +1,28 @@
+name: Create Alpha 2 release
+
+on:
+  push:
+    branches:
+      - release-alpha-2-automation
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create Alpha 2 prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view eustrath-alpha-2 >/dev/null 2>&1; then
+            echo "Release eustrath-alpha-2 already exists."
+            exit 0
+          fi
+          gh release create eustrath-alpha-2 \
+            --target 32bd920080913ea12c341b7332e7714efd827d29 \
+            --title "touchHLE Eustrath — Alpha 2" \
+            --notes-file RELEASE_ALPHA2.md \
+            --prerelease
