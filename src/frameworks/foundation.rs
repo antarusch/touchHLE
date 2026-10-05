@@ -37,6 +37,7 @@ pub mod ns_invocation;
 pub mod ns_keyed_archiver;
 pub mod ns_keyed_unarchiver;
 pub mod ns_locale;
+pub mod ns_number_formatter;
 pub mod ns_lock;
 pub mod ns_log;
 pub mod ns_method_signature;
@@ -89,6 +90,7 @@ pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
         ns_keyed_archiver::api_tests::CLASSES,
         ns_keyed_unarchiver::CLASSES,
         ns_locale::CLASSES,
+        ns_number_formatter::CLASSES,
         ns_lock::CLASSES,
         ns_notification::CLASSES,
         ns_notification_center::CLASSES,
