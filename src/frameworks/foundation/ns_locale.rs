@@ -80,7 +80,7 @@ fn get_preferred_countries(env: &mut Environment) -> Vec<String> {
 }
 
 fn parse_locale_identifier(identifier: &str) -> (String, Option<String>) {
-    let mut components = identifier.split(|c| c == '_' || c == '-');
+    let mut components = identifier.split(['_', '-']);
     let language = components.next().unwrap_or_default().to_ascii_lowercase();
     let country = components.find_map(|component| {
         let ascii_alpha_region =
