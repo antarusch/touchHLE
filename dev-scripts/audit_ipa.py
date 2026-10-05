@@ -35,7 +35,8 @@ class MachO:
                     sec = struct.unpack_from('<16s16s9I', self.b, pos + 56 + 68 * i)
                     self.sections[sec[0].rstrip(b'\0').decode()] = {
                         'segment': sec[1].rstrip(b'\0').decode(), 'address': sec[2],
-                        'size': sec[3], 'offset': sec[4], 'flags': sec[8], 'reserved1': sec[9],
+                        'size': sec[3], 'offset': sec[4], 'flags': sec[8],
+                        'reserved1': sec[9], 'reserved2': sec[10],
                     }
             elif cmd == 2:
                 symtab = struct.unpack_from('<4I', self.b, pos + 8)
@@ -57,6 +58,20 @@ class MachO:
                 self.symbols.append({'name': name, 'type': kind, 'section': section,
                     'desc': desc, 'value': value,
                     'library': self.libs[ordinal - 1] if 0 < ordinal <= len(self.libs) else None})
+
+    def symbol_stubs(self):
+        result = {}
+        for sec in self.sections.values():
+            if sec['flags'] & 0xff != 0x8:  # S_SYMBOL_STUBS
+                continue
+            stride = sec['reserved2']
+            assert stride and sec['size'] % stride == 0
+            for i in range(sec['size'] // stride):
+                index = self.indirect[sec['reserved1'] + i]
+                if index & 0xc0000000:  # INDIRECT_SYMBOL_LOCAL / ABS
+                    continue
+                result[sec['address'] + stride * i] = self.symbols[index]['name']
+        return result
 
     def string_offset(self, offset):
         end = self.b.find(b'\0', offset)

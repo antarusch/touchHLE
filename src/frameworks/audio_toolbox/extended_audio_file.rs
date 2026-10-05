@@ -27,6 +27,9 @@ use crate::mem::{guest_size_of, ConstPtr, ConstVoidPtr, MutPtr, MutVoidPtr, Safe
 use crate::Environment;
 use std::collections::HashMap;
 
+#[cfg(test)]
+pub(crate) mod api_tests;
+
 #[derive(Default)]
 pub struct State {
     pub extended_audio_files: HashMap<ExtAudioFileRef, ExtAudioFileHostObject>,
@@ -55,6 +58,7 @@ type ExtAudioFileRef = MutPtr<OpaqueExtAudioFile>;
 type ExtAudioFilePropertyID = u32;
 const kExtAudioFileProperty_FileDataFormat: ExtAudioFilePropertyID = fourcc(b"ffmt");
 const kExtAudioFileProperty_ClientDataFormat: ExtAudioFilePropertyID = fourcc(b"cfmt");
+const kExtAudioFileProperty_FileLengthFrames: ExtAudioFilePropertyID = fourcc(b"#frm");
 
 fn ExtAudioFileOpenURL(
     env: &mut Environment,
@@ -110,6 +114,30 @@ fn ExtAudioFileGetProperty(
     out_property_data: MutVoidPtr,
 ) -> OSStatus {
     return_if_null!(in_ext_audio_file);
+
+    if in_property_id == kExtAudioFileProperty_FileLengthFrames {
+        let required_size = guest_size_of::<i64>();
+        if env.mem.read(io_property_data_size) < required_size {
+            return kAudioFileBadPropertySizeError;
+        }
+        let guest_file = State::get(&mut env.framework_state).extended_audio_files
+            [&in_ext_audio_file]
+            .guest_audio_file;
+        let file =
+            &env.framework_state.audio_toolbox.audio_file.audio_files[&guest_file].audio_file;
+        // Decoders expose PCM packets. A frame includes every channel, and
+        // the total length must remain independent of the current read cursor.
+        let frames = file
+            .packet_count()
+            .checked_mul(u64::from(file.audio_description().frames_per_packet))
+            .unwrap();
+        env.mem.write(
+            out_property_data.cast::<i64>(),
+            i64::try_from(frames).unwrap(),
+        );
+        env.mem.write(io_property_data_size, required_size);
+        return 0;
+    }
 
     let audio_file_property_id = match in_property_id {
         kExtAudioFileProperty_FileDataFormat => kAudioFilePropertyDataFormat,
@@ -234,11 +262,10 @@ fn ExtAudioFileRead(
     );
     let number_of_bytes_read = env.mem.read(number_of_bytes_ptr);
     env.mem.free(number_of_bytes_ptr.cast());
-    if res != 0 {
-        if res == eofErr {
-            env.mem.write(io_number_frames, 0);
-            return 0;
-        }
+    // AudioFileReadBytes returns eofErr for a short final read, with valid
+    // bytes still in the buffer. Extended Audio File Services returns success
+    // and reports those frames, then zero frames on subsequent reads.
+    if res != 0 && res != eofErr {
         log!(
             "ExtAudioFileRead({:?}, {:?}, {:?}) failed, error: {:?}",
             in_ext_audio_file,

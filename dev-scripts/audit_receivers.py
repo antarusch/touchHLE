@@ -97,10 +97,7 @@ def audit(binary, source):
     starts = sorted({s['value'] & ~1 for s in m.symbols
                      if s['section'] == 1 and s['value'] and s['type'] & 0xe}
                     | {x['imp'] & ~1 for x in methods})
-    sec = m.sections['__symbolstub1']
-    stubs = {sec['address'] + 4 * i:
-             m.symbols[m.indirect[sec['reserved1'] + i]]['name']
-             for i in range(sec['size'] // 4)}
+    stubs = m.symbol_stubs()
     selectors = {m.cstr(p) for p in m.pointers('__objc_selrefs')}
     collection_coding = []
     if selectors & {'archivedDataWithRootObject:', 'encodeObject:forKey:'}:

@@ -117,6 +117,7 @@ fn archive_invocation_and_menu_round_trips() {
     let mut env = Environment::new_without_app(options, icon).unwrap();
     let env = &mut env;
     let pool: id = msg_class![env; NSAutoreleasePool new];
+    crate::frameworks::audio_toolbox::extended_audio_file::api_tests::check_reads(env);
     check_image_button_sizing(env);
     check_property_lists(env);
     check_nib_scroll_view(env);
