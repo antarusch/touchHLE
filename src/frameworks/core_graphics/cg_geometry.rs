@@ -270,31 +270,38 @@ fn CGRectContainsPoint(_env: &mut Environment, rect: CGRect, point: CGPoint) -> 
         && rect.origin.y + rect.size.height > point.y
 }
 
+fn rect_is_empty(rect: CGRect) -> bool {
+    rect == CGRectNull || rect.size.width <= 0.0 || rect.size.height <= 0.0
+}
+
+fn intersection_rect(rect1: CGRect, rect2: CGRect) -> CGRect {
+    if rect_is_empty(rect1) || rect_is_empty(rect2) {
+        return CGRectNull;
+    }
+
+    let x = rect1.origin.x.max(rect2.origin.x);
+    let y = rect1.origin.y.max(rect2.origin.y);
+    let right = (rect1.origin.x + rect1.size.width).min(rect2.origin.x + rect2.size.width);
+    let bottom = (rect1.origin.y + rect1.size.height).min(rect2.origin.y + rect2.size.height);
+    let width = right - x;
+    let height = bottom - y;
+
+    if width <= 0.0 || height <= 0.0 {
+        CGRectNull
+    } else {
+        CGRect {
+            origin: CGPoint { x, y },
+            size: CGSize { width, height },
+        }
+    }
+}
+
 fn CGRectIntersectsRect(_env: &mut Environment, rect1: CGRect, rect2: CGRect) -> bool {
-    rect1.origin.x.max(rect2.origin.x)
-        <= (rect1.origin.x + rect1.size.width).min(rect2.origin.x + rect2.size.width)
-        && rect1.origin.y.max(rect2.origin.y)
-            <= (rect1.origin.y + rect1.size.height).min(rect2.origin.y + rect2.size.height)
+    intersection_rect(rect1, rect2) != CGRectNull
 }
 
 pub(super) fn CGRectIntersection(_env: &mut Environment, rect1: CGRect, rect2: CGRect) -> CGRect {
-    if rect1 == CGRectNull || rect2 == CGRectNull {
-        return CGRectNull;
-    }
-    assert!(rect1.size.height > 0.0 && rect1.size.width > 0.0); // TODO
-    assert!(rect2.size.height > 0.0 && rect2.size.width > 0.0); // TODO
-    let x = rect1.origin.x.max(rect2.origin.x);
-    let y = rect1.origin.y.max(rect2.origin.y);
-    let width = (rect1.origin.x + rect1.size.width).min(rect2.origin.x + rect2.size.width) - x;
-    let height = (rect1.origin.y + rect1.size.height).min(rect2.origin.y + rect2.size.height) - y;
-    if width < 0.0 || height < 0.0 {
-        return CGRectNull;
-    }
-    assert!(height != 0.0 || width != 0.0); // TODO
-    CGRect {
-        origin: CGPoint { x, y },
-        size: CGSize { width, height },
-    }
+    intersection_rect(rect1, rect2)
 }
 
 fn CGRectGetMinX(_env: &mut Environment, rect: CGRect) -> CGFloat {
@@ -455,6 +462,52 @@ mod tests {
         assert_eq!(inset_rect(rect, 21.0, 0.0), CGRectNull);
         assert_eq!(inset_rect(rect, 0.0, 31.0), CGRectNull);
         assert_eq!(inset_rect(CGRectNull, -5.0, -5.0), CGRectNull);
+    }
+
+    #[test]
+    fn intersection_handles_empty_touching_and_overlapping_rectangles() {
+        let rect = CGRect {
+            origin: CGPoint { x: 10.0, y: 20.0 },
+            size: CGSize {
+                width: 40.0,
+                height: 60.0,
+            },
+        };
+        let empty = CGRect {
+            origin: CGPoint { x: 15.0, y: 25.0 },
+            size: CGSize {
+                width: 0.0,
+                height: 10.0,
+            },
+        };
+        assert_eq!(intersection_rect(rect, empty), CGRectNull);
+
+        let touching = CGRect {
+            origin: CGPoint { x: 50.0, y: 20.0 },
+            size: CGSize {
+                width: 10.0,
+                height: 60.0,
+            },
+        };
+        assert_eq!(intersection_rect(rect, touching), CGRectNull);
+
+        let overlapping = CGRect {
+            origin: CGPoint { x: 30.0, y: 50.0 },
+            size: CGSize {
+                width: 40.0,
+                height: 50.0,
+            },
+        };
+        assert_eq!(
+            intersection_rect(rect, overlapping),
+            CGRect {
+                origin: CGPoint { x: 30.0, y: 50.0 },
+                size: CGSize {
+                    width: 20.0,
+                    height: 30.0,
+                },
+            }
+        );
     }
 }
 
