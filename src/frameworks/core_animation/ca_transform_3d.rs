@@ -125,6 +125,63 @@ impl CATransform3D {
             .multiply(&other.into())
             .into()
     }
+
+    #[allow(clippy::needless_range_loop)]
+    pub fn inverse(self) -> Self {
+        let matrix: Matrix<4> = self.into();
+        let mut augmented = [[0.0f32; 8]; 4];
+
+        // Matrix stores columns internally; build a conventional row-major
+        // augmented matrix [M | I] for Gauss-Jordan elimination.
+        for row in 0..4 {
+            for column in 0..4 {
+                augmented[row][column] = matrix.columns()[column][row];
+            }
+            augmented[row][row + 4] = 1.0;
+        }
+
+        for column in 0..4 {
+            let mut pivot_row = column;
+            for row in (column + 1)..4 {
+                if augmented[row][column].abs() > augmented[pivot_row][column].abs() {
+                    pivot_row = row;
+                }
+            }
+
+            if augmented[pivot_row][column] == 0.0 {
+                // QuartzCore returns the original transform when no inverse
+                // exists.
+                return self;
+            }
+
+            if pivot_row != column {
+                augmented.swap(pivot_row, column);
+            }
+
+            let pivot = augmented[column][column];
+            for entry in &mut augmented[column] {
+                *entry /= pivot;
+            }
+
+            for row in 0..4 {
+                if row == column {
+                    continue;
+                }
+                let factor = augmented[row][column];
+                if factor == 0.0 {
+                    continue;
+                }
+                for index in 0..8 {
+                    augmented[row][index] -= factor * augmented[column][index];
+                }
+            }
+        }
+
+        let inverse = Matrix::from_columns(std::array::from_fn(|column| {
+            std::array::from_fn(|row| augmented[row][column + 4])
+        }));
+        inverse.into()
+    }
 }
 impl Add for CATransform3D {
     type Output = Self;
@@ -168,6 +225,9 @@ fn CATransform3DMakeRotation(
 }
 fn CATransform3DConcat(_: &mut Environment, a: CATransform3D, b: CATransform3D) -> CATransform3D {
     a.concat(b)
+}
+fn CATransform3DInvert(_: &mut Environment, t: CATransform3D) -> CATransform3D {
+    t.inverse()
 }
 fn CATransform3DScale(
     _: &mut Environment,
@@ -214,6 +274,7 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CATransform3DMakeTranslation(_, _, _)),
     export_c_func!(CATransform3DMakeRotation(_, _, _, _)),
     export_c_func!(CATransform3DConcat(_, _)),
+    export_c_func!(CATransform3DInvert(_)),
     export_c_func!(CATransform3DScale(_, _, _, _)),
     export_c_func!(CATransform3DTranslate(_, _, _, _)),
     export_c_func!(CATransform3DRotate(_, _, _, _, _)),
@@ -242,5 +303,23 @@ mod tests {
         t.to_regs(&mut words);
         assert_eq!(CATransform3D::from_regs(&words), t);
         assert_eq!(std::mem::size_of::<CATransform3D>(), 64);
+    }
+
+    #[test]
+    fn inverse_round_trip_and_singular_behavior() {
+        let t = CATransform3D::scale(2.0, 3.0, 4.0)
+            .concat(CATransform3D::rotation(0.37, 0.5, 1.0, -0.25))
+            .concat(CATransform3D::translation(5.0, -7.0, 9.0));
+        let product = t.concat(t.inverse());
+        for (actual, expected) in product
+            .elements
+            .iter()
+            .zip(CATransform3DIdentity.elements.iter())
+        {
+            assert!((actual - expected).abs() < 1e-4, "{actual} != {expected}");
+        }
+
+        let singular = CATransform3D::scale(1.0, 0.0, 2.0);
+        assert_eq!(singular.inverse(), singular);
     }
 }
