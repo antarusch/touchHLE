@@ -258,6 +258,14 @@ pub const CLASSES: ClassExports = objc_classes! {
     autorelease(env, new)
 }
 
++ (id)numberWithUnsignedLong:(u32)value {
+    msg![env; this numberWithUnsignedInt:value]
+}
+
++ (id)numberWithUnsignedChar:(u8)value {
+    msg![env; this numberWithUnsignedInt:(u32::from(value))]
+}
+
 + (id)numberWithInt:(i32)value {
     // TODO: for greater efficiency we could return a static-lifetime value
 
@@ -403,6 +411,15 @@ pub const CLASSES: ClassExports = objc_classes! {
     this
 }
 
+- (id)initWithUnsignedLong:(u32)value {
+    // long is 32 bits in the guest's ILP32 ABI.
+    msg![env; this initWithUnsignedInt:value]
+}
+
+- (id)initWithUnsignedChar:(u8)value {
+    msg![env; this initWithUnsignedInt:(u32::from(value))]
+}
+
 - (id)initWithInt:(i32)value {
     *env.objc.borrow_mut(this) = NSNumberHostObject::Int(value);
     this
@@ -477,6 +494,15 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (u32)unsignedIntValue {
     env.objc.borrow::<NSNumberHostObject>(this).as_unsigned_int()
+}
+
+- (u32)unsignedLongValue {
+    msg![env; this unsignedIntValue]
+}
+
+- (u8)unsignedCharValue {
+    let value: u32 = msg![env; this unsignedIntValue];
+    value as u8
 }
 
 - (NSUInteger)unsignedIntegerValue {

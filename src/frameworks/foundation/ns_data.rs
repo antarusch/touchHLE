@@ -168,6 +168,34 @@ pub const CLASSES: ClassExports = objc_classes! {
     msg![env; this initWithContentsOfFile:path]
 }
 
+- (id)initWithContentsOfFile:(id)path
+                     options:(NSUInteger)_options
+                       error:(MutPtr<id>)error {
+    // Mapping and cache flags are performance hints. A copied buffer preserves
+    // the NSData contents and ownership semantics in the guest filesystem.
+    if path == nil {
+        release(env, this);
+        set_read_error(env, error);
+        return nil;
+    }
+    let data: id = msg![env; this initWithContentsOfFile:path];
+    if data == nil { set_read_error(env, error); }
+    data
+}
+
+- (id)initWithContentsOfURL:(id)url
+                    options:(NSUInteger)options
+                      error:(MutPtr<id>)error {
+    if url != nil && msg![env; url isFileURL] {
+        let path: id = msg![env; url path];
+        msg![env; this initWithContentsOfFile:path options:options error:error]
+    } else {
+        release(env, this);
+        set_read_error(env, error);
+        nil
+    }
+}
+
 // FIXME: writes should be atomic
 - (bool)writeToFile:(id)path // NSString*
          atomically:(bool)_use_aux_file {
@@ -351,6 +379,17 @@ pub const CLASSES: ClassExports = objc_classes! {
 @end
 
 };
+
+fn set_read_error(env: &mut Environment, error: MutPtr<id>) {
+    if error.is_null() {
+        return;
+    }
+    let domain = super::ns_string::get_static_str(env, super::ns_error::NSCocoaErrorDomain);
+    // NSFileReadUnknownError: the filesystem cannot provide a precise Cocoa
+    // error code, but callers still receive a useful failure object.
+    let value: id = msg_class![env; NSError errorWithDomain:domain code:256i32 userInfo:nil];
+    env.mem.write(error, value);
+}
 
 pub fn to_rust_slice(env: &mut Environment, data: id) -> &[u8] {
     let borrowed_data = env.objc.borrow::<NSDataHostObject>(data);

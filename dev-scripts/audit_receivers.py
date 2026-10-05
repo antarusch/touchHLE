@@ -23,12 +23,18 @@ from capstone import Cs, CS_ARCH_ARM, CS_MODE_ARM, CS_MODE_THUMB
 from capstone.arm import ARM_OP_REG, ARM_OP_IMM, ARM_OP_MEM
 
 
-def audit(binary, source):
+def audit(binary, source, runtime_metadata=None):
     m = MachO(binary)
     if m.crypto and m.crypto[2]:
         raise ValueError('Encrypted instructions cannot be audited; use the executable used by touchHLE.')
     guest = m.classes()
     host, _, texts = source_inventory(source)
+    runtime_metadata = runtime_metadata or {}
+    classrefs = {int(address, 16): name for address, name in runtime_metadata.get('classrefs', {}).items()}
+    for name, superclass in runtime_metadata.get('superclasses', {}).items():
+        if name in guest:
+            guest[name]['superclass'] = superclass
+    class_addresses = {cls['address']: name for name, cls in guest.items()}
     ivars = {}
     for name, cls in guest.items():
         ro = m.u32(cls['address'] + 16) & ~3
@@ -60,8 +66,16 @@ def audit(binary, source):
         if key.startswith('-'):
             name = redirects.get(name, name)
         seen = set()
-        while name in host and name not in seen:
+        while name not in seen:
             seen.add(name)
+            if name in guest:
+                field = 'class_methods' if key.startswith('+') else 'instance_methods'
+                if any(method['selector'] == key[1:] for method in guest[name][field]):
+                    return {'implementation_class': name, 'guest_defined': True}
+                name = guest[name]['superclass']
+                continue
+            if name not in host:
+                return None
             cls = host[name]
             if key in cls['methods']:
                 return {'implementation_class': name, **cls['methods'][key]}
@@ -134,11 +148,13 @@ def audit(binary, source):
                    if ins.group(1) and ins.mnemonic not in ('bl', 'blx')
                    for o in ins.operands if o.type == ARM_OP_IMM}
         regs = {'r0': ('object', method['owner'], method['kind'])}
+        stack = {}
         if method['kind'] == '-' and method['selector'] == 'initWithCoder:':
             regs['r2'] = ('coder', 'NSCoder', '-')
         for ins in instructions:
             if ins.address in targets and ins.address != start:
                 regs.clear()
+                stack.clear()
             values = dict(regs)
             op = ins.operands
             pc = (ins.address + 4) & ~3 if thumb else ins.address + 8
@@ -158,6 +174,8 @@ def audit(binary, source):
                 _, writes = ins.regs_access()
                 for reg in writes:
                     regs.pop(ins.reg_name(reg), None)
+                    if ins.reg_name(reg) == 'sp':
+                        stack.clear()
                 result = None
                 if ins.mnemonic in ('mov', 'movs', 'movw') and len(op) == 2:
                     result = value(op[1])
@@ -176,10 +194,22 @@ def audit(binary, source):
                     index = register(mem.index) if mem.index else 0
                     if isinstance(index, int) and not op[1].shift.value:
                         offset = index + mem.disp
-                        if isinstance(base, int):
-                            result = m.u32((base + offset) & 0xffffffff)
+                        if ins.reg_name(mem.base) == 'sp' and not mem.index:
+                            result = stack.get(mem.disp)
+                        elif isinstance(base, int):
+                            address = (base + offset) & 0xffffffff
+                            if address in classrefs:
+                                result = ('class', classrefs[address], '+')
+                            else:
+                                result = m.u32(address)
+                                if result in class_addresses:
+                                    result = ('class', class_addresses[result], '+')
                         elif isinstance(base, tuple) and base[2] == '-':
                             result = ivars.get(base[1], {}).get(offset)
+                elif ins.mnemonic in ('str', 'str.w') and len(op) == 2 and op[1].type == ARM_OP_MEM:
+                    mem = op[1].mem
+                    if ins.reg_name(mem.base) == 'sp' and not mem.index:
+                        stack[mem.disp] = value(op[0])
                 elif ins.mnemonic in ('bl', 'blx'):
                     for name in ('r0', 'r1', 'r2', 'r3', 'r12'):
                         regs.pop(name, None)
@@ -201,9 +231,12 @@ def audit(binary, source):
                                 row['possible_readers'] = checks
                                 row['status'] = ('archive_reader_registrations_found' if all(checks.values())
                                                  else 'missing_archive_reader_method_candidate')
-                            elif name in host:
+                            elif name in host or name in guest:
                                 found = lookup(name, kind + selector)
-                                row['status'] = 'host_registration_found' if found else 'missing_host_method_candidate'
+                                row['status'] = ('guest_method_found' if found and found.get('guest_defined') else
+                                                 'host_registration_found' if found else
+                                                 'missing_host_method_candidate' if name in host else
+                                                 'guest_receiver_requires_review')
                                 if found:
                                     row['implementation'] = found
                                 elif kind + selector in category_selectors:
@@ -212,9 +245,17 @@ def audit(binary, source):
                                     row['status'] = 'guest_category_requires_review'
                             else:
                                 row['status'] = 'guest_receiver_requires_review'
+                            if not stret:
+                                if selector in ('alloc', 'allocWithZone:', 'new') and kind == '+':
+                                    regs['r0'] = ('object', name, '-')
+                                elif selector == 'mainBundle' and name == 'NSBundle':
+                                    regs['r0'] = ('object', 'NSBundle', '-')
+                                elif selector == 'class':
+                                    regs['r0'] = ('class', name, '+')
                         rows.append(row)
                 elif ins.mnemonic in ('b', 'b.w', 'bx') or ins.mnemonic.startswith('pop'):
                     regs.clear()
+                    stack.clear()
                 if result is not None:
                     regs[ins.reg_name(op[0].reg)] = result
             except (ValueError, IndexError, struct.error):
@@ -233,8 +274,10 @@ if __name__ == '__main__':
     parser.add_argument('binary')
     parser.add_argument('source')
     parser.add_argument('report')
+    parser.add_argument('--runtime-metadata', help='Class references and superclasses emitted by the opt-in original-game test')
     args = parser.parse_args()
-    report = audit(args.binary, args.source)
+    metadata = json.loads(Path(args.runtime_metadata).read_text()) if args.runtime_metadata else None
+    report = audit(args.binary, args.source, metadata)
     Path(args.report).write_text(json.dumps(report, indent=2) + '\n')
     print(json.dumps(report['counts'], indent=2))
     for row in report['callsites']:

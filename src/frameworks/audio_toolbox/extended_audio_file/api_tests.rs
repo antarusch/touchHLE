@@ -131,7 +131,8 @@ pub(crate) fn check_reads(env: &mut Environment) {
 #[ignore = "requires Rogue Planet 1.2.1 app in TOUCHHLE_ROGUE_GAME"]
 fn rogue_planet_sound_loader() {
     use crate::abi::{CallFromHost, GuestFunction};
-    use crate::objc::{id, msg_class, release};
+    use crate::mem::Ptr;
+    use crate::objc::{id, msg_class, nil, release};
     use crate::options::Options;
     let path = std::path::PathBuf::from(std::env::var_os("TOUCHHLE_ROGUE_GAME").unwrap());
     let mut fixtures: Vec<_> = std::fs::read_dir(&path)
@@ -197,6 +198,56 @@ fn rogue_planet_sound_loader() {
                 env.mem.free(ptr);
             }
             crate::frameworks::foundation::ns_keyed_archiver::api_tests::check_rogue_layout(env);
+            if std::env::var_os("TOUCHHLE_API_IMPORTS").is_some() {
+                let refs = env.bins[0].get_section("__objc_classrefs").unwrap();
+                let base: crate::mem::ConstPtr<id> = Ptr::from_bits(refs.addr);
+                for i in 0..refs.size / 4 {
+                    let class = env.mem.read(base + i);
+                    println!(
+                        "API_CLASSREF {:x} {}",
+                        refs.addr + 4 * i,
+                        env.objc.get_class_name(class)
+                    );
+                }
+                for (name, &class) in env.objc.all_classes() {
+                    if !env.objc.is_fake_class(class) && !env.objc.is_unimplemented_class(class) {
+                        let superclass = env.objc.get_superclass(class);
+                        if superclass != nil {
+                            println!("API_SUPER {name} {}", env.objc.get_class_name(superclass));
+                        }
+                    }
+                }
+            }
+            crate::frameworks::foundation::ns_keyed_archiver::api_tests::check_rogue_bundle_classes(
+                env,
+            );
+            if let Some(path) = std::env::var_os("TOUCHHLE_API_IMPORTS") {
+                for name in std::fs::read_to_string(path).unwrap().lines() {
+                    let status =
+                        if crate::dyld::search_host_dylibs(|lib| lib.function_exports, name)
+                            .is_some()
+                        {
+                            "host_function"
+                        } else if crate::dyld::search_host_dylibs(|lib| lib.constant_exports, name)
+                            .is_some()
+                        {
+                            "host_constant"
+                        } else if env
+                            .bins
+                            .iter()
+                            .any(|bin| bin.exported_symbols.contains_key(name))
+                        {
+                            "loaded_guest_library"
+                        } else if name == "___CFConstantStringClassReference"
+                            || name == "dyld_stub_binder"
+                        {
+                            "linker_special_case"
+                        } else {
+                            "missing_export"
+                        };
+                    println!("API_IMPORT {name} {status}");
+                }
+            }
             release(env, pool);
             assert!(State::get(&mut env.framework_state)
                 .extended_audio_files

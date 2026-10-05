@@ -175,6 +175,133 @@ fn check_pending_layout(env: &mut Environment) {
     release(env, root);
 }
 
+fn check_rogue_support_methods(env: &mut Environment) {
+    use crate::objc::SEL;
+    let class: id = msg_class![env; NSObject class];
+    let name = crate::objc::class_getName(env, class);
+    assert_eq!(env.mem.cstr_at_utf8(name).unwrap(), "NSObject");
+    assert_eq!(crate::objc::class_getName(env, class), name);
+    let empty = crate::objc::class_getName(env, nil);
+    assert_eq!(env.mem.cstr_at_utf8(empty).unwrap(), "");
+    for value in [0u32, 0x8000_0000, u32::MAX] {
+        let number: id = msg_class![env; NSNumber numberWithUnsignedLong:value];
+        let actual: u32 = msg![env; number unsignedLongValue];
+        assert_eq!(actual, value);
+        let number: id = msg_class![env; NSNumber alloc];
+        let number: id = msg![env; number initWithUnsignedLong:value];
+        let actual: u64 = msg![env; number unsignedLongLongValue];
+        assert_eq!(actual, u64::from(value));
+        release(env, number);
+    }
+    let byte: id = msg_class![env; NSNumber numberWithUnsignedChar:255u8];
+    let actual: u8 = msg![env; byte unsignedCharValue];
+    assert_eq!(actual, 255);
+    let encoding = env.mem.alloc_and_write_cstr(b"v@:");
+    let signature: id =
+        msg_class![env; NSMethodSignature signatureWithObjCTypes:(encoding.cast_const())];
+    env.mem.free(encoding.cast());
+    let call: id = msg_class![env; NSInvocation invocationWithMethodSignature:signature];
+    let selected: SEL = msg![env; call selector];
+    assert_eq!(selected, <SEL as crate::abi::GuestArg>::from_regs(&[0]));
+    let actual_signature: id = msg![env; call methodSignature];
+    assert_eq!(actual_signature, signature);
+    let selector = env
+        .objc
+        .register_host_selector("initView".into(), &mut env.mem);
+    () = msg![env; call setSelector:selector];
+    let selected: SEL = msg![env; call selector];
+    assert_eq!(selected, selector);
+    let array: id = msg_class![env; NSMutableArray new];
+    let first = crate::frameworks::foundation::ns_string::from_rust_string(env, "equal".into());
+    let second = crate::frameworks::foundation::ns_string::from_rust_string(env, "equal".into());
+    assert_ne!(first, second);
+    assert!(msg![env; first isEqual:second]);
+    for object in [first, second, first, first] {
+        () = msg![env; array addObject:object];
+    }
+    () = msg![env; array removeObjectIdenticalTo:first];
+    let count: u32 = msg![env; array count];
+    assert_eq!(count, 1);
+    let remaining: id = msg![env; array objectAtIndex:0u32];
+    assert_eq!(remaining, second);
+    () = msg![env; array removeObjectIdenticalTo:first];
+    let count: u32 = msg![env; array count];
+    assert_eq!(count, 1);
+    release(env, array);
+    release(env, first);
+    release(env, second);
+}
+
+pub(crate) fn check_rogue_bundle_classes(env: &mut Environment) {
+    let bundle: id = msg_class![env; NSBundle mainBundle];
+    let list = env.bins[0].get_section("__objc_classlist").unwrap();
+    let base: crate::mem::ConstPtr<id> = crate::mem::Ptr::from_bits(list.addr);
+    let classes: Vec<_> = (0..list.size / 4).map(|i| env.mem.read(base + i)).collect();
+    assert_eq!(classes.len(), 480);
+    for class in classes {
+        let name = env.objc.get_class_name(class).to_owned();
+        let name = crate::frameworks::foundation::ns_string::from_rust_string(env, name);
+        let found: id = msg![env; bundle classNamed:name];
+        assert_eq!(found, class);
+        release(env, name);
+    }
+    for name in [
+        "TEMission_Campaign_999",
+        "temission_campaign_001",
+        "NSString",
+        "",
+    ] {
+        let name = get_static_str(env, name);
+        let found: id = msg![env; bundle classNamed:name];
+        assert_eq!(found, nil);
+    }
+    let found: id = msg![env; bundle classNamed:nil];
+    assert_eq!(found, nil);
+    // Execute the actual mission discovery loop from the reported backtrace,
+    // including dynamically formatted names and its nil termination condition.
+    () = msg_class![env; TEMission_Alloc buildDictOfMissionDesc];
+    let missions: i32 = msg_class![env; TEMission_Alloc missionCount];
+    assert_eq!(missions, 34);
+    println!(
+        "Rogue Planet bundle lookup: 480 classes; original mission catalog: {missions} missions"
+    );
+    let path = env.bundle.bundle_path().join("Info.plist");
+    let expected = env.fs.read(&path).unwrap();
+    let path =
+        crate::frameworks::foundation::ns_string::from_rust_string(env, path.as_str().into());
+    let error = env.mem.alloc_and_write(nil);
+    for options in [0u32, 1, 2, 3] {
+        let data: id = msg_class![env; NSData alloc];
+        let data: id = msg![env; data initWithContentsOfFile:path options:options error:error];
+        assert_ne!(data, nil);
+        assert_eq!(
+            crate::frameworks::foundation::ns_data::to_rust_slice(env, data),
+            expected
+        );
+        assert_eq!(env.mem.read(error), nil);
+        release(env, data);
+    }
+    let url: id = msg_class![env; NSURL fileURLWithPath:path];
+    let data: id = msg_class![env; NSData alloc];
+    let data: id = msg![env; data initWithContentsOfURL:url options:1u32 error:error];
+    assert_eq!(
+        crate::frameworks::foundation::ns_data::to_rust_slice(env, data),
+        expected
+    );
+    release(env, data);
+    release(env, path);
+    let missing = get_static_str(env, "/missing-rogue-fixture");
+    let data: id = msg_class![env; NSData alloc];
+    let data: id = msg![env; data initWithContentsOfFile:missing options:0u32 error:error];
+    assert_eq!(data, nil);
+    assert_ne!(env.mem.read(error), nil);
+    let data: id = msg_class![env; NSData alloc];
+    let data: id = msg![env; data initWithContentsOfFile:missing options:0u32 error:(crate::mem::MutPtr::<id>::null())];
+    assert_eq!(data, nil);
+    env.mem.free(error.cast());
+    check_rogue_support_methods(env);
+}
+
 pub(crate) fn check_rogue_layout(env: &mut Environment) {
     use crate::objc::{msg_send_super2, objc_super};
     let class = env.objc.get_known_class("EAGLView", &mut env.mem);
@@ -246,6 +373,7 @@ fn archive_invocation_and_menu_round_trips() {
     crate::frameworks::audio_toolbox::extended_audio_file::api_tests::check_reads(env);
     check_image_button_sizing(env);
     check_pending_layout(env);
+    check_rogue_support_methods(env);
     check_property_lists(env);
     check_nib_scroll_view(env);
     check_controller_nib_name(env);

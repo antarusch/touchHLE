@@ -1006,6 +1006,20 @@ impl ObjC {
     }
 }
 
+pub(crate) fn class_getName(env: &mut Environment, class: Class) -> ConstPtr<u8> {
+    if let Some(&name) = env.objc.class_name_strings.get(&class) {
+        return name;
+    }
+    let name = if class == nil {
+        ""
+    } else {
+        env.objc.get_class_name(class)
+    };
+    let name = env.mem.alloc_and_write_cstr(name.as_bytes()).cast_const();
+    env.objc.class_name_strings.insert(class, name);
+    name
+}
+
 pub(super) fn objc_getClass(env: &mut Environment, name: ConstPtr<u8>) -> id {
     let name_str = env.mem.cstr_at_utf8(name).unwrap();
     env.objc

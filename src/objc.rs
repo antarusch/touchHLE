@@ -45,6 +45,7 @@ pub use selectors::{selector, SEL};
 
 use crate::mem::ConstVoidPtr;
 use crate::Environment;
+pub(crate) use classes::class_getName;
 use classes::{
     class_getInstanceSize, class_getMethodImplementation, class_getProperty, class_getSuperclass,
     class_replaceMethod, objc_getClass, ClassHostObject, FakeClass, UnimplementedClass,
@@ -78,6 +79,9 @@ pub struct ObjC {
     /// Look at the `isa` to get the metaclass for a class.
     classes: HashMap<String, Class>,
 
+    /// Stable guest C strings returned by class_getName, including Nil.
+    class_name_strings: HashMap<Class, crate::mem::ConstPtr<u8>>,
+
     /// Mutexes used in @synchronized blocks (objc_sync_enter/exit).
     sync_mutexes: HashMap<id, MutexId>,
 
@@ -96,6 +100,7 @@ impl ObjC {
             selectors: HashMap::new(),
             objects: HashMap::new(),
             classes: HashMap::new(),
+            class_name_strings: HashMap::new(),
             sync_mutexes: HashMap::new(),
             initializer_threads: HashMap::new(),
             message_type_info: None,
@@ -135,6 +140,7 @@ fn _Block_object_dispose(_env: &mut Environment, object: ConstVoidPtr, flags: i3
 }
 
 const FUNCTIONS: FunctionExports = &[
+    export_c_func!(class_getName(_)),
     export_c_func!(class_getInstanceSize(_)),
     export_c_func!(class_getSuperclass(_)),
     export_c_func!(class_getProperty(_, _)),

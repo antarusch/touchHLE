@@ -14,7 +14,7 @@ use crate::frameworks::foundation::ns_string::{
     from_rust_string, to_rust_string, NSUTF8StringEncoding,
 };
 use crate::fs::GuestPath;
-use crate::mem::{ConstVoidPtr, MutPtr, Ptr};
+use crate::mem::{ConstPtr, ConstVoidPtr, MutPtr, Ptr};
 use crate::objc::{
     autorelease, id, msg, msg_class, nil, objc_classes, release, retain, Class, ClassExports,
     HostObject, NSZonePtr,
@@ -103,6 +103,29 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 - (id)bundleIdentifier {
     env.objc.borrow::<NSBundleHostObject>(this).bundle_identifier
+}
+- (Class)classNamed:(id)name { // NSString*
+    if name == nil {
+        return nil;
+    }
+    // The main executable is already loaded by Environment::new. Restrict
+    // lookup to its class list: framework classes do not belong to this bundle.
+    // Other executable bundles cannot currently be loaded by NSBundle.
+    if env.objc.borrow::<NSBundleHostObject>(this).bundle.is_some() {
+        return nil;
+    }
+    let name = to_rust_string(env, name).into_owned();
+    let Some(list) = env.bins.first().and_then(|bin| bin.get_section("__objc_classlist")) else {
+        return nil;
+    };
+    let base: ConstPtr<Class> = Ptr::from_bits(list.addr);
+    for i in 0..(list.size / 4) {
+        let class = env.mem.read(base + i);
+        if env.objc.get_class_name(class) == name {
+            return class;
+        }
+    }
+    nil
 }
 - (id)bundleURL {
     if let Some(url) = env.objc.borrow::<NSBundleHostObject>(this).bundle_url {

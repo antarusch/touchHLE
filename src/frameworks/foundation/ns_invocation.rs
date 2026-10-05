@@ -82,6 +82,15 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.borrow_mut::<NSInvocationHostObject>(this).selector = Some(selector);
 }
 
+- (SEL)selector {
+    env.objc.borrow::<NSInvocationHostObject>(this).selector
+        .unwrap_or_else(|| <SEL as crate::abi::GuestArg>::from_regs(&[0]))
+}
+
+- (id)methodSignature {
+    env.objc.borrow::<NSInvocationHostObject>(this).sig
+}
+
 - (())retainArguments {
     // TODO: handle return val
     // TODO: copy blocks

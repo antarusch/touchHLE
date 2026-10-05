@@ -390,6 +390,17 @@ pub const CLASSES: ClassExports = objc_classes! {
     release(env, objects);
 }
 
+- (())removeObjectIdenticalTo:(id)object {
+    // Remove backwards so duplicate occurrences cannot invalidate later indices.
+    let count: NSUInteger = msg![env; this count];
+    for i in (0..count).rev() {
+        let current: id = msg![env; this objectAtIndex:i];
+        if current == object {
+            () = msg![env; this removeObjectAtIndex:i];
+        }
+    }
+}
+
 
 // NSCopying implementation
 - (id)copyWithZone:(NSZonePtr)_zone {
