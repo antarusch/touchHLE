@@ -14,11 +14,12 @@ struct NSNumberFormatterHostObject {
     number_style: NSInteger,
     uses_grouping_separator: bool,
     grouping_separator: Option<id>,
+    grouping_size: usize,
 }
 impl HostObject for NSNumberFormatterHostObject {}
 
-fn apply_grouping(input: &str, separator: &str) -> String {
-    if separator.is_empty() {
+fn apply_grouping(input: &str, separator: &str, grouping_size: usize) -> String {
+    if separator.is_empty() || grouping_size == 0 {
         return input.to_string();
     }
 
@@ -39,18 +40,18 @@ fn apply_grouping(input: &str, separator: &str) -> String {
         ("", integer)
     };
 
-    if digits.len() <= 3 || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
+    if digits.len() <= grouping_size || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
         return input.to_string();
     }
 
-    let first_group = match digits.len() % 3 {
-        0 => 3,
+    let first_group = match digits.len() % grouping_size {
+        0 => grouping_size,
         remainder => remainder,
     };
     let mut result = String::with_capacity(input.len() + digits.len() / 3 * separator.len());
     result.push_str(sign);
     result.push_str(&digits[..first_group]);
-    for chunk in digits.as_bytes()[first_group..].chunks(3) {
+    for chunk in digits.as_bytes()[first_group..].chunks(grouping_size) {
         result.push_str(separator);
         result.push_str(std::str::from_utf8(chunk).unwrap());
     }
@@ -70,6 +71,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         number_style: 0,
         uses_grouping_separator: false,
         grouping_separator: None,
+        grouping_size: 3,
     });
     env.objc.alloc_object(this, host_object, &mut env.mem)
 }
@@ -129,6 +131,18 @@ pub const CLASSES: ClassExports = objc_classes! {
     separator.unwrap_or_else(|| ns_string::get_static_str(env, ","))
 }
 
+- (())setGroupingSize:(usize)grouping_size {
+    env.objc
+        .borrow_mut::<NSNumberFormatterHostObject>(this)
+        .grouping_size = grouping_size;
+}
+
+- (usize)groupingSize {
+    env.objc
+        .borrow::<NSNumberFormatterHostObject>(this)
+        .grouping_size
+}
+
 - (id)stringFromNumber:(id)number {
     if number == nil {
         return nil;
@@ -136,12 +150,13 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     let string: id = msg![env; number stringValue];
     let mut result = ns_string::to_rust_string(env, string).into_owned();
-    let (uses_grouping_separator, number_style, grouping_separator) = {
+    let (uses_grouping_separator, number_style, grouping_separator, grouping_size) = {
         let host = env.objc.borrow::<NSNumberFormatterHostObject>(this);
         (
             host.uses_grouping_separator,
             host.number_style,
             host.grouping_separator,
+            host.grouping_size,
         )
     };
 
@@ -151,7 +166,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         let separator = grouping_separator
             .map(|value| ns_string::to_rust_string(env, value).into_owned())
             .unwrap_or_else(|| ",".to_string());
-        result = apply_grouping(&result, &separator);
+        result = apply_grouping(&result, &separator, grouping_size);
     }
 
     let result = ns_string::from_rust_string(env, result);
@@ -179,9 +194,14 @@ mod tests {
 
     #[test]
     fn grouping_keeps_sign_fraction_and_exponent() {
-        assert_eq!(apply_grouping("123", ","), "123");
-        assert_eq!(apply_grouping("1234", ","), "1,234");
-        assert_eq!(apply_grouping("-1234567.5", " "), "-1 234 567.5");
-        assert_eq!(apply_grouping("1234567e+10", "."), "1.234.567e+10");
+        assert_eq!(apply_grouping("123", ",", 3), "123");
+        assert_eq!(apply_grouping("1234", ",", 3), "1,234");
+        assert_eq!(apply_grouping("-1234567.5", " ", 3), "-1 234 567.5");
+        assert_eq!(
+            apply_grouping("1234567e+10", ".", 3),
+            "1.234.567e+10"
+        );
+        assert_eq!(apply_grouping("12345678", ",", 4), "1234,5678");
+        assert_eq!(apply_grouping("12345678", ",", 0), "12345678");
     }
 }
