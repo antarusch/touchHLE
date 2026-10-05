@@ -50,7 +50,7 @@ fn apply_grouping(input: &str, separator: &str) -> String {
     let mut result = String::with_capacity(input.len() + digits.len() / 3 * separator.len());
     result.push_str(sign);
     result.push_str(&digits[..first_group]);
-    for chunk in digits[first_group..].as_bytes().chunks(3) {
+    for chunk in digits.as_bytes()[first_group..].chunks(3) {
         result.push_str(separator);
         result.push_str(std::str::from_utf8(chunk).unwrap());
     }
