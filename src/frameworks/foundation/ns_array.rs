@@ -391,7 +391,8 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())removeObjectIdenticalTo:(id)object {
-    // Remove backwards so duplicate occurrences cannot invalidate later indices.
+    // Remove backwards so duplicate occurrences cannot invalidate later
+    // indices.
     let count: NSUInteger = msg![env; this count];
     for i in (0..count).rev() {
         let current: id = msg![env; this objectAtIndex:i];
