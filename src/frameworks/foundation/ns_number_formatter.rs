@@ -122,10 +122,11 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (id)groupingSeparator {
-    env.objc
+    let separator = env
+        .objc
         .borrow::<NSNumberFormatterHostObject>(this)
-        .grouping_separator
-        .unwrap_or_else(|| ns_string::get_static_str(env, ","))
+        .grouping_separator;
+    separator.unwrap_or_else(|| ns_string::get_static_str(env, ","))
 }
 
 - (id)stringFromNumber:(id)number {
@@ -135,13 +136,19 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     let string: id = msg![env; number stringValue];
     let mut result = ns_string::to_rust_string(env, string).into_owned();
-    let host = env.objc.borrow::<NSNumberFormatterHostObject>(this);
+    let (uses_grouping_separator, number_style, grouping_separator) = {
+        let host = env.objc.borrow::<NSNumberFormatterHostObject>(this);
+        (
+            host.uses_grouping_separator,
+            host.number_style,
+            host.grouping_separator,
+        )
+    };
 
     // NSNumberFormatterDecimalStyle is 1. Rogue Planet also explicitly
     // controls grouping, so apply grouping for plain/decimal styles only.
-    if host.uses_grouping_separator && matches!(host.number_style, 0 | 1) {
-        let separator = host
-            .grouping_separator
+    if uses_grouping_separator && matches!(number_style, 0 | 1) {
+        let separator = grouping_separator
             .map(|value| ns_string::to_rust_string(env, value).into_owned())
             .unwrap_or_else(|| ",".to_string());
         result = apply_grouping(&result, &separator);
