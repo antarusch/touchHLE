@@ -237,6 +237,14 @@ pub const CLASSES: ClassExports = objc_classes! {
     autorelease(env, res_imm)
 }
 
+- (id)sortedArrayUsingSelector:(SEL)comparator {
+    let array: id = msg![env; this mutableCopy];
+    () = msg![env; array sortUsingSelector:comparator];
+    let sorted: id = msg![env; array copy];
+    release(env, array);
+    autorelease(env, sorted)
+}
+
 - (id)sortedArrayUsingFunction:(GuestFunction)comparator
                        context:(MutVoidPtr)context {
     let array = msg![env; this mutableCopy];
@@ -502,12 +510,6 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (id)description {
     build_description(env, this)
-}
-
-- (id)sortedArrayUsingSelector:(SEL)comparator {
-    let new = msg![env; this mutableCopy];
-    () = msg![env; new sortUsingSelector:comparator];
-    autorelease(env, new)
 }
 
 @end

@@ -84,7 +84,7 @@ fn replace_view(env: &mut Environment, cell: id, view: id, selected: bool) {
             let content: id = msg![env; cell contentView];
             () = msg![env; cell insertSubview:view belowSubview:content];
         } else {
-            () = msg![env; cell insertSubview:view atIndex:0u32];
+            () = msg![env; cell insertSubview:view atIndex:0i32];
         }
         if selected {
             let is_selected = env.objc.borrow::<CellHostObject>(cell).selected;
@@ -165,7 +165,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     if view != nil {
         let bounds: CGRect = msg![env; this bounds];
         () = msg![env; view setFrame:bounds];
-        () = msg![env; this insertSubview:view atIndex:0u32];
+        () = msg![env; this insertSubview:view atIndex:0i32];
     }
 }
 - (id)dequeueReusableCellWithIdentifier:(id)identifier {

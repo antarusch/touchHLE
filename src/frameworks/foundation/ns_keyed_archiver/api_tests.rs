@@ -126,6 +126,7 @@ fn archive_invocation_and_menu_round_trips() {
     check_signed_number_formatting(env);
     check_set_snapshots(env);
     check_layer_names(env);
+    check_array_sorting(env);
     check_set_archives(env);
     check_foundation_archives(env);
     check_text_nib(env);
@@ -356,18 +357,20 @@ fn check_nib_scroll_view(env: &mut Environment) {
         ValueVariant::Data(bytes)
     };
     let archive = NIBArchive::new(
-        vec![Object::new(0, 0, 4)],
+        vec![Object::new(0, 0, 5)],
         vec![
             "UIBounds".into(),
             "UICenter".into(),
             "UIContentSize".into(),
             "negative".into(),
+            "null".into(),
         ],
         vec![
             Value::new(0, geometry(&[0.0, 0.0, 580.0, 124.0])),
             Value::new(1, geometry(&[357.0, 117.0])),
             Value::new(2, geometry(&[580.0, 37.0])),
             Value::new(3, geometry(&[-1.0, -1.5])),
+            Value::new(4, ValueVariant::Nil),
         ],
         vec![ClassName::new("UIScrollView".into(), vec![])],
     )
@@ -382,6 +385,9 @@ fn check_nib_scroll_view(env: &mut Environment) {
     env.mem.free(bytes);
     let coder: id = msg_class![env; _touchHLE_NIBArchiveDecoder alloc];
     let coder: id = msg![env; coder _touchHLE_initForReadingWithData:data];
+    let key = get_static_str(env, "null");
+    let decoded: id = msg![env; coder decodeObjectForKey:key];
+    assert_eq!(decoded, nil);
     let key = get_static_str(env, "UIContentSize");
     let size: CGSize = msg![env; coder decodeCGSizeForKey:key];
     assert_eq!((size.width, size.height), (580.0, 37.0));
@@ -391,6 +397,22 @@ fn check_nib_scroll_view(env: &mut Environment) {
     let key = get_static_str(env, "absent");
     let size: CGSize = msg![env; coder decodeCGSizeForKey:key];
     assert_eq!((size.width, size.height), (0.0, 0.0));
+    let point: CGPoint = msg![env; coder decodeCGPointForKey:key];
+    assert_eq!(point, CGPoint::default());
+    let rect: CGRect = msg![env; coder decodeCGRectForKey:key];
+    assert_eq!(rect, CGRect::default());
+    let key = get_static_str(env, "UIBounds");
+    let rect: CGRect = msg![env; coder decodeCGRectForKey:key];
+    assert_eq!(
+        rect.size,
+        CGSize {
+            width: 580.0,
+            height: 124.0
+        }
+    );
+    let key = get_static_str(env, "UICenter");
+    let point: CGPoint = msg![env; coder decodeCGPointForKey:key];
+    assert_eq!(point, CGPoint { x: 357.0, y: 117.0 });
     let scroll: id = msg_class![env; UIScrollView alloc];
     let scroll: id = msg![env; scroll initWithCoder:coder];
     let size: CGSize = msg![env; scroll contentSize];
@@ -1060,6 +1082,25 @@ fn game_command_button_geometry() {
     let mut coroutine = corosensei::Coroutine::new(|yielder, mut env: Environment| {
         env.with_yielder(yielder, |env| {
             let pool: id = msg_class![env; NSAutoreleasePool new];
+            check_game_resource_lookup(env);
+            // Load the actual save-slot nib that crashed on Continue.
+            let name = get_static_str(env, "GameRecordCell");
+            let bundle: id = msg_class![env; NSBundle mainBundle];
+            let owner: id = msg_class![env; GameRecordViewController alloc];
+            let objects: id = msg![env; bundle loadNibNamed:name owner:owner options:nil];
+            let cell_class = env.objc.get_known_class("GameRecordCell", &mut env.mem);
+            let count: u32 = msg![env; objects count];
+            let mut found = false;
+            for index in 0..count {
+                let object: id = msg![env; objects objectAtIndex:index];
+                if msg![env; object isKindOfClass:cell_class] {
+                    found = true;
+                    let label: id = msg![env; object rowNumberLabel];
+                    assert_ne!(label, nil);
+                }
+            }
+            assert!(found);
+            release(env, owner);
             // Use the original game's signed-number format from the crash.
             let argument = env.mem.alloc(4).cast::<i32>();
             for (value, expected) in [(469, "+469"), (-469, "-469"), (0, "+0")] {
@@ -1538,4 +1579,75 @@ fn check_game_system_panel(env: &mut Environment) {
     }
     assert_eq!(save_load.len(), 2, "Quick Save and Quick Load buttons");
     release(env, panel);
+}
+
+fn check_array_sorting(env: &mut Environment) {
+    let comparator = env
+        .objc
+        .register_host_selector("compare:".into(), &mut env.mem);
+    let elements = [
+        get_static_str(env, "charlie"),
+        get_static_str(env, "alpha"),
+        get_static_str(env, "bravo"),
+        get_static_str(env, "alpha"),
+    ];
+    let buffer = env.mem.alloc(16).cast::<id>();
+    for (index, &element) in elements.iter().enumerate() {
+        env.mem.write(buffer + index as u32, element);
+    }
+    let original: id = msg_class![env; NSArray alloc];
+    let original: id = msg![env; original initWithObjects:(buffer.cast_const()) count:4u32];
+    for class_name in ["NSArray", "NSMutableArray"] {
+        let class = env.objc.get_known_class(class_name, &mut env.mem);
+        let source: id = msg![env; class alloc];
+        let source: id = msg![env; source initWithArray:original];
+        let pool: id = msg_class![env; NSAutoreleasePool new];
+        let sorted: id = msg![env; source sortedArrayUsingSelector:comparator];
+        crate::objc::retain(env, sorted);
+        let mutable_class = env.objc.get_known_class("NSMutableArray", &mut env.mem);
+        assert!(!msg![env; sorted isKindOfClass:mutable_class]);
+        for (index, &expected) in [elements[1], elements[3], elements[2], elements[0]]
+            .iter()
+            .enumerate()
+        {
+            let value: id = msg![env; sorted objectAtIndex:(index as u32)];
+            assert_eq!(value, expected);
+            let original: id = msg![env; source objectAtIndex:(index as u32)];
+            assert_eq!(original, elements[index]);
+        }
+        release(env, source);
+        () = msg![env; pool drain];
+        let count: u32 = msg![env; sorted count];
+        assert_eq!(count, 4);
+        release(env, sorted);
+        let empty: id = msg![env; class array];
+        let sorted: id = msg![env; empty sortedArrayUsingSelector:comparator];
+        let count: u32 = msg![env; sorted count];
+        assert_eq!(count, 0);
+    }
+    release(env, original);
+    env.mem.free(buffer.cast());
+}
+
+fn check_game_resource_lookup(env: &mut Environment) {
+    use crate::frameworks::foundation::ns_string::to_rust_string;
+    let bundle: id = msg_class![env; NSBundle mainBundle];
+    for extension in ["nib", "png", "plist"] {
+        let extension_id = get_static_str(env, extension);
+        let path: id = msg![env; bundle pathForResource:nil ofType:extension_id];
+        assert_ne!(path, nil);
+        let path = to_rust_string(env, path).into_owned();
+        assert!(path.ends_with(&format!(".{extension}")));
+        assert!(env.fs.is_file(crate::fs::GuestPath::new(&path)));
+    }
+    let extension = get_static_str(env, "touchhle_missing_extension");
+    let missing: id = msg![env; bundle pathForResource:nil ofType:extension];
+    assert_eq!(missing, nil);
+    let extension = get_static_str(env, "nib");
+    let directory = get_static_str(env, "missing_directory");
+    let missing: id = msg![env; bundle pathForResource:nil ofType:extension inDirectory:directory];
+    assert_eq!(missing, nil);
+    let name = get_static_str(env, "GameRecordCell");
+    let path: id = msg![env; bundle pathForResource:name ofType:extension];
+    assert!(to_rust_string(env, path).ends_with("/GameRecordCell.nib"));
 }

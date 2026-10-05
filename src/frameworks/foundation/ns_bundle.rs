@@ -13,6 +13,7 @@ use crate::frameworks::core_foundation::cf_bundle::{
 use crate::frameworks::foundation::ns_string::{
     from_rust_string, to_rust_string, NSUTF8StringEncoding,
 };
+use crate::fs::GuestPath;
 use crate::mem::{ConstVoidPtr, MutPtr, Ptr};
 use crate::objc::{
     autorelease, id, msg, msg_class, nil, objc_classes, release, retain, Class, ClassExports,
@@ -168,7 +169,6 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (id)pathForResource:(id)name // NSString*
                ofType:(id)extension // NSString*
           inDirectory:(id)directory { // NSString*
-    assert!(name != nil); // TODO
 
     // TODO: cache result of lookups
 
@@ -385,6 +385,31 @@ fn path_for_resource_helper(
     }
     if directory != nil {
         path = msg![env; path stringByAppendingPathComponent:directory];
+    }
+    if name == nil {
+        let directory = to_rust_string(env, path).into_owned();
+        let extension = if extension == nil {
+            String::new()
+        } else {
+            to_rust_string(env, extension).into_owned()
+        };
+        let Ok(entries) = env.fs.enumerate(GuestPath::new(&directory)) else {
+            return nil;
+        };
+        let mut entries: Vec<_> = entries.map(str::to_owned).collect();
+        entries.sort();
+        for entry in entries {
+            let candidate = GuestPath::new(&directory).join(&entry);
+            if !env.fs.is_file(&candidate) {
+                continue;
+            }
+            let candidate_extension = entry.rsplit_once('.').map_or("", |(_, ext)| ext);
+            if candidate_extension == extension {
+                let path = from_rust_string(env, candidate.as_str().to_string());
+                return autorelease(env, path);
+            }
+        }
+        return nil;
     }
     path = msg![env; path stringByAppendingPathComponent:name];
     if extension != nil {

@@ -45,11 +45,12 @@ android {
     }
     defaultConfig {
         val branding = getTouchHLEBranding()
-        applicationId = "org.touchhle.android.eustrathlayernamefix"
-        resValue("string", "app_name", "touchHLE Eustrath Layer Name Fix")
-        buildConfigField("String", "APP_NAME", "\"touchHLE Eustrath Layer Name Fix\"")
+        applicationId = "org.touchhle.android.eustrath"
+        resValue("string", "app_name", "touchHLE Eustrath")
+        buildConfigField("String", "APP_NAME", "\"touchHLE Eustrath\"")
         manifestPlaceholders["icon"] = join("@drawable/icon", "_", branding.lowercase())
         buildConfigField("int", "APP_ICON", join("R.drawable.icon", "_", branding.lowercase()))
+        versionCode = 2
         versionName = join(getTouchHLEVersionName(), " ", branding)
 
         minSdk = 21 // first version with AArch64
