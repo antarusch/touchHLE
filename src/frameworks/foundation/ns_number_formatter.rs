@@ -5,7 +5,7 @@
  */
 //! `NSNumberFormatter`.
 
-use super::{ns_string, NSInteger};
+use super::{ns_string, NSInteger, NSUInteger};
 use crate::objc::{
     autorelease, id, msg, nil, objc_classes, release, ClassExports, HostObject, NSZonePtr,
 };
@@ -14,7 +14,7 @@ struct NSNumberFormatterHostObject {
     number_style: NSInteger,
     uses_grouping_separator: bool,
     grouping_separator: Option<id>,
-    grouping_size: usize,
+    grouping_size: NSUInteger,
 }
 impl HostObject for NSNumberFormatterHostObject {}
 
@@ -131,13 +131,13 @@ pub const CLASSES: ClassExports = objc_classes! {
     separator.unwrap_or_else(|| ns_string::get_static_str(env, ","))
 }
 
-- (())setGroupingSize:(usize)grouping_size {
+- (())setGroupingSize:(NSUInteger)grouping_size {
     env.objc
         .borrow_mut::<NSNumberFormatterHostObject>(this)
         .grouping_size = grouping_size;
 }
 
-- (usize)groupingSize {
+- (NSUInteger)groupingSize {
     env.objc
         .borrow::<NSNumberFormatterHostObject>(this)
         .grouping_size
@@ -166,7 +166,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         let separator = grouping_separator
             .map(|value| ns_string::to_rust_string(env, value).into_owned())
             .unwrap_or_else(|| ",".to_string());
-        result = apply_grouping(&result, &separator, grouping_size);
+        result = apply_grouping(&result, &separator, grouping_size as usize);
     }
 
     let result = ns_string::from_rust_string(env, result);
@@ -197,10 +197,7 @@ mod tests {
         assert_eq!(apply_grouping("123", ",", 3), "123");
         assert_eq!(apply_grouping("1234", ",", 3), "1,234");
         assert_eq!(apply_grouping("-1234567.5", " ", 3), "-1 234 567.5");
-        assert_eq!(
-            apply_grouping("1234567e+10", ".", 3),
-            "1.234.567e+10"
-        );
+        assert_eq!(apply_grouping("1234567e+10", ".", 3), "1.234.567e+10");
         assert_eq!(apply_grouping("12345678", ",", 4), "1234,5678");
         assert_eq!(apply_grouping("12345678", ",", 0), "12345678");
     }
