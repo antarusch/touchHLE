@@ -6,6 +6,7 @@
 //! `MPMoviePlayerController` etc.
 
 use crate::dyld::{ConstantExports, HostConstant};
+use crate::frameworks::core_graphics::{CGPoint, CGRect, CGSize};
 use crate::frameworks::foundation::{ns_string, ns_url, NSInteger, NSTimeInterval};
 use crate::frameworks::uikit::ui_device::UIDeviceOrientation;
 use crate::objc::{
@@ -34,9 +35,17 @@ impl State {
 
 type MPMovieScalingMode = NSInteger;
 type MPMovieControlStyle = NSInteger;
+type MPMovieRepeatMode = NSInteger;
 
 type MPMoviePlaybackState = NSInteger;
 const MPMoviePlaybackStateStopped: MPMoviePlaybackState = 0;
+const MPMoviePlaybackStatePlaying: MPMoviePlaybackState = 1;
+const MPMoviePlaybackStatePaused: MPMoviePlaybackState = 2;
+
+const FALLBACK_MOVIE_NATURAL_SIZE: CGSize = CGSize {
+    width: 480.0,
+    height: 320.0,
+};
 
 // Values might not be correct, but as these are linked symbol constants, it
 // shouldn't matter.
@@ -47,6 +56,12 @@ pub const MPMoviePlayerContentPreloadDidFinishNotification: &str =
     "MPMoviePlayerContentPreloadDidFinishNotification";
 pub const MPMoviePlayerScalingModeDidChangeNotification: &str =
     "MPMoviePlayerScalingModeDidChangeNotification";
+pub const MPMoviePlayerPlaybackStateDidChangeNotification: &str =
+    "MPMoviePlayerPlaybackStateDidChangeNotification";
+pub const MPMoviePlayerLoadStateDidChangeNotification: &str =
+    "MPMoviePlayerLoadStateDidChangeNotification";
+pub const MPMediaPlaybackIsPreparedToPlayDidChangeNotification: &str =
+    "MPMediaPlaybackIsPreparedToPlayDidChangeNotification";
 // TODO: More notifications?
 const MPMoviePlayerPlaybackDidFinishReasonUserInfoKey: &str =
     "MPMoviePlayerPlaybackDidFinishReasonUserInfoKey";
@@ -66,6 +81,18 @@ pub const CONSTANTS: ConstantExports = &[
         HostConstant::NSString(MPMoviePlayerScalingModeDidChangeNotification),
     ),
     (
+        "_MPMoviePlayerPlaybackStateDidChangeNotification",
+        HostConstant::NSString(MPMoviePlayerPlaybackStateDidChangeNotification),
+    ),
+    (
+        "_MPMoviePlayerLoadStateDidChangeNotification",
+        HostConstant::NSString(MPMoviePlayerLoadStateDidChangeNotification),
+    ),
+    (
+        "_MPMediaPlaybackIsPreparedToPlayDidChangeNotification",
+        HostConstant::NSString(MPMediaPlaybackIsPreparedToPlayDidChangeNotification),
+    ),
+    (
         "_MPMoviePlayerPlaybackDidFinishReasonUserInfoKey",
         HostConstant::NSString(MPMoviePlayerPlaybackDidFinishReasonUserInfoKey),
     ),
@@ -74,6 +101,14 @@ pub const CONSTANTS: ConstantExports = &[
 struct MPMoviePlayerControllerHostObject {
     // NSURL *
     content_url: id,
+    // UIView *
+    view: id,
+    natural_size: CGSize,
+    fullscreen: bool,
+    repeat_mode: MPMovieRepeatMode,
+    should_autoplay: bool,
+    playback_state: MPMoviePlaybackState,
+    prepared: bool,
 }
 impl HostObject for MPMoviePlayerControllerHostObject {}
 
@@ -88,6 +123,13 @@ pub const CLASSES: ClassExports = objc_classes! {
 + (id)allocWithZone:(NSZonePtr)_zone {
     let host_object = Box::new(MPMoviePlayerControllerHostObject {
         content_url: nil,
+        view: nil,
+        natural_size: FALLBACK_MOVIE_NATURAL_SIZE,
+        fullscreen: false,
+        repeat_mode: 0,
+        should_autoplay: true,
+        playback_state: MPMoviePlaybackStateStopped,
+        prepared: false,
     });
     env.objc.alloc_object(this, host_object, &mut env.mem)
 }
@@ -101,7 +143,23 @@ pub const CLASSES: ClassExports = objc_classes! {
     );
 
     retain(env, url);
-    env.objc.borrow_mut::<MPMoviePlayerControllerHostObject>(this).content_url = url;
+
+    let natural_size = env
+        .objc
+        .borrow::<MPMoviePlayerControllerHostObject>(this)
+        .natural_size;
+    let frame = CGRect {
+        origin: CGPoint { x: 0.0, y: 0.0 },
+        size: natural_size,
+    };
+    let view: id = msg_class![env; UIView alloc];
+    let view: id = msg![env; view initWithFrame:frame];
+
+    let host = env
+        .objc
+        .borrow_mut::<MPMoviePlayerControllerHostObject>(this);
+    host.content_url = url;
+    host.view = view;
 
     // Act as if loading immediately completed (Spore Origins waits for this).
     State::get(env).pending_notifications.push_back(
@@ -112,8 +170,12 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())dealloc {
-    let url = env.objc.borrow::<MPMoviePlayerControllerHostObject>(this).content_url;
+    let (url, view) = {
+        let host = env.objc.borrow::<MPMoviePlayerControllerHostObject>(this);
+        (host.content_url, host.view)
+    };
     release(env, url);
+    release(env, view);
 
     env.objc.dealloc_object(this, &mut env.mem);
 }
@@ -138,19 +200,59 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (())setControlStyle:(MPMovieControlStyle)style {
     todo_objc_setter!(this, style);
 }
-- (())setFullscreen:(bool)fullsreen {
-    todo_objc_setter!(this, fullsreen);
+- (())setFullscreen:(bool)fullscreen {
+    env.objc
+        .borrow_mut::<MPMoviePlayerControllerHostObject>(this)
+        .fullscreen = fullscreen;
+}
+- (())setFullscreen:(bool)fullscreen animated:(bool)_animated {
+    let _: () = msg![env; this setFullscreen:fullscreen];
+}
+- (())setRepeatMode:(MPMovieRepeatMode)repeat_mode {
+    env.objc
+        .borrow_mut::<MPMoviePlayerControllerHostObject>(this)
+        .repeat_mode = repeat_mode;
+}
+- (())setShouldAutoplay:(bool)should_autoplay {
+    env.objc
+        .borrow_mut::<MPMoviePlayerControllerHostObject>(this)
+        .should_autoplay = should_autoplay;
 }
 - (())setInitialPlaybackTime:(NSTimeInterval)initial_time {
     todo_objc_setter!(this, initial_time);
 }
 
 - (id)view {
-    nil // TODO
+    env.objc.borrow::<MPMoviePlayerControllerHostObject>(this).view
+}
+
+- (CGSize)naturalSize {
+    env.objc
+        .borrow::<MPMoviePlayerControllerHostObject>(this)
+        .natural_size
+}
+
+- (())prepareToPlay {
+    env.objc
+        .borrow_mut::<MPMoviePlayerControllerHostObject>(this)
+        .prepared = true;
+    let now = Instant::now();
+    State::get(env).pending_notifications.push_back((
+        MPMoviePlayerLoadStateDidChangeNotification,
+        this,
+        now,
+    ));
+    State::get(env).pending_notifications.push_back((
+        MPMediaPlaybackIsPreparedToPlayDidChangeNotification,
+        this,
+        now,
+    ));
 }
 
 - (MPMoviePlaybackState)playbackState {
-    MPMoviePlaybackStateStopped // TODO
+    env.objc
+        .borrow::<MPMoviePlayerControllerHostObject>(this)
+        .playback_state
 }
 
 // Apparently an undocumented, private API, but Spore Origins uses it.
@@ -172,6 +274,14 @@ pub const CLASSES: ClassExports = objc_classes! {
         let _: () = msg![env; old stop];
     }
     assert!(env.framework_state.media_player.movie_player.active_player.is_none());
+    env.objc
+        .borrow_mut::<MPMoviePlayerControllerHostObject>(this)
+        .playback_state = MPMoviePlaybackStatePlaying;
+    State::get(env).pending_notifications.push_back((
+        MPMoviePlayerPlaybackStateDidChangeNotification,
+        this,
+        Instant::now(),
+    ));
     // Movie player is retained by the runtime until it is stopped
     retain(env, this);
     env.framework_state.media_player.movie_player.active_player = Some(this);
@@ -191,15 +301,31 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (())pause {
     log!("TODO: [(MPMoviePlayerController*){:?} pause]", this);
+    env.objc
+        .borrow_mut::<MPMoviePlayerControllerHostObject>(this)
+        .playback_state = MPMoviePlaybackStatePaused;
+    State::get(env).pending_notifications.push_back((
+        MPMoviePlayerPlaybackStateDidChangeNotification,
+        this,
+        Instant::now(),
+    ));
 }
 
 - (())stop {
     log!("TODO: [(MPMoviePlayerController*){:?} stop]", this);
-    if env.framework_state.media_player.movie_player.active_player.is_some() {
+    env.objc
+        .borrow_mut::<MPMoviePlayerControllerHostObject>(this)
+        .playback_state = MPMoviePlaybackStateStopped;
+    State::get(env).pending_notifications.push_back((
+        MPMoviePlayerPlaybackStateDidChangeNotification,
+        this,
+        Instant::now(),
+    ));
+    if env.framework_state.media_player.movie_player.active_player == Some(this) {
         // Some applications (like NOVA2) may send 2 `stop` messages for each
         // 1 `play` message for the player. In that case, we want to release
         // the active player only once.
-        assert!(this == env.framework_state.media_player.movie_player.active_player.take().unwrap());
+        env.framework_state.media_player.movie_player.active_player = None;
         release(env, this);
     }
 }
