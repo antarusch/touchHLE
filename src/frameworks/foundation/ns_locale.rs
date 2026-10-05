@@ -27,7 +27,7 @@ pub const CONSTANTS: ConstantExports = &[
     ),
     (
         "_NSLocaleLanguageCode",
-        HostConstant::NSString(NSLocaleIdentifier),
+        HostConstant::NSString(NSLocaleLanguageCode),
     ),
     (
         "_NSLocaleIdentifier",
@@ -77,6 +77,28 @@ fn get_preferred_countries(env: &mut Environment) -> Vec<String> {
         log!("The app requested your current locale. {:?} will be reported based on your system region settings.", countries);
         countries
     }
+}
+
+fn parse_locale_identifier(identifier: &str) -> (String, Option<String>) {
+    let mut components = identifier.split(|c| c == '_' || c == '-');
+    let language = components
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let country = components.find_map(|component| {
+        let ascii_alpha_region =
+            component.len() == 2 && component.bytes().all(|byte| byte.is_ascii_alphabetic());
+        let numeric_region =
+            component.len() == 3 && component.bytes().all(|byte| byte.is_ascii_digit());
+        if ascii_alpha_region {
+            Some(component.to_ascii_uppercase())
+        } else if numeric_region {
+            Some(component.to_string())
+        } else {
+            None
+        }
+    });
+    (language, country)
 }
 
 struct NSLocaleHostObject {
@@ -167,14 +189,16 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (id)initWithLocaleIdentifier:(id)string { // NSString *
     let str = ns_string::to_rust_string(env, string);
     log_dbg!("[(NSLocale *){:?} initWithLocaleIdentifier:'{}']", this, str);
-    retain(env, string);
-    // Loosely assume 2-char lang code here
-    // TODO: locale identifier parsing
-    assert_eq!(2, str.len());
-    assert!(str.to_lowercase().eq(&str));
-    assert!(!str.contains('_') && !str.contains('-'));
-    assert!(env.objc.borrow::<NSLocaleHostObject>(this).language_code == nil);
-    env.objc.borrow_mut::<NSLocaleHostObject>(this).language_code = string;
+    let (language, country) = parse_locale_identifier(&str);
+    let language_code = ns_string::from_rust_string(env, language);
+    let country_code = country
+        .map(|country| ns_string::from_rust_string(env, country))
+        .unwrap_or(nil);
+    let host_object: &mut NSLocaleHostObject = env.objc.borrow_mut(this);
+    assert!(host_object.language_code == nil);
+    assert!(host_object.country_code == nil);
+    host_object.language_code = language_code;
+    host_object.country_code = country_code;
     this
 }
 
@@ -207,16 +231,23 @@ pub const CLASSES: ClassExports = objc_classes! {
         },
         // TODO: Define NSLocaleIdentifier _as_ kCFLocaleIdentifier
         NSLocaleIdentifier | kCFLocaleIdentifier => {
-            let &NSLocaleHostObject { country_code, language_code } = env.objc.borrow(this);
-            assert!(country_code != nil); // TODO
-            assert!(language_code != nil); // TODO
-            let locale_id_str = format!(
-                "{}_{}",
-                ns_string::to_rust_string(env, language_code),
-                ns_string::to_rust_string(env, country_code)
-            );
-            let res = ns_string::from_rust_string(env, locale_id_str);
-            autorelease(env, res)
+            let (country_code, language_code) = {
+                let host_object: &NSLocaleHostObject = env.objc.borrow(this);
+                (host_object.country_code, host_object.language_code)
+            };
+            if language_code == nil {
+                nil
+            } else {
+                let language = ns_string::to_rust_string(env, language_code).into_owned();
+                let locale_id_str = if country_code == nil {
+                    language
+                } else {
+                    let country = ns_string::to_rust_string(env, country_code).into_owned();
+                    format!("{}_{}", language, country)
+                };
+                let res = ns_string::from_rust_string(env, locale_id_str);
+                autorelease(env, res)
+            }
         },
         NSLocaleLanguageCode | kCFLocaleLanguageCode => {
             let &NSLocaleHostObject { language_code, .. } = env.objc.borrow(this);
@@ -229,3 +260,29 @@ pub const CLASSES: ClassExports = objc_classes! {
 @end
 
 };
+
+#[cfg(test)]
+mod tests {
+    use super::parse_locale_identifier;
+
+    #[test]
+    fn locale_identifier_parsing() {
+        assert_eq!(parse_locale_identifier("en"), ("en".to_string(), None));
+        assert_eq!(
+            parse_locale_identifier("en_US"),
+            ("en".to_string(), Some("US".to_string()))
+        );
+        assert_eq!(
+            parse_locale_identifier("pt-BR"),
+            ("pt".to_string(), Some("BR".to_string()))
+        );
+        assert_eq!(
+            parse_locale_identifier("zh_Hant_CN"),
+            ("zh".to_string(), Some("CN".to_string()))
+        );
+        assert_eq!(
+            parse_locale_identifier("es_419"),
+            ("es".to_string(), Some("419".to_string()))
+        );
+    }
+}
