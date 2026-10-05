@@ -366,6 +366,13 @@ fn CGRectOffset(_env: &mut Environment, rect: CGRect, dx: CGFloat, dy: CGFloat) 
 }
 
 fn CGRectInset(_env: &mut Environment, rect: CGRect, dx: CGFloat, dy: CGFloat) -> CGRect {
+    inset_rect(rect, dx, dy)
+}
+
+fn inset_rect(rect: CGRect, dx: CGFloat, dy: CGFloat) -> CGRect {
+    if rect == CGRectNull {
+        return CGRectNull;
+    }
     let res = CGRect {
         origin: CGPoint {
             x: rect.origin.x + dx,
@@ -376,13 +383,79 @@ fn CGRectInset(_env: &mut Environment, rect: CGRect, dx: CGFloat, dy: CGFloat) -
             height: rect.size.height - 2.0 * dy,
         },
     };
-    assert!(res.size.width >= 0.0); // TODO return a null rectangle
-    assert!(res.size.height >= 0.0); // TODO return a null rectangle
+    // Floating-point rounding can change the computed midpoint by one ULP.
+    // The edge arithmetic is still valid, so do not assert center equality.
+    if res.size.width < 0.0 || res.size.height < 0.0 {
+        CGRectNull
+    } else {
+        res
+    }
+}
 
-    // center invariant
-    assert!(rect.origin.x + rect.size.width / 2.0 == res.origin.x + res.size.width / 2.0);
-    assert!(rect.origin.y + rect.size.height / 2.0 == res.origin.y + res.size.height / 2.0);
-    res
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn inset_fractional_map_frame() {
+        let rect = CGRect {
+            origin: CGPoint {
+                x: -544.0,
+                y: f32::from_bits(0xc3ee0001),
+            },
+            size: CGSize {
+                width: 1440.0,
+                height: 1080.0,
+            },
+        };
+        let result = inset_rect(rect, -144.0, -144.0);
+        assert_eq!(
+            result.origin,
+            CGPoint {
+                x: -688.0,
+                y: -620.0
+            }
+        );
+        assert_eq!(
+            result.size,
+            CGSize {
+                width: 1728.0,
+                height: 1368.0
+            }
+        );
+    }
+
+    #[test]
+    fn inset_edges_and_null_results() {
+        let rect = CGRect {
+            origin: CGPoint { x: 10.0, y: 20.0 },
+            size: CGSize {
+                width: 40.0,
+                height: 60.0,
+            },
+        };
+        assert_eq!(inset_rect(rect, 0.0, 0.0), rect);
+        assert_eq!(
+            inset_rect(rect, 5.0, -10.0),
+            CGRect {
+                origin: CGPoint { x: 15.0, y: 10.0 },
+                size: CGSize {
+                    width: 30.0,
+                    height: 80.0
+                },
+            }
+        );
+        assert_eq!(
+            inset_rect(rect, 20.0, 30.0),
+            CGRect {
+                origin: CGPoint { x: 30.0, y: 50.0 },
+                size: CGSizeZero,
+            }
+        );
+        assert_eq!(inset_rect(rect, 21.0, 0.0), CGRectNull);
+        assert_eq!(inset_rect(rect, 0.0, 31.0), CGRectNull);
+        assert_eq!(inset_rect(CGRectNull, -5.0, -5.0), CGRectNull);
+    }
 }
 
 pub(super) fn CGRectIntegral(_env: &mut Environment, rect: CGRect) -> CGRect {

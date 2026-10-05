@@ -1082,6 +1082,40 @@ fn game_command_button_geometry() {
     let mut coroutine = corosensei::Coroutine::new(|yielder, mut env: Environment| {
         env.with_yielder(yielder, |env| {
             let pool: id = msg_class![env; NSAutoreleasePool new];
+            // Run the game's map-clamping ARM code with the fractional origin
+            // from the drag crash and the game's 144-point drag margin.
+            let screen: id = msg_class![env; FieldMapScreen alloc];
+            let touch: id = msg_class![env; UIView alloc];
+            let touch_frame = CGRect {
+                origin: CGPoint { x: 0.0, y: 0.0 },
+                size: CGSize { width: 1024.0, height: 768.0 },
+            };
+            let touch: id = msg![env; touch initWithFrame:touch_frame];
+            let field: id = msg_class![env; UIView alloc];
+            let frame = CGRect {
+                origin: CGPoint { x: -544.0, y: f32::from_bits(0xc3ee0001) },
+                size: CGSize { width: 1440.0, height: 1080.0 },
+            };
+            let field: id = msg![env; field initWithFrame:frame];
+            let _: () = msg![env; touch addSubview:field];
+            let _: () = msg![env; screen setTouchView:touch];
+            let _: () = msg![env; screen setFieldView:field];
+            let margin = CGSize {
+                width: 144.0, height: 144.0,
+            };
+            let _: () = msg![env; screen normalizeViewWithMargin:margin];
+            let normalized: CGRect = msg![env; field frame];
+            assert_eq!(normalized.size, frame.size);
+            assert_eq!(normalized.origin, CGPoint {
+                x: frame.origin.x,
+                y: frame.origin.y + 20.0,
+            });
+            let _: () = msg![env; screen normalizeViewWithMargin:margin];
+            let repeated: CGRect = msg![env; field frame];
+            assert_eq!(repeated, normalized);
+            release(env, field);
+            release(env, touch);
+            release(env, screen);
             check_game_resource_lookup(env);
             // Load the actual save-slot nib that crashed on Continue.
             let name = get_static_str(env, "GameRecordCell");
