@@ -397,6 +397,7 @@ pub fn run_run_loop(
             let next_due = uikit::handle_events(env);
             limit_sleep_time(&mut sleep_until, next_due);
 
+            uikit::ui_view::layout_pending_views(env);
             let next_due = core_animation::recomposite_if_necessary(env, false);
             limit_sleep_time(&mut sleep_until, next_due);
         }

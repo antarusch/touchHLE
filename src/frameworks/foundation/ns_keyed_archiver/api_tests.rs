@@ -78,6 +78,26 @@ pub const CLASSES: ClassExports = objc_classes! {
     () = msg![env; this setTag:(count + 1)];
 }
 @end
+@implementation LayoutProbe: UIView
+- (())layoutSubviews {
+    let count: i32 = msg![env; this tag];
+    () = msg![env; this setTag:(count + 1)];
+    // A synchronous request from inside layout must not recurse.
+    () = msg![env; this layoutIfNeeded];
+    if count == -1 { () = msg![env; this setNeedsLayout]; }
+}
+@end
+@implementation RogueRendererProbe: UIView
+- (())configure { () = msg![env; this setTag:1i32]; }
+- (())initView {
+    let count: i32 = msg![env; this tag];
+    assert_eq!(count, 1);
+    () = msg![env; this setTag:2i32];
+}
+@end
+@implementation RemovingLayoutProbe: UIView
+- (())layoutSubviews { () = msg![env; this removeFromSuperview]; }
+@end
 @implementation TableProbe: NSObject
 - (i32)tableView:(id)_table numberOfRowsInSection:(i32)_section {
     3
@@ -94,6 +114,112 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 @end
 };
+
+fn check_pending_layout(env: &mut Environment) {
+    fn count(env: &mut Environment, view: id) -> i32 {
+        msg![env; view tag]
+    }
+    let root: id = msg_class![env; LayoutProbe new];
+    let child: id = msg_class![env; LayoutProbe new];
+    () = msg![env; root addSubview:child];
+    () = msg![env; root layoutIfNeeded];
+    assert_eq!(count(env, root), 1i32);
+    assert_eq!(count(env, child), 1i32);
+    () = msg![env; root layoutIfNeeded];
+    assert_eq!(count(env, root), 1i32);
+    assert_eq!(count(env, child), 1i32);
+    () = msg![env; child setNeedsLayout];
+    () = msg![env; child setNeedsLayout];
+    () = msg![env; root layoutIfNeeded];
+    assert_eq!(count(env, root), 1i32);
+    assert_eq!(count(env, child), 2i32);
+    let bounds = CGRect {
+        origin: CGPoint { x: 0.0, y: 0.0 },
+        size: CGSize {
+            width: 100.0,
+            height: 50.0,
+        },
+    };
+    () = msg![env; child setBounds:bounds];
+    () = msg![env; child layoutIfNeeded];
+    assert_eq!(count(env, child), 3i32);
+    () = msg![env; child setBounds:bounds];
+    () = msg![env; child layoutIfNeeded];
+    assert_eq!(count(env, child), 3i32);
+    let mut frame: CGRect = msg![env; child frame];
+    frame.origin.x += 10.0;
+    () = msg![env; child setFrame:frame];
+    () = msg![env; child layoutIfNeeded];
+    assert_eq!(count(env, child), 3i32);
+    () = msg![env; child setTag:(-1i32)];
+    () = msg![env; child setNeedsLayout];
+    () = msg![env; root layoutIfNeeded];
+    assert_eq!(count(env, child), 0i32);
+    crate::frameworks::uikit::ui_view::layout_pending_views(env);
+    assert_eq!(count(env, child), 1i32);
+    crate::frameworks::uikit::ui_view::layout_pending_views(env);
+    assert_eq!(count(env, child), 1i32);
+    () = msg![env; child removeFromSuperview];
+    () = msg![env; root layoutIfNeeded];
+    assert_eq!(count(env, root), 2i32);
+    release(env, child);
+    let removed: id = msg_class![env; RemovingLayoutProbe new];
+    () = msg![env; root addSubview:removed];
+    release(env, removed); // The parent now owns the only external reference.
+    () = msg![env; root layoutIfNeeded];
+    let children: id = msg![env; root subviews];
+    let remaining: u32 = msg![env; children count];
+    assert_eq!(remaining, 0);
+    crate::frameworks::uikit::ui_view::layout_pending_views(env);
+    assert_eq!(count(env, root), 4i32);
+    release(env, root);
+}
+
+pub(crate) fn check_rogue_layout(env: &mut Environment) {
+    use crate::objc::{msg_send_super2, objc_super};
+    let class = env.objc.get_known_class("EAGLView", &mut env.mem);
+    let view: id = msg![env; class alloc];
+    // Initialize the UIView base without creating a GPU context. Keep the
+    // original EAGLView layout callback, with autoresizesSurface disabled.
+    let super_ptr = env.mem.alloc_and_write(objc_super {
+        receiver: view,
+        class,
+    });
+    let selector = env
+        .objc
+        .register_host_selector("initWithFrame:".into(), &mut env.mem);
+    let frame = CGRect {
+        origin: CGPoint { x: 0.0, y: 0.0 },
+        size: CGSize {
+            width: 320.0,
+            height: 480.0,
+        },
+    };
+    let initialized: id = msg_send_super2(env, (super_ptr.cast_const(), selector, frame));
+    assert_eq!(initialized, view);
+    let engine: id = msg_class![env; GameEngine alloc];
+    // The original 1.2.1 setRenderer: loads its EAGLView from ivar offset 8.
+    env.mem.write((engine.cast::<u8>() + 8).cast::<id>(), view);
+    let renderer: id = msg_class![env; RogueRendererProbe new];
+    () = msg![env; engine setRenderer:renderer];
+    let phase: i32 = msg![env; renderer tag];
+    assert_eq!(phase, 2);
+    () = msg![env; view layoutIfNeeded];
+    () = msg![env; view setNeedsLayout];
+    () = msg![env; view layoutIfNeeded];
+    // These test-only raw objects have borrowed references and no GPU state.
+    // Dispose the view through its UIView base and the raw engine directly.
+    assert!(env.objc.decrement_refcount(engine));
+    env.objc.dealloc_object(engine, &mut env.mem);
+    assert!(env.objc.decrement_refcount(view));
+    let selector = env
+        .objc
+        .register_host_selector("dealloc".into(), &mut env.mem);
+    let _: () = msg_send_super2(env, (super_ptr.cast_const(), selector));
+    env.mem.free(super_ptr.cast());
+    release(env, renderer);
+    println!("Rogue Planet original EAGLView / GameEngine layout path: passed");
+}
 
 fn invocation(env: &mut Environment, target: id, types: &[u8], name: &str) -> id {
     let encoding = env.mem.alloc_and_write_cstr(types).cast_const();
@@ -119,6 +245,7 @@ fn archive_invocation_and_menu_round_trips() {
     let pool: id = msg_class![env; NSAutoreleasePool new];
     crate::frameworks::audio_toolbox::extended_audio_file::api_tests::check_reads(env);
     check_image_button_sizing(env);
+    check_pending_layout(env);
     check_property_lists(env);
     check_nib_scroll_view(env);
     check_controller_nib_name(env);
@@ -1135,6 +1262,7 @@ fn game_command_button_geometry() {
                 }
             }
             assert!(found);
+            crate::frameworks::uikit::ui_view::layout_pending_views(env);
             release(env, owner);
             // Use the original game's signed-number format from the crash.
             let argument = env.mem.alloc(4).cast::<i32>();
@@ -1223,6 +1351,7 @@ fn game_command_button_geometry() {
                 let hit: id = msg![env; menu hitTest:center withEvent:nil];
                 assert_eq!(hit, button);
             }
+            crate::frameworks::uikit::ui_view::layout_pending_views(env);
             release(env, menu);
             release(env, target);
             env.mem.free(items.cast());
@@ -1578,6 +1707,7 @@ fn check_game_system_panel(env: &mut Environment) {
     let expected = get_static_str(env, "TacticsPanel");
     assert!(msg![env; name isEqualToString:expected]);
     let view: id = msg![env; panel view];
+    () = msg![env; view layoutIfNeeded];
     let tab: id = msg![env; panel mapTab];
     assert_ne!(
         tab, nil,

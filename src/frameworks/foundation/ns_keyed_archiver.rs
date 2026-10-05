@@ -26,7 +26,7 @@ use crate::objc::{
 use crate::Environment;
 
 #[cfg(test)]
-pub(super) mod api_tests;
+pub(crate) mod api_tests;
 
 struct NSKeyedArchiverHostObject {
     plist: Dictionary,

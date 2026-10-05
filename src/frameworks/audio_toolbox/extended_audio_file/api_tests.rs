@@ -196,6 +196,7 @@ fn rogue_planet_sound_loader() {
             for ptr in [count.cast(), format.cast(), rate.cast()] {
                 env.mem.free(ptr);
             }
+            crate::frameworks::foundation::ns_keyed_archiver::api_tests::check_rogue_layout(env);
             release(env, pool);
             assert!(State::get(&mut env.framework_state)
                 .extended_audio_files

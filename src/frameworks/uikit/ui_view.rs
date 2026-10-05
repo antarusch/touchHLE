@@ -80,6 +80,7 @@ pub struct State {
     pub(super) views: Vec<id>,
     pub ui_window: ui_window::State,
     pub animation_block_count: usize,
+    has_pending_layout: bool,
 }
 
 pub(super) struct UIViewHostObject {
@@ -95,6 +96,8 @@ pub(super) struct UIViewHostObject {
     clears_context_before_drawing: bool,
     user_interaction_enabled: bool,
     multiple_touch_enabled: bool,
+    needs_layout: bool,
+    layout_in_progress: bool,
 }
 impl HostObject for UIViewHostObject {}
 impl Default for UIViewHostObject {
@@ -110,6 +113,8 @@ impl Default for UIViewHostObject {
             clears_context_before_drawing: true,
             user_interaction_enabled: true,
             multiple_touch_enabled: false,
+            needs_layout: true,
+            layout_in_progress: false,
         }
     }
 }
@@ -132,6 +137,60 @@ pub fn set_view_controller(env: &mut Environment, view: id, controller: id) {
     host_obj.view_controller = controller;
 }
 
+/// Lay out a view subtree, keeping it alive while callbacks edit the hierarchy.
+fn layout_view(env: &mut Environment, view: id) {
+    let host = env.objc.borrow_mut::<UIViewHostObject>(view);
+    if host.layout_in_progress {
+        return;
+    }
+    host.layout_in_progress = true;
+    let needs_layout = std::mem::take(&mut host.needs_layout);
+    retain(env, view);
+    if needs_layout {
+        // Clear before dispatch so invalidation inside the callback survives.
+        () = msg![env; view layoutSubviews];
+    }
+    let children = env.objc.borrow::<UIViewHostObject>(view).subviews.clone();
+    for &child in &children {
+        retain(env, child);
+    }
+    for child in children {
+        if env.objc.borrow::<UIViewHostObject>(child).superview == view {
+            layout_view(env, child);
+        }
+        release(env, child);
+    }
+    env.objc
+        .borrow_mut::<UIViewHostObject>(view)
+        .layout_in_progress = false;
+    release(env, view);
+}
+
+/// Flush pending layout before displaying the next main-run-loop frame.
+pub(crate) fn layout_pending_views(env: &mut Environment) {
+    if !std::mem::take(&mut env.framework_state.uikit.ui_view.has_pending_layout) {
+        return;
+    }
+    let roots: Vec<_> = env
+        .framework_state
+        .uikit
+        .ui_view
+        .views
+        .iter()
+        .copied()
+        .filter(|&view| env.objc.borrow::<UIViewHostObject>(view).superview == nil)
+        .collect();
+    for &root in &roots {
+        retain(env, root);
+    }
+    for root in roots {
+        if env.objc.borrow::<UIViewHostObject>(root).superview == nil {
+            layout_view(env, root);
+        }
+        release(env, root);
+    }
+}
+
 /// Shared parts of `initWithCoder:` and `initWithFrame:`. These can't call
 /// `init`: the subclass may have overridden `init` and will not expect to be
 /// called here.
@@ -149,6 +208,7 @@ fn init_common(env: &mut Environment, this: id) -> id {
     env.objc.borrow_mut::<UIViewHostObject>(this).layer = layer;
 
     env.framework_state.uikit.ui_view.views.push(this);
+    env.framework_state.uikit.ui_view.has_pending_layout = true;
 
     this
 }
@@ -508,6 +568,15 @@ pub const CLASSES: ClassExports = objc_classes! {
     // nothing.
 }
 
+- (())setNeedsLayout {
+    env.objc.borrow_mut::<UIViewHostObject>(this).needs_layout = true;
+    env.framework_state.uikit.ui_view.has_pending_layout = true;
+}
+
+- (())layoutIfNeeded {
+    layout_view(env, this);
+}
+
 - (id)superview {
     env.objc.borrow::<UIViewHostObject>(this).superview
 }
@@ -559,6 +628,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         let this_layer = this_obj.layer;
         () = msg![env; this_layer addSublayer:subview_layer];
     }
+    () = msg![env; this setNeedsLayout];
 }
 
 - (())insertSubview:(id)view atIndex:(NSInteger)index {
@@ -580,6 +650,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     assert!(index >= 0);
     () = msg![env; this_layer insertSublayer:subview_layer atIndex:(index as u32)];
+    () = msg![env; this setNeedsLayout];
 }
 
 - (())insertSubview:(id)view belowSubview:(id)sibling {
@@ -602,6 +673,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     subviews.insert(idx, view);
 
     () = msg![env; this_layer insertSublayer:subview_layer below:sibling_layer];
+    () = msg![env; this setNeedsLayout];
 }
 
 - (())bringSubviewToFront:(id)subview {
@@ -672,6 +744,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     let idx = subviews.iter().position(|&subview| subview == this).unwrap();
     let subview = subviews.remove(idx);
     assert!(subview == this);
+    () = msg![env; superview setNeedsLayout];
     release(env, this);
 }
 
@@ -685,6 +758,8 @@ pub const CLASSES: ClassExports = objc_classes! {
         clears_context_before_drawing: _,
         user_interaction_enabled: _,
         multiple_touch_enabled: _,
+        needs_layout: _,
+        layout_in_progress: _,
     } = std::mem::take(env.objc.borrow_mut(this));
 
     release(env, layer);
@@ -789,7 +864,9 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 - (())setBounds:(CGRect)bounds {
     let layer = env.objc.borrow::<UIViewHostObject>(this).layer;
-    msg![env; layer setBounds:bounds]
+    let old: CGRect = msg![env; layer bounds];
+    () = msg![env; layer setBounds:bounds];
+    if old != bounds { () = msg![env; this setNeedsLayout]; }
 }
 - (CGPoint)center {
     // FIXME: what happens if [layer anchorPoint] isn't (0.5, 0.5)?
@@ -806,7 +883,10 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 - (())setFrame:(CGRect)frame {
     let layer = env.objc.borrow::<UIViewHostObject>(this).layer;
-    msg![env; layer setFrame:frame]
+    let old: CGRect = msg![env; layer bounds];
+    () = msg![env; layer setFrame:frame];
+    let bounds: CGRect = msg![env; layer bounds];
+    if old != bounds { () = msg![env; this setNeedsLayout]; }
 }
 - (CGAffineTransform)transform {
     let layer = env.objc.borrow::<UIViewHostObject>(this).layer;
