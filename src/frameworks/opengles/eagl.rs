@@ -200,6 +200,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (bool)renderbufferStorage:(NSUInteger)target
                fromDrawable:(id)drawable { // EAGLDrawable (always CAEAGLayer*)
+    log_once!("EAGLContext renderbufferStorage:fromDrawable: invoked");
     assert!(drawable != nil); // TODO: handle unbinding
 
     assert!(target == gles11::RENDERBUFFER_OES);
@@ -262,6 +263,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (bool)presentRenderbuffer:(NSUInteger)target {
+    log_once!("EAGLContext presentRenderbuffer: invoked");
     assert!(target == gles11::RENDERBUFFER_OES);
 
     // The presented frame should be displayed ASAP, but the next one must be

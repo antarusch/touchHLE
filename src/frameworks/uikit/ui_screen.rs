@@ -77,6 +77,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 // iOS 3.1+ convenience API. CADisplayLink itself is implemented in
 // Core Animation; UIScreen creates one associated with this screen.
 - (id)displayLinkWithTarget:(id)target selector:(SEL)selector {
+    log_once!("UIScreen displayLinkWithTarget:selector: invoked");
     msg_class![env; CADisplayLink displayLinkWithTarget:target selector:selector]
 }
 

@@ -9,8 +9,8 @@ use crate::frameworks::foundation::ns_run_loop::NSRunLoopMode;
 use crate::frameworks::foundation::ns_timer::set_time_interval;
 use crate::frameworks::foundation::NSInteger;
 use crate::objc::{
-    autorelease, id, msg, msg_class, msg_send, nil, objc_classes, release, retain, ClassExports,
-    HostObject, NSZonePtr, SEL,
+    autorelease, id, msg, msg_class, msg_send_no_type_checking, nil, objc_classes, release, retain,
+    ClassExports, HostObject, NSZonePtr, SEL,
 };
 
 #[derive(Default)]
@@ -102,8 +102,17 @@ pub const CLASSES: ClassExports = objc_classes! {
         // but just not passing the actual call.
         return;
     }
-    // Signature is `- (void) selector:(CADisplayLink *)sender;`
-    () = msg_send(env, (target, selector.unwrap(), this));
+    let selector = selector.unwrap();
+    log_once!("CADisplayLink callback fired");
+
+    // Apple's documented callback takes the display link as an argument, but
+    // some older apps use a zero-argument selector. Objective-C tolerates that,
+    // so support both forms here.
+    if selector.as_str(&env.mem).ends_with(':') {
+        () = msg_send_no_type_checking(env, (target, selector, this));
+    } else {
+        () = msg_send_no_type_checking(env, (target, selector));
+    }
 }
 
 @end
