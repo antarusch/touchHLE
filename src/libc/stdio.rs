@@ -116,7 +116,7 @@ fn _touchHLE_check_file_object_lock(env: &mut Environment, file_ptr: MutPtr<FILE
 #[allow(non_camel_case_types)]
 type fpos_t = off_t;
 
-fn fopen(env: &mut Environment, filename: ConstPtr<u8>, mode: ConstPtr<u8>) -> MutPtr<FILE> {
+fn fopen_flags(env: &Environment, mode: ConstPtr<u8>) -> i32 {
     // Some testing on macOS suggests Apple's implementation will just ignore
     // flags it doesn't know about, and unfortunately real-world apps seem to
     // rely on this, e.g. using "wt" to mean open for writing in text mode,
@@ -142,7 +142,7 @@ fn fopen(env: &mut Environment, filename: ConstPtr<u8>, mode: ConstPtr<u8>) -> M
         }
     }
 
-    let flags = match (basic_mode, plus) {
+    match (basic_mode, plus) {
         (b'r', false) => O_RDONLY,
         (b'r', true) => O_RDWR,
         (b'w', false) => O_WRONLY | O_CREAT | O_TRUNC,
@@ -150,7 +150,11 @@ fn fopen(env: &mut Environment, filename: ConstPtr<u8>, mode: ConstPtr<u8>) -> M
         (b'a', false) => O_WRONLY | O_APPEND | O_CREAT,
         (b'a', true) => O_RDWR | O_APPEND | O_CREAT,
         _ => unreachable!(),
-    };
+    }
+}
+
+fn fopen(env: &mut Environment, filename: ConstPtr<u8>, mode: ConstPtr<u8>) -> MutPtr<FILE> {
+    let flags = fopen_flags(env, mode);
 
     match posix_io::open_direct(env, filename, flags) {
         -1 => Ptr::null(),
@@ -168,6 +172,43 @@ fn fopen(env: &mut Environment, filename: ConstPtr<u8>, mode: ConstPtr<u8>) -> M
             res
         }
     }
+}
+
+fn freopen(
+    env: &mut Environment,
+    filename: ConstPtr<u8>,
+    mode: ConstPtr<u8>,
+    file_ptr: MutPtr<FILE>,
+) -> MutPtr<FILE> {
+    if filename.is_null() || file_ptr.is_null() {
+        log!("Warning: freopen() called with a NULL argument, returning NULL");
+        return Ptr::null();
+    }
+
+    _touchHLE_check_file_object_lock(env, file_ptr);
+
+    let flags = fopen_flags(env, mode);
+    let FILE { fd: old_fd } = env.mem.read(file_ptr);
+
+    // freopen() closes the old stream and reuses the same FILE object.
+    // close() intentionally treats standard descriptors as a no-op, which is
+    // exactly what we need here before redirecting stdin/stdout/stderr.
+    let _ = posix_io::close(env, old_fd);
+
+    let new_fd = posix_io::open_direct(env, filename, flags);
+    if new_fd == -1 {
+        env.mem.write(file_ptr, FILE { fd: -1 });
+        return Ptr::null();
+    }
+
+    env.mem.write(file_ptr, FILE { fd: new_fd });
+    let FILEHostObject { pushbacks, .. } = env
+        .libc_state
+        .stdio
+        .get_file_host_obj_mut(&mut env.mem, file_ptr);
+    pushbacks.clear();
+
+    file_ptr
 }
 
 fn fread(
@@ -748,6 +789,7 @@ pub const CONSTANTS: ConstantExports = &[
 pub const FUNCTIONS: FunctionExports = &[
     // Standard C functions
     export_c_func!(fopen(_, _)),
+    export_c_func!(freopen(_, _, _)),
     export_c_func!(fread(_, _, _, _)),
     export_c_func!(fgetc(_)),
     export_c_func!(getc(_)),
