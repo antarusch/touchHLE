@@ -26,7 +26,8 @@ pub struct State {
     /// delay such notifications until the app next returns to the run loop,
     /// which seems to be late enough.
     pending_notifications: VecDeque<(&'static str, id, Instant)>,
-    /// Backing MPMoviePlayerController objects owned by MPMoviePlayerViewController.
+    /// Backing MPMoviePlayerController objects owned by
+    /// MPMoviePlayerViewController.
     view_controller_players: HashMap<id, id>,
 }
 impl State {
