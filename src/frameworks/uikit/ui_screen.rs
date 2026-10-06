@@ -6,7 +6,7 @@
 //! `UIScreen`.
 
 use crate::frameworks::core_graphics::{CGFloat, CGPoint, CGRect, CGSize};
-use crate::objc::{id, msg, msg_class, objc_classes, ClassExports, TrivialHostObject};
+use crate::objc::{id, msg, msg_class, objc_classes, ClassExports, SEL, TrivialHostObject};
 
 #[derive(Default)]
 pub struct State {
@@ -72,6 +72,12 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (CGFloat)scale {
     // TODO: support retina
     1.0
+}
+
+// iOS 3.1+ convenience API. CADisplayLink itself is implemented in
+// Core Animation; UIScreen creates one associated with this screen.
+- (id)displayLinkWithTarget:(id)target selector:(SEL)selector {
+    msg_class![env; CADisplayLink displayLinkWithTarget:target selector:selector]
 }
 
 @end
