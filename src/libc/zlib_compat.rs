@@ -49,11 +49,7 @@ fn inflate(env: &mut Environment, stream: MutPtr<u8>, flush: i32) -> i32 {
             if valid_zlib_header {
                 let wbits_ptr: MutPtr<u32> = (state + 0x24).cast();
                 let current_wbits = env.mem.read(wbits_ptr);
-                log!(
-                    "zlib inflate header requires {} window bits; guest state has {}",
-                    required_wbits,
-                    current_wbits
-                );
+                log_once!("zlib inflate compatibility wrapper accepted a valid stream header");
 
                 if current_wbits < required_wbits {
                     log!(
@@ -63,12 +59,6 @@ fn inflate(env: &mut Environment, stream: MutPtr<u8>, flush: i32) -> i32 {
                     );
                     env.mem.write(wbits_ptr, required_wbits);
                 }
-            } else {
-                log!(
-                    "zlib inflate first bytes are {:#04x} {:#04x}; not applying window compatibility correction",
-                    cmf,
-                    flg
-                );
             }
         }
     }
