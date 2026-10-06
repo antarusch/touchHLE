@@ -1297,7 +1297,13 @@ fn vfprintf(env: &mut Environment, stream: MutPtr<FILE>, format: ConstPtr<u8>, a
     match env.mem.read(stream).fd {
         STDIN_FILENO => panic!("Unexpected file descriptor"),
         STDOUT_FILENO => _ = std::io::stdout().write_all(&res),
-        STDERR_FILENO => _ = std::io::stderr().write_all(&res),
+        STDERR_FILENO => {
+            _ = std::io::stderr().write_all(&res);
+            log!(
+                "Guest stderr: {}",
+                String::from_utf8_lossy(&res).trim_end_matches(['\r', '\n'])
+            );
+        }
         _ => {
             let buf = env.mem.alloc_and_write_cstr(res.as_slice());
             let result = fwrite(
