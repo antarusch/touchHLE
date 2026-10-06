@@ -514,6 +514,11 @@ pub const CLASSES: ClassExports = objc_classes! {
     msg![env; this objectForKey:key]
 }
 
+- (id)keyEnumerator {
+    let keys: id = msg![env; this allKeys];
+    msg![env; keys objectEnumerator]
+}
+
 - (NSUInteger)hash {
     // TODO: define better hash
     msg![env; this count]
