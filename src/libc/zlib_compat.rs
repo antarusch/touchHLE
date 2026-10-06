@@ -12,7 +12,7 @@
 
 use crate::abi::{CallFromHost, GuestFunction};
 use crate::dyld::{export_c_func, FunctionExports};
-use crate::mem::{MutPtr, Ptr};
+use crate::mem::MutPtr;
 use crate::Environment;
 
 fn guest_zlib_function(env: &Environment, symbol: &str) -> GuestFunction {
@@ -49,7 +49,7 @@ fn inflate(env: &mut Environment, stream: MutPtr<u8>, flush: i32) -> i32 {
             if valid_zlib_header {
                 let wbits_ptr: MutPtr<u32> = (state + 0x24).cast();
                 let current_wbits = env.mem.read(wbits_ptr);
-                log_once!(
+                log!(
                     "zlib inflate header requires {} window bits; guest state has {}",
                     required_wbits,
                     current_wbits
@@ -64,7 +64,7 @@ fn inflate(env: &mut Environment, stream: MutPtr<u8>, flush: i32) -> i32 {
                     env.mem.write(wbits_ptr, required_wbits);
                 }
             } else {
-                log_once!(
+                log!(
                     "zlib inflate first bytes are {:#04x} {:#04x}; not applying window compatibility correction",
                     cmf,
                     flg
