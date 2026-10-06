@@ -268,14 +268,22 @@ fn fread(
         0
     };
     let FILE { fd } = env.mem.read(file_ptr);
-    match posix_io::read(env, fd, buffer, total_size) {
-        // TODO: ferror() support.
-        -1 => already_read / item_size,
-        bytes_read => {
-            let bytes_read: GuestUSize = bytes_read.try_into().unwrap();
-            (bytes_read + already_read) / item_size
+    let mut bytes_read_total: GuestUSize = 0;
+    while bytes_read_total < total_size {
+        let remaining = total_size - bytes_read_total;
+        let ptr: MutPtr<u8> = buffer.cast();
+        let read_buffer = (ptr + bytes_read_total).cast();
+        match posix_io::read(env, fd, read_buffer, remaining) {
+            // TODO: ferror() support.
+            -1 => break,
+            0 => break,
+            bytes_read => {
+                let bytes_read: GuestUSize = bytes_read.try_into().unwrap();
+                bytes_read_total += bytes_read;
+            }
         }
     }
+    (bytes_read_total + already_read) / item_size
 }
 
 fn fgetc(env: &mut Environment, file_ptr: MutPtr<FILE>) -> i32 {
