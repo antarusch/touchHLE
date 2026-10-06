@@ -208,12 +208,29 @@ jobs:
         ANDROID_NDK_HOME: '/usr/local/lib/android/sdk/ndk/25.2.9519653'
         CMAKE: ${{ github.workspace }}/vendor/cmake/bin/cmake
     # Don't attempt to run tests (can't run on Android).
+    - name: Configure persistent Android signing
+      shell: bash
+      env:
+        TOUCHHLE_ANDROID_KEYSTORE_BASE64: ${{ secrets.TOUCHHLE_ANDROID_KEYSTORE_BASE64 }}
+        TOUCHHLE_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.TOUCHHLE_ANDROID_KEYSTORE_PASSWORD }}
+        TOUCHHLE_ANDROID_KEY_ALIAS: ${{ secrets.TOUCHHLE_ANDROID_KEY_ALIAS }}
+        TOUCHHLE_ANDROID_KEY_PASSWORD: ${{ secrets.TOUCHHLE_ANDROID_KEY_PASSWORD }}
+      run: |
+        if [ -z "$TOUCHHLE_ANDROID_KEYSTORE_BASE64" ] || [ -z "$TOUCHHLE_ANDROID_KEYSTORE_PASSWORD" ] || [ -z "$TOUCHHLE_ANDROID_KEY_ALIAS" ] || [ -z "$TOUCHHLE_ANDROID_KEY_PASSWORD" ]; then
+          echo "::error::Persistent Android signing secrets are not configured."
+          exit 1
+        fi
+        printf '%s' "$TOUCHHLE_ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/touchhle-release.jks"
     - name: Build for Android
       run: cd android && ../gradle/gradle-8.11.1/bin/gradle assembleRelease && mv app/build/outputs/apk/release/app-release.apk ../touchHLE.apk
       env:
         # The version should match the ndkVersion defined in `android\app\build.gradle`
         ANDROID_NDK_ROOT: '/usr/local/lib/android/sdk/ndk/25.2.9519653'
         CMAKE: ${{ github.workspace }}/vendor/cmake/bin/cmake
+        TOUCHHLE_ANDROID_KEYSTORE: ${{ runner.temp }}/touchhle-release.jks
+        TOUCHHLE_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.TOUCHHLE_ANDROID_KEYSTORE_PASSWORD }}
+        TOUCHHLE_ANDROID_KEY_ALIAS: ${{ secrets.TOUCHHLE_ANDROID_KEY_ALIAS }}
+        TOUCHHLE_ANDROID_KEY_PASSWORD: ${{ secrets.TOUCHHLE_ANDROID_KEY_PASSWORD }}
     - uses: actions/upload-artifact@v4
       with:
         name: touchHLE_Android_AArch64

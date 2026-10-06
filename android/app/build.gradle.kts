@@ -50,7 +50,7 @@ android {
         buildConfigField("String", "APP_NAME", "\"touchHLE Eustrath\"")
         manifestPlaceholders["icon"] = join("@drawable/icon", "_", branding.lowercase())
         buildConfigField("int", "APP_ICON", join("R.drawable.icon", "_", branding.lowercase()))
-        versionCode = 16
+        versionCode = 17
         versionName = join(getTouchHLEVersionName(), " ", branding)
 
         minSdk = 21 // first version with AArch64
@@ -78,9 +78,23 @@ android {
     kotlinOptions {
         jvmTarget = "11"
     }
+    signingConfigs {
+        create("persistentRelease") {
+            storeFile = file(
+                System.getenv("TOUCHHLE_ANDROID_KEYSTORE")
+                    ?: error("TOUCHHLE_ANDROID_KEYSTORE is required for release signing")
+            )
+            storePassword = System.getenv("TOUCHHLE_ANDROID_KEYSTORE_PASSWORD")
+                ?: error("TOUCHHLE_ANDROID_KEYSTORE_PASSWORD is required for release signing")
+            keyAlias = System.getenv("TOUCHHLE_ANDROID_KEY_ALIAS")
+                ?: error("TOUCHHLE_ANDROID_KEY_ALIAS is required for release signing")
+            keyPassword = System.getenv("TOUCHHLE_ANDROID_KEY_PASSWORD")
+                ?: error("TOUCHHLE_ANDROID_KEY_PASSWORD is required for release signing")
+        }
+    }
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("persistentRelease")
             isMinifyEnabled = false
             isDebuggable = true // allow use of ADB to manage files, etc
         }
