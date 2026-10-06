@@ -248,6 +248,15 @@ fn fread(
             .copy_from_slice(&pushbacks[offset..]);
         pushbacks.truncate(offset);
 
+        // ungetc() rewinds the underlying file as well as recording the
+        // pushed-back byte so ftell() observes the correct position. Match
+        // fgetc() here by advancing past every pushback consumed by fread(),
+        // otherwise the same bytes are returned again by the underlying file.
+        let FILE { fd } = env.mem.read(file_ptr);
+        let pushed_back_bytes: off_t = to_copy.into();
+        let new_offset = posix_io::lseek(env, fd, pushed_back_bytes, SEEK_CUR);
+        assert!(new_offset >= 0); // TODO: handle seek errors
+
         if total_size == to_copy {
             return total_size;
         }
