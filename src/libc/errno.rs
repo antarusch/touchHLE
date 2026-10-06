@@ -47,7 +47,6 @@ pub const EPIPE: i32 = 32;
 pub const EDOM: i32 = 33;
 pub const ERANGE: i32 = 34;
 pub const EAGAIN: i32 = 35;
-pub const EWOULDBLOCK: i32 = EAGAIN;
 pub const EINPROGRESS: i32 = 36;
 pub const EALREADY: i32 = 37;
 pub const ENOTSOCK: i32 = 38;
