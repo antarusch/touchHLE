@@ -294,19 +294,63 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     std::mem::drop(gles);
 
-    let Some(&drawable) = env
+    let mapped_drawable = env
         .objc
         .borrow::<EAGLContextHostObject>(this)
         .renderbuffer_drawable_bindings
         .borrow()
-        .get(&renderbuffer) else {
-        log_dbg!("Can't present a renderbuffer {:?} not bound to a drawable!", renderbuffer);
+        .get(&renderbuffer)
+        .copied();
+
+    static FIRST_PRESENT_DIAGNOSTIC: std::sync::atomic::AtomicBool =
+        std::sync::atomic::AtomicBool::new(false);
+    let run_first_present_diagnostic = !FIRST_PRESENT_DIAGNOSTIC.swap(
+        true,
+        std::sync::atomic::Ordering::Relaxed,
+    );
+
+    if run_first_present_diagnostic {
+        let mut gles = super::sync_context(
+            &mut env.framework_state.opengles,
+            &mut env.objc,
+            env.window.as_mut().unwrap(),
+            env.current_thread,
+        );
+        let (pixels, width, height) = unsafe { read_renderbuffer(gles.as_mut(), Vec::new()) };
+        let pixel_count = pixels.len() / 4;
+        let non_black_pixels = pixels
+            .chunks_exact(4)
+            .filter(|pixel| pixel[0] != 0 || pixel[1] != 0 || pixel[2] != 0)
+            .count();
+        let max_rgb = pixels
+            .chunks_exact(4)
+            .map(|pixel| pixel[0].max(pixel[1]).max(pixel[2]))
+            .max()
+            .unwrap_or(0);
+        log!(
+            "First present diagnostic: renderbuffer {}, size {}x{}, mapped drawable {:?}, non-black RGB pixels {}/{}, max RGB {}",
+            renderbuffer,
+            width,
+            height,
+            mapped_drawable,
+            non_black_pixels,
+            pixel_count,
+            max_rgb,
+        );
+    }
+
+    let Some(drawable) = mapped_drawable else {
+        log!(
+            "Warning: renderbuffer {} is not bound to an EAGL drawable; presentation skipped.",
+            renderbuffer
+        );
         return false;
     };
 
     // We're presenting to the opaque CAEAGLLayer that covers the screen.
     // We can use the fast path where we skip composition and present directly.
     if drawable == fullscreen_layer {
+        log_once!("EAGL presentation is using the fullscreen fast path");
         log_dbg!(
             "Layer {:?} is the fullscreen layer, presenting renderbuffer {:?} directly (fast path).",
             drawable,
@@ -344,6 +388,7 @@ pub const CLASSES: ClassExports = objc_classes! {
             renderbuffer,
             drawable,
         );
+        log_once!("EAGL presentation is using Core Animation composition");
         let pixels_vec = get_pixels_vec_for_presenting(env, drawable);
         // re-borrow
         let (pixels_vec, width, height) = {
@@ -752,6 +797,7 @@ unsafe fn present_renderbuffer(env: &mut Environment) {
     // SDL2's documentation warns 0 should be bound to the draw framebuffer
     // when swapping the window, so this is the perfect moment.
     env.window.as_ref().unwrap().swap_window();
+    log_once!("EAGL fullscreen fast-path window swap completed");
 
     let mut gles_boxed = gles_ctx.make_current(env.window.as_mut().unwrap());
     let gles = gles_boxed.as_mut();

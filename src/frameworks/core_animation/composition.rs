@@ -396,6 +396,7 @@ pub fn recomposite_if_necessary(env: &mut Environment, force: bool) -> Option<In
     }
     std::mem::drop(gles);
     window.swap_window();
+    log_once!("Core Animation composited window swap completed");
 
     animation_state.update_started_and_finished_animations(env);
 
