@@ -319,11 +319,15 @@ pub const CLASSES: ClassExports = objc_classes! {
         let (pixels, width, height) = unsafe { read_renderbuffer(gles.as_mut(), Vec::new()) };
         let pixel_count = pixels.len() / 4;
         let non_black_pixels = pixels
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .filter(|pixel| pixel[0] != 0 || pixel[1] != 0 || pixel[2] != 0)
             .count();
         let max_rgb = pixels
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .map(|pixel| pixel[0].max(pixel[1]).max(pixel[2]))
             .max()
             .unwrap_or(0);
