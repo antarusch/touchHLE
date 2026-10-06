@@ -111,6 +111,8 @@ struct MPMoviePlayerControllerHostObject {
     repeat_mode: MPMovieRepeatMode,
     should_autoplay: bool,
     playback_state: MPMoviePlaybackState,
+    current_playback_time: NSTimeInterval,
+    duration: NSTimeInterval,
     prepared: bool,
 }
 impl HostObject for MPMoviePlayerControllerHostObject {}
@@ -132,37 +134,56 @@ pub const CLASSES: ClassExports = objc_classes! {
         repeat_mode: 0,
         should_autoplay: true,
         playback_state: MPMoviePlaybackStateStopped,
+        current_playback_time: 0.0,
+        duration: 1.0,
         prepared: false,
     });
     env.objc.alloc_object(this, host_object, &mut env.mem)
 }
 
-- (id)initWithContentURL:(id)url { // NSURL*
-    log!(
-        "TODO: [(MPMoviePlayerController*){:?} initWithContentURL:{:?} ({:?})]",
-        this,
-        url,
-        ns_url::to_rust_path(env, url),
-    );
-
-    retain(env, url);
-
-    let natural_size = env
+- (id)init {
+    let needs_view = env
         .objc
         .borrow::<MPMoviePlayerControllerHostObject>(this)
-        .natural_size;
-    let frame = CGRect {
-        origin: CGPoint { x: 0.0, y: 0.0 },
-        size: natural_size,
-    };
-    let view: id = msg_class![env; UIView alloc];
-    let view: id = msg![env; view initWithFrame:frame];
+        .view == nil;
+    if needs_view {
+        let natural_size = env
+            .objc
+            .borrow::<MPMoviePlayerControllerHostObject>(this)
+            .natural_size;
+        let frame = CGRect {
+            origin: CGPoint { x: 0.0, y: 0.0 },
+            size: natural_size,
+        };
+        let view: id = msg_class![env; UIView alloc];
+        let view: id = msg![env; view initWithFrame:frame];
+        env.objc
+            .borrow_mut::<MPMoviePlayerControllerHostObject>(this)
+            .view = view;
+    }
+    this
+}
 
-    let host = env
-        .objc
-        .borrow_mut::<MPMoviePlayerControllerHostObject>(this);
-    host.content_url = url;
-    host.view = view;
+- (id)initWithContentURL:(id)url { // NSURL*
+    if url == nil {
+        log!(
+            "TODO: [(MPMoviePlayerController*){:?} initWithContentURL:nil]",
+            this,
+        );
+    } else {
+        log!(
+            "TODO: [(MPMoviePlayerController*){:?} initWithContentURL:{:?} ({:?})]",
+            this,
+            url,
+            ns_url::to_rust_path(env, url),
+        );
+    }
+
+    let this: id = msg![env; this init];
+    if this == nil {
+        return nil;
+    }
+    let _: () = msg![env; this setContentURL:url];
 
     // Act as if loading immediately completed (Spore Origins waits for this).
     State::get(env).pending_notifications.push_back(
@@ -185,6 +206,26 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (id)contentURL {
     env.objc.borrow::<MPMoviePlayerControllerHostObject>(this).content_url
+}
+
+- (())setContentURL:(id)url {
+    if url != nil {
+        retain(env, url);
+    }
+    let old_url = {
+        let host = env
+            .objc
+            .borrow_mut::<MPMoviePlayerControllerHostObject>(this);
+        let old_url = host.content_url;
+        host.content_url = url;
+        host.current_playback_time = 0.0;
+        host.playback_state = MPMoviePlaybackStateStopped;
+        host.prepared = false;
+        old_url
+    };
+    if old_url != nil {
+        release(env, old_url);
+    }
 }
 
 - (id)backgroundColor {
@@ -222,7 +263,36 @@ pub const CLASSES: ClassExports = objc_classes! {
         .should_autoplay = should_autoplay;
 }
 - (())setInitialPlaybackTime:(NSTimeInterval)initial_time {
-    todo_objc_setter!(this, initial_time);
+    env.objc
+        .borrow_mut::<MPMoviePlayerControllerHostObject>(this)
+        .current_playback_time = initial_time;
+}
+
+- (NSTimeInterval)currentPlaybackTime {
+    env.objc
+        .borrow::<MPMoviePlayerControllerHostObject>(this)
+        .current_playback_time
+}
+- (())setCurrentPlaybackTime:(NSTimeInterval)time {
+    env.objc
+        .borrow_mut::<MPMoviePlayerControllerHostObject>(this)
+        .current_playback_time = time;
+}
+- (NSTimeInterval)duration {
+    env.objc
+        .borrow::<MPMoviePlayerControllerHostObject>(this)
+        .duration
+}
+- (f32)currentPlaybackRate {
+    let state = env
+        .objc
+        .borrow::<MPMoviePlayerControllerHostObject>(this)
+        .playback_state;
+    if state == MPMoviePlaybackStatePlaying {
+        1.0
+    } else {
+        0.0
+    }
 }
 
 - (id)view {
@@ -368,11 +438,27 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (id)moviePlayer {
-    State::get(env)
+    if let Some(player) = State::get(env)
         .view_controller_players
         .get(&this)
         .copied()
-        .unwrap_or(nil)
+    {
+        return player;
+    }
+
+    // Some apps instantiate MPMoviePlayerViewController subclasses from a nib
+    // and expect the moviePlayer property to already exist. Create it lazily
+    // so those subclasses behave like the real framework.
+    log!(
+        "Creating lazy MPMoviePlayerController for view controller {:?}",
+        this
+    );
+    let player: id = msg_class![env; MPMoviePlayerController alloc];
+    let player: id = msg![env; player init];
+    if player != nil {
+        State::get(env).view_controller_players.insert(this, player);
+    }
+    player
 }
 
 - (())dealloc {
