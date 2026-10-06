@@ -300,7 +300,10 @@ fn strerror(env: &mut Environment, err_num: i32) -> ConstPtr<u8> {
             ENOTCAPABLE => "Capabilities insufficient",
             _ => {
                 let unknown = format!("Unknown error: {err_num}");
-                let new_c_str = env.mem.alloc_and_write_cstr(unknown.as_bytes()).cast_const();
+                let new_c_str = env
+                    .mem
+                    .alloc_and_write_cstr(unknown.as_bytes())
+                    .cast_const();
                 env.libc_state
                     .errno
                     .strings_cache
