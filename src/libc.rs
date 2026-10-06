@@ -45,6 +45,7 @@ pub mod sysctl;
 pub mod time;
 pub mod unistd;
 pub mod wchar;
+pub mod zlib_compat;
 
 pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
     path: "/usr/lib/libSystem.B.dylib",
@@ -111,6 +112,7 @@ pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
         time::FUNCTIONS,
         unistd::FUNCTIONS,
         wchar::FUNCTIONS,
+        zlib_compat::FUNCTIONS,
     ],
 };
 
