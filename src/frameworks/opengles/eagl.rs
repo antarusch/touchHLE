@@ -302,14 +302,14 @@ pub const CLASSES: ClassExports = objc_classes! {
         .get(&renderbuffer)
         .copied();
 
-    static FIRST_PRESENT_DIAGNOSTIC: std::sync::atomic::AtomicBool =
-        std::sync::atomic::AtomicBool::new(false);
-    let run_first_present_diagnostic = !FIRST_PRESENT_DIAGNOSTIC.swap(
-        true,
+    static PRESENT_COUNT: std::sync::atomic::AtomicUsize =
+        std::sync::atomic::AtomicUsize::new(0);
+    let present_count = PRESENT_COUNT.fetch_add(
+        1,
         std::sync::atomic::Ordering::Relaxed,
-    );
+    ) + 1;
 
-    if run_first_present_diagnostic {
+    if matches!(present_count, 1 | 30 | 120) {
         let mut gles = super::sync_context(
             &mut env.framework_state.opengles,
             &mut env.objc,
@@ -331,8 +331,11 @@ pub const CLASSES: ClassExports = objc_classes! {
             .map(|pixel| pixel[0].max(pixel[1]).max(pixel[2]))
             .max()
             .unwrap_or(0);
+        let (draw_arrays, draw_elements, clears, tex_image_2d, compressed_tex_image_2d) =
+            super::gles_guest::diagnostic_counters();
         log!(
-            "First present diagnostic: renderbuffer {}, size {}x{}, mapped drawable {:?}, non-black RGB pixels {}/{}, max RGB {}",
+            "Present diagnostic frame {}: renderbuffer {}, size {}x{}, mapped drawable {:?}, non-black RGB pixels {}/{}, max RGB {}, drawArrays {}, drawElements {}, clears {}, texImage2D {}, compressedTexImage2D {}",
+            present_count,
             renderbuffer,
             width,
             height,
@@ -340,6 +343,11 @@ pub const CLASSES: ClassExports = objc_classes! {
             non_black_pixels,
             pixel_count,
             max_rgb,
+            draw_arrays,
+            draw_elements,
+            clears,
+            tex_image_2d,
+            compressed_tex_image_2d,
         );
     }
 

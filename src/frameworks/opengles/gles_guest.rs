@@ -25,6 +25,23 @@ use crate::objc::nil;
 use crate::Environment;
 
 use std::slice::from_raw_parts;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+static DIAGNOSTIC_DRAW_ARRAYS: AtomicUsize = AtomicUsize::new(0);
+static DIAGNOSTIC_DRAW_ELEMENTS: AtomicUsize = AtomicUsize::new(0);
+static DIAGNOSTIC_CLEARS: AtomicUsize = AtomicUsize::new(0);
+static DIAGNOSTIC_TEX_IMAGE_2D: AtomicUsize = AtomicUsize::new(0);
+static DIAGNOSTIC_COMPRESSED_TEX_IMAGE_2D: AtomicUsize = AtomicUsize::new(0);
+
+pub(super) fn diagnostic_counters() -> (usize, usize, usize, usize, usize) {
+    (
+        DIAGNOSTIC_DRAW_ARRAYS.load(Ordering::Relaxed),
+        DIAGNOSTIC_DRAW_ELEMENTS.load(Ordering::Relaxed),
+        DIAGNOSTIC_CLEARS.load(Ordering::Relaxed),
+        DIAGNOSTIC_TEX_IMAGE_2D.load(Ordering::Relaxed),
+        DIAGNOSTIC_COMPRESSED_TEX_IMAGE_2D.load(Ordering::Relaxed),
+    )
+}
 
 // These types are the same size in guest code (32-bit) and host code (64-bit).
 use crate::gles::gles11_raw::types::{
@@ -717,6 +734,8 @@ fn glVertexPointer(
 
 // Drawing
 fn glDrawArrays(env: &mut Environment, mode: GLenum, first: GLint, count: GLsizei) {
+    DIAGNOSTIC_DRAW_ARRAYS.fetch_add(1, Ordering::Relaxed);
+    log_once!("Guest glDrawArrays invoked");
     with_ctx_and_mem(env, |gles, _mem| unsafe {
         let fog_state_backup = clamp_fog_state_values(gles);
         gles.DrawArrays(mode, first, count);
@@ -730,6 +749,8 @@ fn glDrawElements(
     type_: GLenum,
     indices: ConstVoidPtr,
 ) {
+    DIAGNOSTIC_DRAW_ELEMENTS.fetch_add(1, Ordering::Relaxed);
+    log_once!("Guest glDrawElements invoked");
     with_ctx_and_mem(env, |gles, mem| unsafe {
         let fog_state_backup = clamp_fog_state_values(gles);
         let indices = translate_pointer_or_offset_to_host(
@@ -745,6 +766,8 @@ fn glDrawElements(
 
 // Clearing
 fn glClear(env: &mut Environment, mask: GLbitfield) {
+    DIAGNOSTIC_CLEARS.fetch_add(1, Ordering::Relaxed);
+    log_once!("Guest glClear invoked");
     with_ctx_and_mem(env, |gles, _mem| unsafe { gles.Clear(mask) });
 }
 fn glClearColor(
@@ -1053,6 +1076,8 @@ fn glTexImage2D(
     type_: GLenum,
     pixels: ConstVoidPtr,
 ) {
+    DIAGNOSTIC_TEX_IMAGE_2D.fetch_add(1, Ordering::Relaxed);
+    log_once!("Guest glTexImage2D invoked");
     with_ctx_and_mem(env, |gles, mem| unsafe {
         let pixels = if pixels.is_null() {
             std::ptr::null()
@@ -1110,6 +1135,8 @@ fn glCompressedTexImage2D(
     image_size: GLsizei,
     data: ConstVoidPtr,
 ) {
+    DIAGNOSTIC_COMPRESSED_TEX_IMAGE_2D.fetch_add(1, Ordering::Relaxed);
+    log_once!("Guest glCompressedTexImage2D invoked");
     with_ctx_and_mem(env, |gles, mem| unsafe {
         let data = mem
             .ptr_at(data.cast::<u8>(), image_size.try_into().unwrap())
