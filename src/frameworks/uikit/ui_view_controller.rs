@@ -225,6 +225,15 @@ pub const CLASSES: ClassExports = objc_classes! {
     log!("TODO: [(UIViewController*){:?} dismissMoviePlayerViewControllerAnimated]", this); // TODO
 }
 
+- (UIInterfaceOrientation)interfaceOrientation {
+    let application: id = msg_class![env; UIApplication sharedApplication];
+    if application == nil {
+        UIInterfaceOrientationPortrait
+    } else {
+        msg![env; application statusBarOrientation]
+    }
+}
+
 - (bool)shouldAutorotateToInterfaceOrientation:(UIInterfaceOrientation)interface_orientation {
     interface_orientation == UIInterfaceOrientationPortrait
 }
