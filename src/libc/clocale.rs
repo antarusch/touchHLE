@@ -47,7 +47,8 @@ pub fn setlocale(
         };
 
         // POSIX permits nl_langinfo() results to change after setlocale().
-        // Discard cached guest strings so future queries reflect the new locale.
+        // Discard cached guest strings so future queries reflect the new
+        // locale.
         let old_langinfo = std::mem::take(&mut env.libc_state.clocale.langinfo);
         for ptr in old_langinfo.into_values() {
             env.mem.free(ptr.cast());
