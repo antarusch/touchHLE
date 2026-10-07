@@ -45,6 +45,21 @@ pub struct State {
     streams: HashMap<u32, HostInflateStream>,
 }
 
+
+unsafe extern "C" fn host_zalloc(
+    _opaque: libz_sys::voidpf,
+    items: libz_sys::uInt,
+    size: libz_sys::uInt,
+) -> libz_sys::voidpf {
+    unsafe { libc::calloc(items as usize, size as usize) }
+}
+
+unsafe extern "C" fn host_zfree(_opaque: libz_sys::voidpf, address: libz_sys::voidpf) {
+    unsafe {
+        libc::free(address);
+    }
+}
+
 fn validate_init_args(
     env: &Environment,
     stream: MutPtr<u8>,
@@ -93,9 +108,22 @@ fn initialize_host_stream(
         .streams
         .remove(&guest_stream.to_bits());
 
-    // SAFETY: z_stream is a C data structure whose all-zero state is the
-    // required precondition for inflateInit2_ when default allocators are used.
-    let mut host_stream: Box<libz_sys::z_stream> = Box::new(unsafe { std::mem::zeroed() });
+    let mut host_stream = Box::new(libz_sys::z_stream {
+        next_in: ptr::null_mut(),
+        avail_in: 0,
+        total_in: 0,
+        next_out: ptr::null_mut(),
+        avail_out: 0,
+        total_out: 0,
+        msg: ptr::null_mut(),
+        state: ptr::null_mut(),
+        zalloc: host_zalloc,
+        zfree: host_zfree,
+        opaque: ptr::null_mut(),
+        data_type: 0,
+        adler: 0,
+        reserved: 0,
+    });
 
     // SAFETY: host_stream points to valid writable storage. zlibVersion()
     // supplies the matching host zlib version string and stream size.
