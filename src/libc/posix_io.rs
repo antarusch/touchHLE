@@ -404,13 +404,52 @@ pub fn write(
     // TODO: handle errno properly
     set_errno(env, 0);
 
-    // TODO: error handling for unknown fd?
-    let file = env.libc_state.posix_io.file_for_fd(fd).unwrap();
-
     if buffer.is_null() {
         assert_eq!(size, 0);
         return 0;
     }
+
+    // Standard output/error descriptors are not backed by GuestFile objects.
+    // Forward low-level POSIX writes to the host streams just like stdio does.
+    if matches!(fd, STDOUT_FILENO | STDERR_FILENO) {
+        let buffer_slice = env.mem.bytes_at(buffer.cast(), size);
+        let result = if fd == STDOUT_FILENO {
+            std::io::stdout().write(buffer_slice)
+        } else {
+            std::io::stderr().write(buffer_slice)
+        };
+        return match result {
+            Ok(bytes_written) => bytes_written.try_into().unwrap(),
+            Err(error) => {
+                log!(
+                    "Warning: write({:?}, {:?}, {:#x}) to standard stream failed with {:?}",
+                    fd,
+                    buffer,
+                    size,
+                    error,
+                );
+                set_errno(env, EIO);
+                -1
+            }
+        };
+    }
+
+    // stdin is not writable, and unknown descriptors must report EBADF rather
+    // than panicking inside fd_to_file_idx()/Option::unwrap().
+    if fd == STDIN_FILENO {
+        set_errno(env, EBADF);
+        return -1;
+    }
+    let Some(file) = env.libc_state.posix_io.file_for_fd(fd) else {
+        log!(
+            "Warning: write({:?}, {:?}, {:#x}) called with unknown fd, returning -1",
+            fd,
+            buffer,
+            size,
+        );
+        set_errno(env, EBADF);
+        return -1;
+    };
 
     let buffer_slice = env.mem.bytes_at(buffer.cast(), size);
     match file.file.write(buffer_slice) {
