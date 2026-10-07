@@ -72,6 +72,10 @@ struct AudioQueueHostObject {
     aq_is_running_proc: Option<AudioQueuePropertyListenerProc>,
     aq_is_running_user_data: Option<MutVoidPtr>,
     is_running_handler: bool,
+    /// Output format while the queue is in offline-rendering mode.
+    offline_render_format: Option<AudioStreamBasicDescription>,
+    /// Byte offset into the front queued input buffer during offline rendering.
+    offline_buffer_offset: GuestUSize,
 }
 
 /// Track whether the audio queue is meant to be running, in order to handle
@@ -190,6 +194,8 @@ pub fn AudioQueueNewOutput(
         aq_is_running_proc: None,
         aq_is_running_user_data: None,
         is_running_handler: false,
+        offline_render_format: None,
+        offline_buffer_offset: 0,
     };
 
     let aq_ref = env.mem.alloc_and_write(OpaqueAudioQueue { _filler: 0 });
@@ -503,6 +509,205 @@ fn AudioQueueSetProperty(
     // Error value shouldn't matter that much,
     // this one is closest to a notion of "unsupported"
     kAudioQueueErr_InvalidDevice
+}
+
+fn AudioQueueSetOfflineRenderFormat(
+    env: &mut Environment,
+    in_aq: AudioQueueRef,
+    in_format: ConstPtr<AudioStreamBasicDescription>,
+    in_layout: ConstVoidPtr,
+) -> OSStatus {
+    return_if_null!(in_aq);
+
+    if in_format.is_null() {
+        if !in_layout.is_null() {
+            log!("Warning: ignoring channel layout while disabling offline rendering");
+        }
+        let host_object = State::get(&mut env.framework_state)
+            .audio_queues
+            .get_mut(&in_aq)
+            .unwrap();
+        host_object.offline_render_format = None;
+        host_object.offline_buffer_offset = 0;
+        return 0;
+    }
+
+    let format = env.mem.read(in_format);
+    if format.format_id != kAudioFormatLinearPCM || !is_supported_audio_format(&format) {
+        log!(
+            "Warning: unsupported AudioQueue offline render format: {:?}",
+            format
+        );
+        return kAudioQueueErr_InvalidDevice;
+    }
+
+    if !in_layout.is_null() {
+        log_once!("Ignoring AudioQueue offline render channel layout");
+    }
+
+    let host_object = State::get(&mut env.framework_state)
+        .audio_queues
+        .get_mut(&in_aq)
+        .unwrap();
+    host_object.offline_render_format = Some(format);
+    host_object.offline_buffer_offset = 0;
+
+    log_dbg!(
+        "AudioQueueSetOfflineRenderFormat({:?}) -> {:?}",
+        in_aq,
+        format
+    );
+    0
+}
+
+fn AudioQueueOfflineRender(
+    env: &mut Environment,
+    in_aq: AudioQueueRef,
+    _in_timestamp: ConstPtr<AudioTimeStamp>,
+    io_buffer: AudioQueueBufferRef,
+    in_number_frames: u32,
+) -> OSStatus {
+    return_if_null!(in_aq);
+
+    if io_buffer.is_null() {
+        return kAudioQueueErr_InvalidBuffer;
+    }
+
+    let (source_format, output_format, output_is_owned, input_buffer_count) = {
+        let host_object = State::get(&mut env.framework_state)
+            .audio_queues
+            .get_mut(&in_aq)
+            .unwrap();
+        (
+            host_object.format,
+            host_object.offline_render_format,
+            host_object.buffers.contains(&io_buffer),
+            host_object.buffers.len(),
+        )
+    };
+
+    let Some(output_format) = output_format else {
+        log!("Warning: AudioQueueOfflineRender called outside offline mode");
+        return kAudioQueueErr_InvalidDevice;
+    };
+
+    // AudioFile currently exposes supported compressed containers as decoded
+    // PCM. Supporting identical PCM formats here therefore provides a real
+    // offline-rendering path without introducing a second audio converter.
+    if source_format != output_format {
+        log!(
+            "Warning: AudioQueue offline conversion is not implemented: {:?} -> {:?}",
+            source_format,
+            output_format
+        );
+        return kAudioQueueErr_InvalidDevice;
+    }
+
+    if !output_is_owned {
+        return kAudioQueueErr_InvalidBuffer;
+    }
+
+    let output = env.mem.read(io_buffer);
+    let requested_bytes = in_number_frames
+        .checked_mul(output_format.bytes_per_frame)
+        .unwrap();
+    if requested_bytes > output.audio_data_bytes_capacity {
+        log!(
+            "Warning: AudioQueueOfflineRender requested {} bytes for a {} byte buffer",
+            requested_bytes,
+            output.audio_data_bytes_capacity
+        );
+        return kAudioQueueErr_InvalidBuffer;
+    }
+
+    let mut output_size: GuestUSize = 0;
+    let mut empty_callback_count = 0usize;
+
+    while output_size < requested_bytes {
+        let (input_buffer, input_offset, callback_proc, callback_user_data) = {
+            let host_object = State::get(&mut env.framework_state)
+                .audio_queues
+                .get_mut(&in_aq)
+                .unwrap();
+            let Some(&input_buffer) = host_object.buffer_queue.front() else {
+                break;
+            };
+            (
+                input_buffer,
+                host_object.offline_buffer_offset,
+                host_object.callback_proc,
+                host_object.callback_user_data,
+            )
+        };
+
+        // The buffer supplied for rendered output must not simultaneously be
+        // an enqueued source buffer.
+        if input_buffer == io_buffer {
+            return kAudioQueueErr_InvalidBuffer;
+        }
+
+        let input = env.mem.read(input_buffer);
+        if input_offset >= input.audio_data_byte_size {
+            {
+                let host_object = State::get(&mut env.framework_state)
+                    .audio_queues
+                    .get_mut(&in_aq)
+                    .unwrap();
+                assert_eq!(host_object.buffer_queue.pop_front(), Some(input_buffer));
+                host_object.offline_buffer_offset = 0;
+            }
+
+            callback_proc.call_from_host(
+                env,
+                (callback_user_data, in_aq, input_buffer),
+            );
+
+            if input.audio_data_byte_size == 0 {
+                empty_callback_count += 1;
+                if empty_callback_count > input_buffer_count {
+                    break;
+                }
+            } else {
+                empty_callback_count = 0;
+            }
+            continue;
+        }
+
+        let available = input.audio_data_byte_size - input_offset;
+        let remaining = requested_bytes - output_size;
+        let bytes_to_copy = available.min(remaining);
+
+        let source = env
+            .mem
+            .bytes_at(
+                input.audio_data.cast(),
+                input.audio_data_byte_size,
+            )[input_offset as usize..][..bytes_to_copy as usize]
+            .to_vec();
+        env.mem
+            .bytes_at_mut(output.audio_data.cast(), requested_bytes)
+            [output_size as usize..][..bytes_to_copy as usize]
+            .copy_from_slice(&source);
+
+        output_size += bytes_to_copy;
+        State::get(&mut env.framework_state)
+            .audio_queues
+            .get_mut(&in_aq)
+            .unwrap()
+            .offline_buffer_offset += bytes_to_copy;
+    }
+
+    let mut output = env.mem.read(io_buffer);
+    output.audio_data_byte_size = output_size;
+    env.mem.write(io_buffer, output);
+
+    log_dbg!(
+        "AudioQueueOfflineRender({:?}) rendered {} of {} requested frames",
+        in_aq,
+        output_size / output_format.bytes_per_frame,
+        in_number_frames
+    );
+    0
 }
 
 pub fn log_if_broken_audio_format(format: &AudioStreamBasicDescription) {
@@ -937,6 +1142,23 @@ pub fn AudioQueueStart(
 
     assert!(in_device_start_time.is_null()); // TODO
 
+    let is_offline = State::get(&mut env.framework_state)
+        .audio_queues
+        .get_mut(&in_aq)
+        .unwrap()
+        .offline_render_format
+        .is_some();
+
+    if is_offline {
+        State::get(&mut env.framework_state)
+            .audio_queues
+            .get_mut(&in_aq)
+            .unwrap()
+            .is_running = AudioQueueIsRunning::Running;
+        notify_aq_is_running(env, in_aq);
+        return 0;
+    }
+
     _ = prime_audio_queue(env, in_aq);
 
     let (state, context) =
@@ -1056,6 +1278,7 @@ fn AudioQueueReset(env: &mut Environment, in_aq: AudioQueueRef) -> OSStatus {
     }
 
     host_object.buffer_queue.clear();
+    host_object.offline_buffer_offset = 0;
 
     0 // success
 }
@@ -1168,6 +1391,8 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(AudioQueueGetPropertySize(_, _, _)),
     export_c_func!(AudioQueueGetProperty(_, _, _, _)),
     export_c_func!(AudioQueueSetProperty(_, _, _, _)),
+    export_c_func!(AudioQueueSetOfflineRenderFormat(_, _, _)),
+    export_c_func!(AudioQueueOfflineRender(_, _, _, _)),
     export_c_func!(AudioQueuePrime(_, _, _)),
     export_c_func!(AudioQueueStart(_, _)),
     export_c_func!(AudioQueuePause(_)),
