@@ -162,11 +162,12 @@ fn inflate(env: &mut Environment, stream: MutPtr<u8>, flush: i32) -> i32 {
 
     let before_in = host_stream.decompress.total_in();
     let before_out = host_stream.decompress.total_out();
-    let flush_mode = if flush == 4 {
-        FlushDecompress::Finish
-    } else {
-        // zlib's inflate() only gives Z_FINISH special return-code semantics.
-        FlushDecompress::None
+    let flush_mode = match flush {
+        4 => FlushDecompress::Finish,
+        // flate2 has no Z_PARTIAL_FLUSH. Sync is the closest decompression
+        // behavior and, importantly, flushes pending output for old libpng.
+        1..=3 => FlushDecompress::Sync,
+        _ => FlushDecompress::None,
     };
 
     let result = if avail_out == 0 {
