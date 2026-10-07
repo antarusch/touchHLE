@@ -11,9 +11,7 @@ use std::time::{Duration, SystemTime};
 
 use crate::dyld::{export_c_func, FunctionExports};
 use crate::libc::errno::{set_errno, ENOENT};
-use crate::mem::{
-    guest_size_of, ConstPtr, GuestUSize, MutPtr, MutVoidPtr, SafeRead, PAGE_SIZE,
-};
+use crate::mem::{guest_size_of, ConstPtr, GuestUSize, MutPtr, MutVoidPtr, SafeRead, PAGE_SIZE};
 use crate::Environment;
 
 // Top level constants
@@ -154,10 +152,7 @@ fn sysctl(
     match name_len {
         2 => {
             let (name0, name1) = (env.mem.read(name), env.mem.read(name + 1));
-            let Some(val) = INT_MAP
-                .get(&SysCtlNamePath::Length2(name0, name1))
-                .cloned()
-            else {
+            let Some(val) = INT_MAP.get(&SysCtlNamePath::Length2(name0, name1)).cloned() else {
                 log!("Unknown sysctl parameter ({name0}, {name1}), returning -1");
                 set_errno(env, ENOENT);
                 return -1;
@@ -193,9 +188,7 @@ fn sysctl(
                 .get(&SysCtlNamePath::Length4(name0, name1, name2, name3))
                 .cloned()
             else {
-                log!(
-                    "Unknown sysctl parameter ({name0}, {name1}, {name2}, {name3}), returning -1"
-                );
+                log!("Unknown sysctl parameter ({name0}, {name1}, {name2}, {name3}), returning -1");
                 set_errno(env, ENOENT);
                 return -1;
             };
@@ -236,14 +229,7 @@ fn sysctlbyname(
     };
     let name_str = *name_str;
     let val = val.clone();
-    sysctl_generic(
-        env,
-        |_| (name_str, val),
-        oldp,
-        oldlenp,
-        newp,
-        newlen,
-    )
+    sysctl_generic(env, |_| (name_str, val), oldp, oldlenp, newp, newlen)
 }
 
 fn sysctl_generic<F>(
