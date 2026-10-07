@@ -72,9 +72,7 @@ fn mmap(
         Ok(ptr) => ptr,
         Err(err) => {
             set_errno(env, ENOMEM);
-            log!(
-                "Warning: mmap({addr:?}, {len}, {prot}, {flags}, {fd}, {offset}) failed: {err:?}"
-            );
+            log!("Warning: mmap({addr:?}, {len}, {prot}, {flags}, {fd}, {offset}) failed: {err:?}");
             return Ptr::from_bits(u32::MAX);
         }
     };
