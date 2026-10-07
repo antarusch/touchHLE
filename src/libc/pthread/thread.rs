@@ -334,8 +334,25 @@ fn pthread_detach(env: &mut Environment, thread: pthread_t) -> i32 {
         return EINVAL;
     }
 
-    log!("TODO: pthread_detach({:?})", thread);
+    host_obj_joinee.attr.detachstate = PTHREAD_CREATE_DETACHED;
+    log_dbg!("pthread_detach({:?}) => 0 (success)", thread);
     0
+}
+
+fn pthread_exit(env: &mut Environment, value_ptr: MutVoidPtr) {
+    log_dbg!(
+        "pthread_exit({:?}) on thread {}",
+        value_ptr,
+        env.current_thread
+    );
+
+    // pthread_exit() never returns to its guest caller. Branch to the same
+    // synthetic exit routine used by touchHLE's thread trampoline. R0 carries
+    // the pthread return value and will be collected by pthread_create's host
+    // wrapper when SVC_THREAD_EXIT returns control to it.
+    env.cpu.regs_mut()[0] = value_ptr.to_bits();
+    let exit_routine = env.dyld.thread_exit_routine();
+    env.cpu.branch(exit_routine);
 }
 
 fn pthread_setcanceltype(_env: &mut Environment, type_: i32, oldtype: MutPtr<i32>) -> i32 {
@@ -424,6 +441,7 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(pthread_self()),
     export_c_func!(pthread_join(_, _)),
     export_c_func!(pthread_detach(_)),
+    export_c_func!(pthread_exit(_)),
     export_c_func!(pthread_setcanceltype(_, _)),
     export_c_func!(pthread_testcancel()),
     export_c_func!(pthread_mach_thread_np(_)),

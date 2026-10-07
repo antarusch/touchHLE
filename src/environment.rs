@@ -1672,7 +1672,10 @@ impl Environment {
                         }
                     }
                     dyld::Dyld::SVC_THREAD_EXIT => {
-                        unimplemented!("TODO: implement exit routines for threads!")
+                        assert!(
+                            svc_pc == self.dyld.thread_exit_routine().addr_without_thumb_bit()
+                        );
+                        ThreadNextAction::ReturnToHost
                     }
                 }
             }
