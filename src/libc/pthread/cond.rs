@@ -17,14 +17,27 @@ use std::time::Duration;
 use crate::environment::{MutexId, ThreadBlock, ThreadId};
 use crate::libc::time::timespec;
 
+/// Apple's implementation is a 4-byte signature followed by an 8-byte opaque
+/// region. Keep the same 12-byte guest ABI size and store the process-sharing
+/// mode in the opaque area.
 #[repr(C, packed)]
-pub struct pthread_condattr_t {}
+pub struct pthread_condattr_t {
+    magic: u32,
+    pshared: i32,
+    _unused: u32,
+}
 unsafe impl SafeRead for pthread_condattr_t {}
 
+/// Arbitrarily-chosen magic number for `pthread_condattr_t` (not Apple's).
+const MAGIC_CONDATTR: u32 = u32::from_be_bytes(*b"CoAt");
 /// Arbitrarily-chosen magic number for `pthread_cond_t` (not Apple's).
 const MAGIC_COND: u32 = u32::from_be_bytes(*b"COND");
 /// Magic number used by `PTHREAD_COND_INITIALIZER`. This is part of the ABI!
 const MAGIC_COND_STATIC: u32 = 0x3CB0B1BB;
+
+#[allow(dead_code)]
+const PTHREAD_PROCESS_SHARED: i32 = 1;
+const PTHREAD_PROCESS_PRIVATE: i32 = 2;
 
 /// Apple's implementation is a 4-byte magic number followed by an 24-byte
 /// opaque region. We only have to match the size theirs has.
@@ -56,12 +69,70 @@ pub struct CondHostObject {
     pub(crate) timed_out: HashSet<ThreadId>,
 }
 
+fn pthread_condattr_init(env: &mut Environment, attr: MutPtr<pthread_condattr_t>) -> i32 {
+    env.mem.write(
+        attr,
+        pthread_condattr_t {
+            magic: MAGIC_CONDATTR,
+            pshared: PTHREAD_PROCESS_PRIVATE,
+            _unused: 0,
+        },
+    );
+    0
+}
+
+fn pthread_condattr_destroy(env: &mut Environment, attr: MutPtr<pthread_condattr_t>) -> i32 {
+    check_magic!(env, attr, MAGIC_CONDATTR);
+    env.mem.write(
+        attr,
+        pthread_condattr_t {
+            magic: 0,
+            pshared: PTHREAD_PROCESS_PRIVATE,
+            _unused: 0,
+        },
+    );
+    0
+}
+
+fn pthread_condattr_getpshared(
+    env: &mut Environment,
+    attr: ConstPtr<pthread_condattr_t>,
+    pshared: MutPtr<i32>,
+) -> i32 {
+    check_magic!(env, attr, MAGIC_CONDATTR);
+    let attr_copy = env.mem.read(attr);
+    env.mem.write(pshared, attr_copy.pshared);
+    0
+}
+
+fn pthread_condattr_setpshared(
+    env: &mut Environment,
+    attr: MutPtr<pthread_condattr_t>,
+    pshared: i32,
+) -> i32 {
+    check_magic!(env, attr, MAGIC_CONDATTR);
+    if !matches!(pshared, PTHREAD_PROCESS_PRIVATE | PTHREAD_PROCESS_SHARED) {
+        return EINVAL;
+    }
+    if pshared == PTHREAD_PROCESS_SHARED {
+        log_once!(
+            "Warning: process-shared pthread condition variables are not fully emulated"
+        );
+    }
+    let mut attr_copy = env.mem.read(attr);
+    attr_copy.pshared = pshared;
+    env.mem.write(attr, attr_copy);
+    0
+}
+
 pub fn pthread_cond_init(
     env: &mut Environment,
     cond: MutPtr<pthread_cond_t>,
     attr: ConstPtr<pthread_condattr_t>,
 ) -> i32 {
-    assert!(attr.is_null());
+    if !attr.is_null() {
+        check_magic!(env, attr, MAGIC_CONDATTR);
+    }
     let opaque = pthread_cond_t {
         magic: MAGIC_COND,
         _unused: [0; 6],
@@ -262,6 +333,10 @@ pub fn pthread_cond_destroy(env: &mut Environment, cond: MutPtr<pthread_cond_t>)
 }
 
 pub const FUNCTIONS: FunctionExports = &[
+    export_c_func!(pthread_condattr_init(_)),
+    export_c_func!(pthread_condattr_destroy(_)),
+    export_c_func!(pthread_condattr_getpshared(_, _)),
+    export_c_func!(pthread_condattr_setpshared(_, _)),
     export_c_func!(pthread_cond_init(_, _)),
     export_c_func!(pthread_cond_wait(_, _)),
     export_c_func!(pthread_cond_timedwait(_, _, _)),
