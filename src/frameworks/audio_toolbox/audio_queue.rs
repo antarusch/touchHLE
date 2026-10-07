@@ -611,11 +611,12 @@ fn AudioQueueOfflineRender(
     let requested_bytes = in_number_frames
         .checked_mul(output_format.bytes_per_frame)
         .unwrap();
-    if requested_bytes > output.audio_data_bytes_capacity {
+    let output_capacity = output.audio_data_bytes_capacity;
+    if requested_bytes > output_capacity {
         log!(
             "Warning: AudioQueueOfflineRender requested {} bytes for a {} byte buffer",
             requested_bytes,
-            output.audio_data_bytes_capacity
+            output_capacity
         );
         return kAudioQueueErr_InvalidBuffer;
     }
