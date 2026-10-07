@@ -676,6 +676,35 @@ pub const CLASSES: ClassExports = objc_classes! {
     () = msg![env; this setNeedsLayout];
 }
 
+- (())insertSubview:(id)view aboveSubview:(id)sibling {
+    assert!(view != nil);
+    assert!(sibling != nil);
+    if view == sibling {
+        return;
+    }
+
+    retain(env, view);
+    () = msg![env; view removeFromSuperview];
+
+    let subview_obj = env.objc.borrow_mut::<UIViewHostObject>(view);
+    subview_obj.superview = this;
+    let subview_layer = subview_obj.layer;
+
+    let sibling_layer = env.objc.borrow::<UIViewHostObject>(sibling).layer;
+
+    let &mut UIViewHostObject {
+        ref mut subviews,
+        layer: this_layer,
+        ..
+    } = env.objc.borrow_mut(this);
+
+    let idx = subviews.iter().position(|&subview2| subview2 == sibling).unwrap();
+    subviews.insert(idx + 1, view);
+
+    () = msg![env; this_layer insertSublayer:subview_layer above:sibling_layer];
+    () = msg![env; this setNeedsLayout];
+}
+
 - (())bringSubviewToFront:(id)subview {
     if subview == nil {
         // This happens in Touch & Go LITE. It's probably due to the ad classes
