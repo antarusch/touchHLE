@@ -657,10 +657,7 @@ fn AudioQueueOfflineRender(
                 host_object.offline_buffer_offset = 0;
             }
 
-            callback_proc.call_from_host(
-                env,
-                (callback_user_data, in_aq, input_buffer),
-            );
+            callback_proc.call_from_host(env, (callback_user_data, in_aq, input_buffer));
 
             if input.audio_data_byte_size == 0 {
                 empty_callback_count += 1;
@@ -679,14 +676,12 @@ fn AudioQueueOfflineRender(
 
         let source = env
             .mem
-            .bytes_at(
-                input.audio_data.cast(),
-                input.audio_data_byte_size,
-            )[input_offset as usize..][..bytes_to_copy as usize]
+            .bytes_at(input.audio_data.cast(), input.audio_data_byte_size)[input_offset as usize..]
+            [..bytes_to_copy as usize]
             .to_vec();
         env.mem
-            .bytes_at_mut(output.audio_data.cast(), requested_bytes)
-            [output_size as usize..][..bytes_to_copy as usize]
+            .bytes_at_mut(output.audio_data.cast(), requested_bytes)[output_size as usize..]
+            [..bytes_to_copy as usize]
             .copy_from_slice(&source);
 
         output_size += bytes_to_copy;
