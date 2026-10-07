@@ -57,6 +57,12 @@ fn time(env: &mut Environment, out: MutPtr<time_t>) -> time_t {
     time
 }
 
+fn difftime(_env: &mut Environment, end: time_t, beginning: time_t) -> f64 {
+    // Do the subtraction in a wider type so all pairs of 32-bit time_t values
+    // are handled without signed integer overflow.
+    (i64::from(end) - i64::from(beginning)) as f64
+}
+
 fn tzset(_env: &mut Environment) {
     log!("TODO: tzset()");
 }
@@ -772,6 +778,7 @@ fn strftime(
 pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(clock()),
     export_c_func!(time(_)),
+    export_c_func!(difftime(_, _)),
     export_c_func!(tzset()),
     export_c_func!(gmtime_r(_, _)),
     export_c_func!(gmtime(_)),
