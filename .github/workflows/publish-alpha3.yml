@@ -1,0 +1,71 @@
+name: Publish Alpha 3 release
+
+on:
+  push:
+    branches:
+      - release-alpha3
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download tested v42 Android artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p release_asset
+          gh run download 37596873214 \
+            --repo "$GITHUB_REPOSITORY" \
+            --name touchHLE_Android_AArch64 \
+            --dir release_asset
+          APK="$(find release_asset -type f -name '*.apk' -print -quit)"
+          test -n "$APK"
+          cp "$APK" touchHLE_Alpha3_Android_AArch64.apk
+
+      - name: Write release notes
+        run: |
+          cat > release-notes.md <<'EOF'
+          **Alpha version: crashes, rendering problems, freezes, and other compatibility issues may still occur.**
+
+          This release adds support for **Crimson: Steam Pirates** to this modified touchHLE Android compatibility build.
+
+          ### Crimson: Steam Pirates support
+
+          Support has been added for **Crimson: Steam Pirates v1.2**.
+
+          Only the **first few missions** have been tested so far. The first three missions were tested without errors, but the rest of the game has **not** been fully tested. Additional crashes, rendering issues, freezes, missing functionality, or other compatibility problems may still appear later in the game.
+
+          The tested Crimson baseline for this release is commit `0a7146507d02a18cf5f2490988ca11c3627c2478` (Android versionCode 42).
+
+          Existing compatibility work for **The War of Eustrath HD** and **Rogue Planet** is retained in this build.
+
+          ### Important installation note
+
+          **If you have any previous Alpha release installed, please uninstall it first and then install this Alpha 3 APK.**
+
+          Do not install Alpha 3 over Alpha 1 or Alpha 2.
+
+          The game IPA files are not included.
+
+          ### Android download
+
+          Download the attached signed APK for **Android arm64**.
+          EOF
+
+      - name: Publish GitHub prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create eustrath-alpha-3 \
+            touchHLE_Alpha3_Android_AArch64.apk \
+            --repo "$GITHUB_REPOSITORY" \
+            --target 0a7146507d02a18cf5f2490988ca11c3627c2478 \
+            --title "touchHLE Eustrath — Alpha 3" \
+            --notes-file release-notes.md \
+            --prerelease
