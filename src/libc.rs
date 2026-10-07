@@ -135,4 +135,5 @@ pub struct State {
     mach_vm: mach::vm_map::State,
     malloc: malloc::State,
     mman: sys::mman::State,
+    zlib_compat: zlib_compat::State,
 }
