@@ -12,6 +12,7 @@ env:
 
 jobs:
   native-set-archive:
+    if: ${{ github.ref != 'refs/heads/tactical-soldier-compatibility' }}
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
@@ -42,6 +43,7 @@ jobs:
             tests/TestApp.app/native_plist.bin
 
   build-osx:
+    if: ${{ github.ref != 'refs/heads/tactical-soldier-compatibility' }}
 
     runs-on: macos-15
 
@@ -237,6 +239,7 @@ jobs:
         path: touchHLE.apk
 
   build-win:
+    if: ${{ github.ref != 'refs/heads/tactical-soldier-compatibility' }}
 
     runs-on: windows-2022
 
