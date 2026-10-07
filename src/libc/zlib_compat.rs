@@ -5,52 +5,44 @@
  */
 //! Host-side zlib inflate compatibility.
 //!
-//! Some older iOS applications exercise edge cases in the bundled guest zlib
-//! that are difficult to bridge safely through a host callback. For ordinary
-//! zlib and raw-deflate streams, keep the z_stream ABI in guest memory but do
-//! the actual streaming decompression with flate2 on the host. Unsupported
-//! inflateInit2 modes continue to fall back to the bundled guest libz.
+//! Keep the 32-bit iOS z_stream ABI in guest memory while using a native
+//! host zlib stream internally. This preserves the exact inflate flush
+//! semantics expected by older iOS libpng builds.
 
 use std::collections::HashMap;
+use std::mem::size_of;
+use std::ptr;
 
-use flate2::{Decompress, FlushDecompress, Status};
-
-use crate::abi::{CallFromHost, GuestFunction};
 use crate::dyld::{export_c_func, FunctionExports};
 use crate::mem::{ConstPtr, MutPtr, Ptr};
 use crate::Environment;
 
 const Z_OK: i32 = 0;
-const Z_STREAM_END: i32 = 1;
-const Z_NEED_DICT: i32 = 2;
 const Z_STREAM_ERROR: i32 = -2;
-const Z_DATA_ERROR: i32 = -3;
-const Z_BUF_ERROR: i32 = -5;
 const Z_VERSION_ERROR: i32 = -6;
 
 const Z_STREAM_SIZE_IOS32: i32 = 56;
 
 struct HostInflateStream {
-    decompress: Decompress,
-    zlib_header: bool,
+    stream: Box<libz_sys::z_stream>,
+    initialized: bool,
+}
+
+impl Drop for HostInflateStream {
+    fn drop(&mut self) {
+        if self.initialized {
+            // SAFETY: stream was successfully initialized by zlib and remains
+            // owned by this object until it is dropped.
+            unsafe {
+                libz_sys::inflateEnd(&mut *self.stream);
+            }
+        }
+    }
 }
 
 #[derive(Default)]
 pub struct State {
     streams: HashMap<u32, HostInflateStream>,
-}
-
-fn guest_zlib_function(env: &Environment, symbol: &str) -> GuestFunction {
-    let bin = env
-        .bins
-        .iter()
-        .find(|bin| bin.name.starts_with("libz.") || bin.name == "libz.dylib")
-        .expect("zlib compatibility shim called without a loaded guest libz");
-    let &addr = bin
-        .exported_symbols
-        .get(symbol)
-        .unwrap_or_else(|| panic!("Guest zlib does not export {symbol}"));
-    GuestFunction::from_addr_with_thumb_bit(addr)
 }
 
 fn validate_init_args(
@@ -68,28 +60,72 @@ fn validate_init_args(
     Ok(())
 }
 
-fn initialize_host_stream(env: &mut Environment, stream: MutPtr<u8>, zlib_header: bool) -> i32 {
-    let key = stream.to_bits();
+fn write_metadata(
+    env: &mut Environment,
+    guest_stream: MutPtr<u8>,
+    host_stream: &libz_sys::z_stream,
+) {
+    let null: MutPtr<u8> = Ptr::null();
+    env.mem.write((guest_stream + 0x18).cast(), null);
+    env.mem.write(
+        (guest_stream + 0x08).cast(),
+        u32::try_from(host_stream.total_in).unwrap(),
+    );
+    env.mem.write(
+        (guest_stream + 0x14).cast(),
+        u32::try_from(host_stream.total_out).unwrap(),
+    );
+    env.mem
+        .write((guest_stream + 0x2c).cast(), host_stream.data_type);
+    env.mem.write(
+        (guest_stream + 0x30).cast(),
+        u32::try_from(host_stream.adler).unwrap(),
+    );
+}
+
+fn initialize_host_stream(
+    env: &mut Environment,
+    guest_stream: MutPtr<u8>,
+    window_bits: i32,
+) -> i32 {
+    env.libc_state
+        .zlib_compat
+        .streams
+        .remove(&guest_stream.to_bits());
+
+    // SAFETY: z_stream is a C data structure whose all-zero state is the
+    // required precondition for inflateInit2_ when default allocators are used.
+    let mut host_stream: Box<libz_sys::z_stream> =
+        Box::new(unsafe { std::mem::zeroed() });
+
+    // SAFETY: host_stream points to valid writable storage. zlibVersion()
+    // supplies the matching host zlib version string and stream size.
+    let result = unsafe {
+        libz_sys::inflateInit2_(
+            &mut *host_stream,
+            window_bits,
+            libz_sys::zlibVersion(),
+            i32::try_from(size_of::<libz_sys::z_stream>()).unwrap(),
+        )
+    };
+    if result != Z_OK {
+        return result;
+    }
+
+    write_metadata(env, guest_stream, &host_stream);
+
+    // Keep guest z_stream::state non-null for code that checks it.
+    env.mem.write((guest_stream + 0x1c).cast(), guest_stream);
+
     env.libc_state.zlib_compat.streams.insert(
-        key,
+        guest_stream.to_bits(),
         HostInflateStream {
-            decompress: Decompress::new(zlib_header),
-            zlib_header,
+            stream: host_stream,
+            initialized: true,
         },
     );
 
-    let null: MutPtr<u8> = Ptr::null();
-    env.mem.write((stream + 0x08).cast(), 0u32); // total_in
-    env.mem.write((stream + 0x14).cast(), 0u32); // total_out
-    env.mem.write((stream + 0x18).cast(), null); // msg
-
-    // Keep z_stream::state non-null; the real state lives in the host map.
-    env.mem.write((stream + 0x1c).cast(), stream);
-
-    env.mem.write((stream + 0x2c).cast(), 0i32); // data_type
-    env.mem.write((stream + 0x30).cast(), 1u32); // adler
-
-    log_once!("Using host-side zlib inflate compatibility");
+    log_once!("Using native host zlib inflate compatibility");
     Z_OK
 }
 
@@ -102,7 +138,7 @@ fn inflateInit_(
     if let Err(error) = validate_init_args(env, stream, version, stream_size) {
         return error;
     }
-    initialize_host_stream(env, stream, true)
+    initialize_host_stream(env, stream, 15)
 }
 
 fn inflateInit2_(
@@ -115,118 +151,55 @@ fn inflateInit2_(
     if let Err(error) = validate_init_args(env, stream, version, stream_size) {
         return error;
     }
-
-    // zlib uses positive 8..=15 for a zlib header and negative values for raw
-    // deflate. Those are the modes Crimson and the large majority of older iOS
-    // games use. Preserve the guest dylib for gzip/auto-detect modes.
-    if (8..=15).contains(&window_bits) || window_bits == 0 {
-        return initialize_host_stream(env, stream, true);
-    }
-    if (-15..=-8).contains(&window_bits) {
-        return initialize_host_stream(env, stream, false);
-    }
-
-    env.libc_state.zlib_compat.streams.remove(&stream.to_bits());
-    let real_init = guest_zlib_function(env, "_inflateInit2_");
-    real_init.call_from_host(env, (stream, window_bits, version, stream_size))
+    initialize_host_stream(env, stream, window_bits)
 }
 
-fn inflate(env: &mut Environment, stream: MutPtr<u8>, flush: i32) -> i32 {
-    if stream.is_null() {
+fn inflate(env: &mut Environment, guest_stream: MutPtr<u8>, flush: i32) -> i32 {
+    if guest_stream.is_null() {
         return Z_STREAM_ERROR;
     }
 
-    let key = stream.to_bits();
-    let Some(mut host_stream) = env.libc_state.zlib_compat.streams.remove(&key) else {
-        let real_inflate = guest_zlib_function(env, "_inflate");
-        return real_inflate.call_from_host(env, (stream, flush));
+    let key = guest_stream.to_bits();
+    let Some(mut host) = env.libc_state.zlib_compat.streams.remove(&key) else {
+        return Z_STREAM_ERROR;
     };
 
-    let next_in: MutPtr<u8> = env.mem.read(stream.cast());
-    let avail_in: u32 = env.mem.read((stream + 0x04).cast());
-    let next_out: MutPtr<u8> = env.mem.read((stream + 0x0c).cast());
-    let avail_out: u32 = env.mem.read((stream + 0x10).cast());
+    let next_in: MutPtr<u8> = env.mem.read(guest_stream.cast());
+    let avail_in: u32 = env.mem.read((guest_stream + 0x04).cast());
+    let next_out: MutPtr<u8> = env.mem.read((guest_stream + 0x0c).cast());
+    let avail_out: u32 = env.mem.read((guest_stream + 0x10).cast());
 
     if (avail_in != 0 && next_in.is_null()) || (avail_out != 0 && next_out.is_null()) {
-        env.libc_state.zlib_compat.streams.insert(key, host_stream);
+        env.libc_state.zlib_compat.streams.insert(key, host);
         return Z_STREAM_ERROR;
     }
 
-    // Copy guest buffers so the backend can run without holding a mutable
-    // borrow of guest memory. This also lets one guest inflate() call invoke
-    // the backend repeatedly to match zlib's "make as much progress as
-    // possible" behavior.
-    let input = if avail_in == 0 {
+    let mut input = if avail_in == 0 {
         Vec::new()
     } else {
         env.mem.bytes_at(next_in, avail_in).to_vec()
     };
     let mut output = vec![0u8; avail_out as usize];
 
-    let before_in = host_stream.decompress.total_in();
-    let before_out = host_stream.decompress.total_out();
-    let flush_mode = match flush {
-        4 => FlushDecompress::Finish,
-        // flate2 has no Z_PARTIAL_FLUSH. Sync is the closest decompression
-        // behavior for the older libpng used by some iOS games.
-        1..=3 => FlushDecompress::Sync,
-        _ => FlushDecompress::None,
+    host.stream.next_in = if input.is_empty() {
+        ptr::null_mut()
+    } else {
+        input.as_mut_ptr()
     };
+    host.stream.avail_in = avail_in;
+    host.stream.next_out = if output.is_empty() {
+        ptr::null_mut()
+    } else {
+        output.as_mut_ptr()
+    };
+    host.stream.avail_out = avail_out;
 
-    let mut input_offset = 0usize;
-    let mut output_offset = 0usize;
-    let mut stream_ended = false;
-    let mut error_code = None;
+    // SAFETY: input/output storage remains alive and fixed for the duration of
+    // this call, and host.stream was initialized successfully by zlib.
+    let result = unsafe { libz_sys::inflate(&mut *host.stream, flush) };
 
-    loop {
-        let call_before_in = host_stream.decompress.total_in();
-        let call_before_out = host_stream.decompress.total_out();
-
-        let result = host_stream.decompress.decompress(
-            &input[input_offset..],
-            &mut output[output_offset..],
-            flush_mode,
-        );
-
-        let consumed_now =
-            usize::try_from(host_stream.decompress.total_in() - call_before_in).unwrap();
-        let produced_now =
-            usize::try_from(host_stream.decompress.total_out() - call_before_out).unwrap();
-        input_offset += consumed_now;
-        output_offset += produced_now;
-
-        match result {
-            Ok(Status::StreamEnd) => {
-                stream_ended = true;
-                break;
-            }
-            Ok(Status::Ok | Status::BufError) => {}
-            Err(error) => {
-                let needs_dictionary = error.needs_dictionary().is_some();
-                log!("Host zlib inflate error: {error}");
-                error_code = Some(if needs_dictionary {
-                    Z_NEED_DICT
-                } else {
-                    Z_DATA_ERROR
-                });
-                break;
-            }
-        }
-
-        if output_offset == output.len() {
-            break;
-        }
-
-        // zlib's inflate() keeps going internally while it can make progress.
-        // In particular, a backend may have pending output even after it has
-        // consumed all currently supplied input.
-        if consumed_now == 0 && produced_now == 0 {
-            break;
-        }
-    }
-
-    let consumed = u32::try_from(host_stream.decompress.total_in() - before_in).unwrap();
-    let produced = u32::try_from(host_stream.decompress.total_out() - before_out).unwrap();
+    let consumed = avail_in - host.stream.avail_in;
+    let produced = avail_out - host.stream.avail_out;
 
     if produced != 0 {
         env.mem
@@ -235,80 +208,74 @@ fn inflate(env: &mut Environment, stream: MutPtr<u8>, flush: i32) -> i32 {
     }
 
     if !next_in.is_null() {
-        env.mem.write(stream.cast(), next_in + consumed);
+        env.mem.write(guest_stream.cast(), next_in + consumed);
     }
-    env.mem.write((stream + 0x04).cast(), avail_in - consumed);
-    env.mem.write(
-        (stream + 0x08).cast(),
-        u32::try_from(host_stream.decompress.total_in()).unwrap(),
-    );
+    env.mem
+        .write((guest_stream + 0x04).cast(), host.stream.avail_in);
 
     if !next_out.is_null() {
-        env.mem.write((stream + 0x0c).cast(), next_out + produced);
+        env.mem
+            .write((guest_stream + 0x0c).cast(), next_out + produced);
     }
-    env.mem.write((stream + 0x10).cast(), avail_out - produced);
-    env.mem.write(
-        (stream + 0x14).cast(),
-        u32::try_from(host_stream.decompress.total_out()).unwrap(),
-    );
+    env.mem
+        .write((guest_stream + 0x10).cast(), host.stream.avail_out);
 
-    let return_value = if let Some(error) = error_code {
-        error
-    } else if stream_ended {
-        Z_STREAM_END
-    } else if (consumed == 0 && produced == 0) || flush == 4 {
-        // zlib 1.2.x returns Z_BUF_ERROR when no progress was possible, and
-        // also for Z_FINISH until the stream has actually ended.
-        Z_BUF_ERROR
-    } else {
-        Z_OK
+    write_metadata(env, guest_stream, &host.stream);
+
+    if result < 0 {
+        log!(
+            "Native host zlib inflate returned {} after consuming {} and producing {} bytes",
+            result,
+            consumed,
+            produced
+        );
+    }
+
+    env.libc_state.zlib_compat.streams.insert(key, host);
+    result
+}
+
+fn inflateReset(env: &mut Environment, guest_stream: MutPtr<u8>) -> i32 {
+    if guest_stream.is_null() {
+        return Z_STREAM_ERROR;
+    }
+
+    let key = guest_stream.to_bits();
+    let Some(mut host) = env.libc_state.zlib_compat.streams.remove(&key) else {
+        return Z_STREAM_ERROR;
     };
 
-    env.libc_state.zlib_compat.streams.insert(key, host_stream);
-    return_value
+    // SAFETY: this host stream is initialized and owned by the map entry.
+    let result = unsafe { libz_sys::inflateReset(&mut *host.stream) };
+    if result == Z_OK {
+        write_metadata(env, guest_stream, &host.stream);
+    }
+
+    env.libc_state.zlib_compat.streams.insert(key, host);
+    result
 }
 
-fn inflateReset(env: &mut Environment, stream: MutPtr<u8>) -> i32 {
-    if stream.is_null() {
+fn inflateEnd(env: &mut Environment, guest_stream: MutPtr<u8>) -> i32 {
+    if guest_stream.is_null() {
         return Z_STREAM_ERROR;
     }
 
-    if let Some(host_stream) = env
+    let Some(mut host) = env
         .libc_state
         .zlib_compat
         .streams
-        .get_mut(&stream.to_bits())
-    {
-        host_stream.decompress.reset(host_stream.zlib_header);
-        env.mem.write((stream + 0x08).cast(), 0u32);
-        env.mem.write((stream + 0x14).cast(), 0u32);
-        env.mem.write((stream + 0x30).cast(), 1u32);
-        return Z_OK;
-    }
-
-    let real_reset = guest_zlib_function(env, "_inflateReset");
-    real_reset.call_from_host(env, (stream,))
-}
-
-fn inflateEnd(env: &mut Environment, stream: MutPtr<u8>) -> i32 {
-    if stream.is_null() {
+        .remove(&guest_stream.to_bits())
+    else {
         return Z_STREAM_ERROR;
-    }
+    };
 
-    if env
-        .libc_state
-        .zlib_compat
-        .streams
-        .remove(&stream.to_bits())
-        .is_some()
-    {
-        let null: MutPtr<u8> = Ptr::null();
-        env.mem.write((stream + 0x1c).cast(), null);
-        return Z_OK;
-    }
+    // SAFETY: this stream was initialized successfully and has not ended yet.
+    let result = unsafe { libz_sys::inflateEnd(&mut *host.stream) };
+    host.initialized = false;
 
-    let real_end = guest_zlib_function(env, "_inflateEnd");
-    real_end.call_from_host(env, (stream,))
+    let null: MutPtr<u8> = Ptr::null();
+    env.mem.write((guest_stream + 0x1c).cast(), null);
+    result
 }
 
 pub const FUNCTIONS: FunctionExports = &[
