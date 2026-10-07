@@ -7,10 +7,13 @@
 
 use std::collections::HashMap;
 use std::sync::LazyLock;
+use std::time::{Duration, SystemTime};
 
 use crate::dyld::{export_c_func, FunctionExports};
 use crate::libc::errno::{set_errno, ENOENT};
-use crate::mem::{guest_size_of, ConstPtr, GuestUSize, MutPtr, MutVoidPtr, PAGE_SIZE};
+use crate::mem::{
+    guest_size_of, ConstPtr, GuestUSize, MutPtr, MutVoidPtr, SafeRead, PAGE_SIZE,
+};
 use crate::Environment;
 
 // Top level constants
@@ -24,6 +27,7 @@ const KERN_OSREV: i32 = 3;
 const KERN_VERSION: i32 = 4;
 const KERN_HOSTNAME: i32 = 10;
 const KERN_PROC: i32 = 14;
+const KERN_BOOTTIME: i32 = 21;
 const KERN_OSVERSION: i32 = 65;
 
 // KERN_PROC
@@ -52,7 +56,7 @@ enum SysCtlNamePath {
 // Clippy complains about the type.
 // Below values corresponds to the original iPhone.
 // Reference https://www.mail-archive.com/misc@openbsd.org/msg80988.html
-static SYSCTL_VALUES: [(SysCtlNamePath, &str, SysInfoType); 18] = [
+static SYSCTL_VALUES: [(SysCtlNamePath, &str, SysInfoType); 19] = [
     // Generic CPU, I/O
     (SysCtlNamePath::Length2(CTL_HW, HW_MACHINE), "hw.machine", SysInfoType::String(b"iPhone1,1")),
     (SysCtlNamePath::Length2(CTL_HW, HW_MODEL), "hw.model", SysInfoType::String(b"M68AP")),
@@ -71,6 +75,7 @@ static SYSCTL_VALUES: [(SysCtlNamePath, &str, SysInfoType); 18] = [
     (SysCtlNamePath::Length2(CTL_KERN, KERN_OSREV), "kern.osrevision", SysInfoType::String(b"199506")),
     (SysCtlNamePath::Length2(CTL_KERN, KERN_HOSTNAME), "kern.hostname", SysInfoType::String(b"touchHLE")), // this is arbitrary
     (SysCtlNamePath::Length2(CTL_KERN, KERN_VERSION), "kern.version", SysInfoType::String(b"Darwin Kernel Version 10.0.0d3: Wed May 13 22:11:58 PDT 2009; root:xnu-1357.2.89~4/RELEASE_ARM_S5L8900X")),
+    (SysCtlNamePath::Length2(CTL_KERN, KERN_BOOTTIME), "kern.boottime", SysInfoType::Timeval),
     (SysCtlNamePath::Length2(CTL_KERN, KERN_OSVERSION), "kern.osversion", SysInfoType::String(b"7A341")),
     // Last 0 here is an unnamed placeholder
     (SysCtlNamePath::Length4(CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0), "kern.proc.all", SysInfoType::Struct),
@@ -104,8 +109,27 @@ enum SysInfoType {
     String(&'static [u8]),
     Int32(i32),
     Int64(i64),
+    Timeval,
     Struct,
 }
+
+#[repr(C, packed)]
+struct DarwinTimeval {
+    tv_sec: i32,
+    tv_usec: i32,
+}
+unsafe impl SafeRead for DarwinTimeval {}
+
+static BOOT_TIME: LazyLock<(i32, i32)> = LazyLock::new(|| {
+    // touchHLE does not emulate a machine-wide host boot. Give the guest a
+    // stable boot time shortly before emulator startup. 300 seconds also
+    // matches Mono's historical fallback when KERN_BOOTTIME is unavailable.
+    let now = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_default();
+    let boot = now.saturating_sub(Duration::from_secs(300));
+    (boot.as_secs() as i32, boot.subsec_micros() as i32)
+});
 
 fn sysctl(
     env: &mut Environment,
@@ -130,20 +154,15 @@ fn sysctl(
     match name_len {
         2 => {
             let (name0, name1) = (env.mem.read(name), env.mem.read(name + 1));
-            sysctl_generic(
-                env,
-                |_| {
-                    let Some(val) = INT_MAP.get(&SysCtlNamePath::Length2(name0, name1)).cloned()
-                    else {
-                        unimplemented!("Unknown sysctl parameter ({name0}, {name1})!")
-                    };
-                    val
-                },
-                oldp,
-                oldlenp,
-                newp,
-                newlen,
-            )
+            let Some(val) = INT_MAP
+                .get(&SysCtlNamePath::Length2(name0, name1))
+                .cloned()
+            else {
+                log!("Unknown sysctl parameter ({name0}, {name1}), returning -1");
+                set_errno(env, ENOENT);
+                return -1;
+            };
+            sysctl_generic(env, |_| val, oldp, oldlenp, newp, newlen)
         }
         4 => {
             let (name0, name1, name2, name3) = (
@@ -170,26 +189,23 @@ fn sysctl(
                 log!("TODO: sysctl() for 'kern.proc.all', returning -1");
                 return -1;
             }
-            sysctl_generic(
-                env,
-                |_| {
-                    let Some(val) = INT_MAP
-                        .get(&SysCtlNamePath::Length4(name0, name1, name2, name3))
-                        .cloned()
-                    else {
-                        unimplemented!(
-                            "Unknown sysctl parameter ({name0}, {name1}, {name2}, {name3})!"
-                        )
-                    };
-                    val
-                },
-                oldp,
-                oldlenp,
-                newp,
-                newlen,
-            )
+            let Some(val) = INT_MAP
+                .get(&SysCtlNamePath::Length4(name0, name1, name2, name3))
+                .cloned()
+            else {
+                log!(
+                    "Unknown sysctl parameter ({name0}, {name1}, {name2}, {name3}), returning -1"
+                );
+                set_errno(env, ENOENT);
+                return -1;
+            };
+            sysctl_generic(env, |_| val, oldp, oldlenp, newp, newlen)
         }
-        _ => unimplemented!("sysctl() for name length {name_len} is unimplemented!"),
+        _ => {
+            log!("sysctl() for unsupported name length {name_len}, returning -1");
+            set_errno(env, ENOENT);
+            -1
+        }
     }
 }
 
@@ -213,15 +229,16 @@ fn sysctlbyname(
         newp,
         newlen
     );
+    let Some((name_str, val)) = STRING_MAP.get_key_value(name_str) else {
+        log!("Unknown sysctlbyname parameter {name_str}, returning -1");
+        set_errno(env, ENOENT);
+        return -1;
+    };
+    let name_str = *name_str;
+    let val = val.clone();
     sysctl_generic(
         env,
-        |env| {
-            let name_str = env.mem.cstr_at_utf8(name).unwrap();
-            let Some((name_str, val)) = STRING_MAP.get_key_value(name_str) else {
-                unimplemented!("Unknown sysctlbyname parameter {name_str}!")
-            };
-            (name_str, val.clone())
-        },
+        |_| (name_str, val),
         oldp,
         oldlenp,
         newp,
@@ -249,6 +266,7 @@ where
         SysInfoType::String(str) => str.len() as GuestUSize + 1,
         SysInfoType::Int32(_) => guest_size_of::<i32>(),
         SysInfoType::Int64(_) => guest_size_of::<i64>(),
+        SysInfoType::Timeval => guest_size_of::<DarwinTimeval>(),
         _ => unimplemented!(),
     };
     if oldp.is_null() {
@@ -274,6 +292,11 @@ where
         }
         SysInfoType::Int64(num) => {
             env.mem.write(oldp.cast(), num);
+        }
+        SysInfoType::Timeval => {
+            let (tv_sec, tv_usec) = *BOOT_TIME;
+            env.mem
+                .write(oldp.cast(), DarwinTimeval { tv_sec, tv_usec });
         }
         _ => unimplemented!(),
     }
