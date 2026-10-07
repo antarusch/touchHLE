@@ -152,38 +152,87 @@ fn inflate(env: &mut Environment, stream: MutPtr<u8>, flush: i32) -> i32 {
         return Z_STREAM_ERROR;
     }
 
-    // Copy input so the guest memory can be borrowed mutably for output at the
-    // same time without aliasing Rust references.
+    // Copy guest buffers so the backend can run without holding a mutable
+    // borrow of guest memory. This also lets one guest inflate() call invoke
+    // the backend repeatedly to match zlib's "make as much progress as
+    // possible" behavior.
     let input = if avail_in == 0 {
         Vec::new()
     } else {
         env.mem.bytes_at(next_in, avail_in).to_vec()
     };
+    let mut output = vec![0u8; avail_out as usize];
 
     let before_in = host_stream.decompress.total_in();
     let before_out = host_stream.decompress.total_out();
     let flush_mode = match flush {
         4 => FlushDecompress::Finish,
         // flate2 has no Z_PARTIAL_FLUSH. Sync is the closest decompression
-        // behavior and, importantly, flushes pending output for old libpng.
+        // behavior for the older libpng used by some iOS games.
         1..=3 => FlushDecompress::Sync,
         _ => FlushDecompress::None,
     };
 
-    let result = if avail_out == 0 {
-        let mut empty = [];
-        host_stream
-            .decompress
-            .decompress(&input, &mut empty, flush_mode)
-    } else {
-        let output = env.mem.bytes_at_mut(next_out, avail_out);
-        host_stream
-            .decompress
-            .decompress(&input, output, flush_mode)
-    };
+    let mut input_offset = 0usize;
+    let mut output_offset = 0usize;
+    let mut stream_ended = false;
+    let mut error_code = None;
+
+    loop {
+        let call_before_in = host_stream.decompress.total_in();
+        let call_before_out = host_stream.decompress.total_out();
+
+        let result = host_stream.decompress.decompress(
+            &input[input_offset..],
+            &mut output[output_offset..],
+            flush_mode,
+        );
+
+        let consumed_now =
+            usize::try_from(host_stream.decompress.total_in() - call_before_in).unwrap();
+        let produced_now =
+            usize::try_from(host_stream.decompress.total_out() - call_before_out).unwrap();
+        input_offset += consumed_now;
+        output_offset += produced_now;
+
+        match result {
+            Ok(Status::StreamEnd) => {
+                stream_ended = true;
+                break;
+            }
+            Ok(Status::Ok | Status::BufError) => {}
+            Err(error) => {
+                let needs_dictionary = error.needs_dictionary().is_some();
+                log!("Host zlib inflate error: {error}");
+                error_code = Some(if needs_dictionary {
+                    Z_NEED_DICT
+                } else {
+                    Z_DATA_ERROR
+                });
+                break;
+            }
+        }
+
+        if output_offset == output.len() {
+            break;
+        }
+
+        // zlib's inflate() keeps going internally while it can make progress.
+        // In particular, a backend may have pending output even after it has
+        // consumed all currently supplied input.
+        if consumed_now == 0 && produced_now == 0 {
+            break;
+        }
+    }
 
     let consumed = u32::try_from(host_stream.decompress.total_in() - before_in).unwrap();
     let produced = u32::try_from(host_stream.decompress.total_out() - before_out).unwrap();
+
+    if produced != 0 {
+        env.mem
+            .bytes_at_mut(next_out, produced)
+            .copy_from_slice(&output[..produced as usize]);
+    }
 
     if !next_in.is_null() {
         env.mem.write(stream.cast(), next_in + consumed);
@@ -203,19 +252,16 @@ fn inflate(env: &mut Environment, stream: MutPtr<u8>, flush: i32) -> i32 {
         u32::try_from(host_stream.decompress.total_out()).unwrap(),
     );
 
-    let return_value = match result {
-        Ok(Status::Ok) => Z_OK,
-        Ok(Status::StreamEnd) => Z_STREAM_END,
-        Ok(Status::BufError) => Z_BUF_ERROR,
-        Err(error) => {
-            let needs_dictionary = error.needs_dictionary().is_some();
-            log!("Host zlib inflate error: {error}");
-            if needs_dictionary {
-                Z_NEED_DICT
-            } else {
-                Z_DATA_ERROR
-            }
-        }
+    let return_value = if let Some(error) = error_code {
+        error
+    } else if stream_ended {
+        Z_STREAM_END
+    } else if (consumed == 0 && produced == 0) || flush == 4 {
+        // zlib 1.2.x returns Z_BUF_ERROR when no progress was possible, and
+        // also for Z_FINISH until the stream has actually ended.
+        Z_BUF_ERROR
+    } else {
+        Z_OK
     };
 
     env.libc_state.zlib_compat.streams.insert(key, host_stream);

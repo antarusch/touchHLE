@@ -50,7 +50,7 @@ android {
         buildConfigField("String", "APP_NAME", "\"touchHLE Eustrath\"")
         manifestPlaceholders["icon"] = join("@drawable/icon", "_", branding.lowercase())
         buildConfigField("int", "APP_ICON", join("R.drawable.icon", "_", branding.lowercase()))
-        versionCode = 34
+        versionCode = 35
         versionName = join(getTouchHLEVersionName(), " ", branding)
 
         minSdk = 21 // first version with AArch64
