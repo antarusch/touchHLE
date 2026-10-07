@@ -113,7 +113,8 @@ fn AudioSessionGetProperty(
         }
         kAudioSessionProperty_AudioInputAvailable => {
             // Guest microphone/audio capture is not implemented, so exposing
-            // an input device would make applications attempt an unsupported path.
+            // an input device would make applications attempt an unsupported
+            // path.
             let value: u32 = 0;
             env.mem.write(out_data.cast(), value);
         }
