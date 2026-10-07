@@ -168,7 +168,10 @@ fn nl_langinfo(env: &mut Environment, item: i32) -> MutPtr<u8> {
     };
     let ptr = env.mem.alloc_and_write_cstr(&value);
     env.libc_state.clocale.langinfo.insert(item, ptr);
-    log_dbg!("nl_langinfo({item}) => {:?}", env.mem.cstr_at_utf8(ptr.cast()));
+    log_dbg!(
+        "nl_langinfo({item}) => {:?}",
+        env.mem.cstr_at_utf8(ptr.cast())
+    );
     ptr
 }
 
