@@ -46,6 +46,17 @@ struct AudioFilePacketTableInfo {
 }
 unsafe impl SafeRead for AudioFilePacketTableInfo {}
 
+#[repr(C, packed)]
+#[derive(Copy, Clone)]
+struct AudioFramePacketTranslation {
+    frame: i64,
+    packet: i64,
+    frame_offset_in_packet: u32,
+    // Darwin ARM aligns this structure to 8 bytes, for a total size of 24.
+    _padding: u32,
+}
+unsafe impl SafeRead for AudioFramePacketTranslation {}
+
 #[allow(dead_code)]
 const kAudioFileFileNotFoundError: OSStatus = -43;
 pub const kAudioFileBadPropertySizeError: OSStatus = fourcc(b"!siz") as _;
@@ -70,6 +81,8 @@ const kAudioFilePropertyAudioDataPacketCount: AudioFilePropertyID = fourcc(b"pcn
 pub const kAudioFilePropertyPacketSizeUpperBound: AudioFilePropertyID = fourcc(b"pkub");
 const kAudioFilePropertyMagicCookieData: AudioFilePropertyID = fourcc(b"mgic");
 const kAudioFilePropertyChannelLayout: AudioFilePropertyID = fourcc(b"cmap");
+const kAudioFilePropertyPacketToFrame: AudioFilePropertyID = fourcc(b"pkfr");
+const kAudioFilePropertyFrameToPacket: AudioFilePropertyID = fourcc(b"frpk");
 const kAudioFilePropertyEstimatedDuration: AudioFilePropertyID = fourcc(b"edur");
 const kAudioFilePropertyPacketTableInfo: AudioFilePropertyID = fourcc(b"pnfo");
 
@@ -228,6 +241,9 @@ pub(super) fn property_size(property_id: AudioFilePropertyID) -> GuestUSize {
         kAudioFilePropertyAudioDataByteCount => guest_size_of::<u64>(),
         kAudioFilePropertyAudioDataPacketCount => guest_size_of::<u64>(),
         kAudioFilePropertyPacketSizeUpperBound => guest_size_of::<u32>(),
+        kAudioFilePropertyPacketToFrame | kAudioFilePropertyFrameToPacket => {
+            guest_size_of::<AudioFramePacketTranslation>()
+        }
         kAudioFilePropertyEstimatedDuration => guest_size_of::<f64>(),
         kAudioFilePropertyPacketTableInfo => guest_size_of::<AudioFilePacketTableInfo>(),
         _ => unimplemented!("Unimplemented property ID: {}", debug_fourcc(property_id)),
@@ -321,6 +337,34 @@ pub fn AudioFileGetProperty(
             let packet_size_upper_bound: u32 = host_object.audio_file.packet_size_upper_bound();
             env.mem
                 .write(out_property_data.cast(), packet_size_upper_bound);
+        }
+        kAudioFilePropertyPacketToFrame => {
+            let translation_ptr: MutPtr<AudioFramePacketTranslation> = out_property_data.cast();
+            let mut translation = env.mem.read(translation_ptr);
+            if translation.packet < 0 {
+                return kAudioFileUnspecifiedError;
+            }
+
+            let frames_per_packet =
+                i64::from(host_object.audio_file.audio_description().frames_per_packet);
+            translation.frame = translation.packet.checked_mul(frames_per_packet).unwrap();
+            translation.frame_offset_in_packet = 0;
+            env.mem.write(translation_ptr, translation);
+        }
+        kAudioFilePropertyFrameToPacket => {
+            let translation_ptr: MutPtr<AudioFramePacketTranslation> = out_property_data.cast();
+            let mut translation = env.mem.read(translation_ptr);
+            if translation.frame < 0 {
+                return kAudioFileUnspecifiedError;
+            }
+
+            let frames_per_packet =
+                i64::from(host_object.audio_file.audio_description().frames_per_packet);
+            assert!(frames_per_packet > 0);
+            translation.packet = translation.frame / frames_per_packet;
+            translation.frame_offset_in_packet =
+                (translation.frame % frames_per_packet).try_into().unwrap();
+            env.mem.write(translation_ptr, translation);
         }
         kAudioFilePropertyEstimatedDuration => {
             let estimated_duration = host_object.audio_file.estimated_duration();
