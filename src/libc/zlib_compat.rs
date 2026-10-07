@@ -62,10 +62,7 @@ fn validate_init_args(
     if stream.is_null() {
         return Err(Z_STREAM_ERROR);
     }
-    if version.is_null()
-        || stream_size != Z_STREAM_SIZE_IOS32
-        || env.mem.read(version) != b'1'
-    {
+    if version.is_null() || stream_size != Z_STREAM_SIZE_IOS32 || env.mem.read(version) != b'1' {
         return Err(Z_VERSION_ERROR);
     }
     Ok(())
@@ -85,8 +82,8 @@ fn initialize_host_stream(env: &mut Environment, stream: MutPtr<u8>, zlib_header
     env.mem.write((stream + 0x08).cast(), 0u32); // total_in
     env.mem.write((stream + 0x14).cast(), 0u32); // total_out
     env.mem.write((stream + 0x18).cast(), null); // msg
-    // A non-null sentinel keeps code that checks z_stream::state happy. The
-    // actual inflate state lives in the host-side map above.
+                                                 // A non-null sentinel keeps code that checks z_stream::state happy. The
+                                                 // actual inflate state lives in the host-side map above.
     env.mem.write((stream + 0x1c).cast(), stream);
     env.mem.write((stream + 0x2c).cast(), 0i32); // data_type
     env.mem.write((stream + 0x30).cast(), 1u32); // adler
@@ -128,10 +125,7 @@ fn inflateInit2_(
         return initialize_host_stream(env, stream, false);
     }
 
-    env.libc_state
-        .zlib_compat
-        .streams
-        .remove(&stream.to_bits());
+    env.libc_state.zlib_compat.streams.remove(&stream.to_bits());
     let real_init = guest_zlib_function(env, "_inflateInit2_");
     real_init.call_from_host(env, (stream, window_bits, version, stream_size))
 }
@@ -153,10 +147,7 @@ fn inflate(env: &mut Environment, stream: MutPtr<u8>, flush: i32) -> i32 {
     let avail_out: u32 = env.mem.read((stream + 0x10).cast());
 
     if (avail_in != 0 && next_in.is_null()) || (avail_out != 0 && next_out.is_null()) {
-        env.libc_state
-            .zlib_compat
-            .streams
-            .insert(key, host_stream);
+        env.libc_state.zlib_compat.streams.insert(key, host_stream);
         return Z_STREAM_ERROR;
     }
 
@@ -195,19 +186,16 @@ fn inflate(env: &mut Environment, stream: MutPtr<u8>, flush: i32) -> i32 {
     if !next_in.is_null() {
         env.mem.write(stream.cast(), next_in + consumed);
     }
-    env.mem
-        .write((stream + 0x04).cast(), avail_in - consumed);
+    env.mem.write((stream + 0x04).cast(), avail_in - consumed);
     env.mem.write(
         (stream + 0x08).cast(),
         u32::try_from(host_stream.decompress.total_in()).unwrap(),
     );
 
     if !next_out.is_null() {
-        env.mem
-            .write((stream + 0x0c).cast(), next_out + produced);
+        env.mem.write((stream + 0x0c).cast(), next_out + produced);
     }
-    env.mem
-        .write((stream + 0x10).cast(), avail_out - produced);
+    env.mem.write((stream + 0x10).cast(), avail_out - produced);
     env.mem.write(
         (stream + 0x14).cast(),
         u32::try_from(host_stream.decompress.total_out()).unwrap(),
@@ -228,10 +216,7 @@ fn inflate(env: &mut Environment, stream: MutPtr<u8>, flush: i32) -> i32 {
         }
     };
 
-    env.libc_state
-        .zlib_compat
-        .streams
-        .insert(key, host_stream);
+    env.libc_state.zlib_compat.streams.insert(key, host_stream);
     return_value
 }
 
