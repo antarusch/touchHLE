@@ -8,11 +8,10 @@ use crate::abi::DotDotDot;
 use crate::dyld::FunctionExports;
 use crate::environment::Environment;
 use crate::export_c_func;
-use crate::libc::errno::{set_errno, EINVAL, ENOTSUP};
+use crate::libc::errno::{set_errno, EINVAL, ENOMEM, ENOTSUP};
 use crate::libc::posix_io;
 use crate::libc::posix_io::{off_t, FileDescriptor, SEEK_SET};
-use crate::mem::VMAllocError;
-use crate::mem::{ConstPtr, GuestUSize, MutVoidPtr, PAGE_SIZE_ALIGN_MASK};
+use crate::mem::{ConstPtr, GuestUSize, MutVoidPtr, Ptr, PAGE_SIZE_ALIGN_MASK};
 use std::collections::HashMap;
 
 #[allow(dead_code)]
@@ -51,16 +50,32 @@ fn mmap(
     );
 
     assert_eq!(offset, 0);
-    let ptr = if addr.is_null() {
-        env.mem.vm_alloc(None, len).unwrap()
+    let allocation = if addr.is_null() {
+        env.mem.vm_alloc(None, len)
     } else {
         match env.mem.vm_alloc(Some(addr.to_bits()), len) {
-            Err(VMAllocError::AddressUnavailable) if flags & MAP_FIXED == 0 => {
-                let ptr = env.mem.vm_alloc(None, len).unwrap();
-                log!("Warning: mmap could not allocate at hint {addr:?}, allocated at {ptr:?}",);
-                ptr
+            Ok(ptr) => Ok(ptr),
+            Err(err) if flags & MAP_FIXED == 0 => {
+                // Without MAP_FIXED, addr is only a placement hint. If the
+                // requested range cannot be used for any reason, POSIX permits
+                // mmap() to choose a different free address.
+                log!(
+                    "Warning: mmap could not allocate at hint {addr:?} ({err:?}), trying another address"
+                );
+                env.mem.vm_alloc(None, len)
             }
-            result => result.unwrap(),
+            Err(err) => Err(err),
+        }
+    };
+
+    let ptr = match allocation {
+        Ok(ptr) => ptr,
+        Err(err) => {
+            set_errno(env, ENOMEM);
+            log!(
+                "Warning: mmap({addr:?}, {len}, {prot}, {flags}, {fd}, {offset}) failed: {err:?}"
+            );
+            return Ptr::from_bits(u32::MAX);
         }
     };
 
