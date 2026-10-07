@@ -76,20 +76,21 @@ pub const CLASSES: ClassExports = objc_classes! {
              target:(id)target
              action:(SEL)action {
     retain(env, title);
+    let old_title = env.objc.borrow::<UIBarButtonItemHostObject>(this).title;
     let host = env.objc.borrow_mut::<UIBarButtonItemHostObject>(this);
-    release(env, host.title);
     host.title = title;
     host.style = style;
     host.target = target; // UIKit target is non-retaining.
     host.action = Some(action);
+    release(env, old_title);
     this
 }
 
 - (id)initWithCustomView:(id)view {
     retain(env, view);
-    let host = env.objc.borrow_mut::<UIBarButtonItemHostObject>(this);
-    release(env, host.custom_view);
-    host.custom_view = view;
+    let old_view = env.objc.borrow::<UIBarButtonItemHostObject>(this).custom_view;
+    env.objc.borrow_mut::<UIBarButtonItemHostObject>(this).custom_view = view;
+    release(env, old_view);
     this
 }
 
