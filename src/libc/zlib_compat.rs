@@ -45,7 +45,6 @@ pub struct State {
     streams: HashMap<u32, HostInflateStream>,
 }
 
-
 unsafe extern "C" fn host_zalloc(
     _opaque: libz_sys::voidpf,
     items: libz_sys::uInt,
