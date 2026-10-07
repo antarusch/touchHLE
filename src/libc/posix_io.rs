@@ -44,7 +44,10 @@ struct PosixFileHostObject {
     file: GuestFile,
     needs_flush: bool,
     reached_eof: bool,
+    /// Per-descriptor flags such as FD_CLOEXEC.
     flags: i32,
+    /// File status flags returned by F_GETFL.
+    status_flags: i32,
 }
 
 // TODO: stdin/stdout/stderr handling somehow
@@ -86,6 +89,8 @@ pub const O_EXCL: OpenFlag = 0x800;
 pub type FileControlCommand = i32;
 const F_GETFD: FileControlCommand = 1;
 const F_SETFD: FileControlCommand = 2;
+const F_GETFL: FileControlCommand = 3;
+const F_SETFL: FileControlCommand = 4;
 const F_GETLK: FileControlCommand = 7;
 const F_SETLK: FileControlCommand = 8;
 const F_RDADVISE: FileControlCommand = 44;
@@ -211,6 +216,7 @@ pub fn open_direct(env: &mut Environment, path: ConstPtr<u8>, flags: i32) -> Fil
                 needs_flush,
                 reached_eof: false,
                 flags: 0,
+                status_flags: flags & (O_ACCMODE | O_NONBLOCK | O_APPEND),
             };
 
             find_or_create_fd(env, host_object)
@@ -750,20 +756,27 @@ fn fcntl(
     // TODO: handle errno properly
     set_errno(env, 0);
 
-    if fd >= NORMAL_FILENO_BASE
-        && env
+    let valid_fd = match fd {
+        STDIN_FILENO | STDOUT_FILENO | STDERR_FILENO => true,
+        fd if fd >= NORMAL_FILENO_BASE => env
             .libc_state
             .posix_io
             .files
             .get(fd_to_file_idx(fd))
-            .is_none()
-    {
+            .and_then(|file| file.as_ref())
+            .is_some(),
+        _ => false,
+    };
+    if !valid_fd {
         set_errno(env, EBADF);
         return -1;
     }
 
     match cmd {
         F_GETFD => {
+            if matches!(fd, STDIN_FILENO | STDOUT_FILENO | STDERR_FILENO) {
+                return 0;
+            }
             let file = env.libc_state.posix_io.file_for_fd(fd).unwrap();
             return file.flags;
         }
@@ -784,8 +797,46 @@ fn fcntl(
                     flags
                 );
             }
-            let file = env.libc_state.posix_io.file_for_fd(fd).unwrap();
-            file.flags = flags;
+            if fd >= NORMAL_FILENO_BASE {
+                let file = env.libc_state.posix_io.file_for_fd(fd).unwrap();
+                file.flags = flags;
+            }
+        }
+        F_GETFL => {
+            return match fd {
+                STDIN_FILENO => O_RDONLY,
+                STDOUT_FILENO | STDERR_FILENO => O_WRONLY,
+                _ => env
+                    .libc_state
+                    .posix_io
+                    .file_for_fd(fd)
+                    .unwrap()
+                    .status_flags,
+            };
+        }
+        F_SETFL => {
+            let flags: i32 = args.start().next(env);
+            let mutable_flags = O_NONBLOCK | O_APPEND;
+            let unsupported_flags = flags & !(O_ACCMODE | mutable_flags);
+            if unsupported_flags != 0 {
+                log!(
+                    "Warning: fcntl({}, F_SETFL, {:#x}) contains unsupported flags {:#x}; ignoring them",
+                    fd,
+                    flags,
+                    unsupported_flags
+                );
+            }
+
+            // O_NONBLOCK has no host-side effect because touchHLE file I/O is
+            // already serviced synchronously from the emulator. Track it so
+            // F_GETFL observes the state expected by guest code. O_APPEND is
+            // likewise retained as status metadata; files opened with O_APPEND
+            // already use append mode through GuestOpenOptions.
+            if fd >= NORMAL_FILENO_BASE {
+                let file = env.libc_state.posix_io.file_for_fd(fd).unwrap();
+                let access_mode = file.status_flags & O_ACCMODE;
+                file.status_flags = access_mode | (flags & mutable_flags);
+            }
         }
         F_GETLK => {
             let lock_ptr: MutPtr<flock> = args.start().next(env);
@@ -844,7 +895,11 @@ fn fcntl(
         F_RDADVISE => {
             log_dbg!("TODO: Ignoring F_RDADVISE for file descriptor {}", fd);
         }
-        _ => unimplemented!(),
+        _ => {
+            log!("Warning: fcntl({}, {}, ...) is unsupported", fd, cmd);
+            set_errno(env, EINVAL);
+            return -1;
+        }
     }
     0 // success
 }
@@ -974,6 +1029,7 @@ pub fn find_or_create_socket(env: &mut Environment) -> FileDescriptor {
         needs_flush: false,
         reached_eof: false,
         flags: 0,
+        status_flags: O_RDWR,
     };
     find_or_create_fd(env, host_object)
 }
