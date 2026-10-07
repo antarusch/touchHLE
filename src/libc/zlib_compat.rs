@@ -82,9 +82,10 @@ fn initialize_host_stream(env: &mut Environment, stream: MutPtr<u8>, zlib_header
     env.mem.write((stream + 0x08).cast(), 0u32); // total_in
     env.mem.write((stream + 0x14).cast(), 0u32); // total_out
     env.mem.write((stream + 0x18).cast(), null); // msg
-    // Keep z_stream::state non-null for guest code that checks it.
-    // The real inflate state lives in the host-side map above.
+
+    // Keep z_stream::state non-null; the real state lives in the host map.
     env.mem.write((stream + 0x1c).cast(), stream);
+
     env.mem.write((stream + 0x2c).cast(), 0i32); // data_type
     env.mem.write((stream + 0x30).cast(), 1u32); // adler
 
