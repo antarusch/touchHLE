@@ -52,8 +52,6 @@ struct AudioFramePacketTranslation {
     frame: i64,
     packet: i64,
     frame_offset_in_packet: u32,
-    // Darwin ARM aligns this structure to 8 bytes, for a total size of 24.
-    _padding: u32,
 }
 unsafe impl SafeRead for AudioFramePacketTranslation {}
 
