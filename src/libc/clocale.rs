@@ -59,7 +59,6 @@ pub fn setlocale(
     env.libc_state.clocale.locale.get(&category).unwrap().cast()
 }
 
-
 fn codeset_for_current_locale(env: &Environment) -> Vec<u8> {
     let locale_ptr = env
         .libc_state
