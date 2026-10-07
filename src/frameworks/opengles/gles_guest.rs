@@ -287,15 +287,9 @@ fn glGetString(env: &mut Environment, name: GLenum) -> ConstPtr<GLubyte> {
         let new_str = with_ctx_and_mem(env, |_gles, mem| {
             // Those values are extracted from the iPod touch 2nd gen, iOS 4.2.1
             let s: &[u8] = match name {
-                gles11::VENDOR => {
-                    b"Imagination Technologies"
-                }
-                gles11::RENDERER => {
-                    b"PowerVR MBXLite with VGPLite"
-                }
-                gles11::VERSION => {
-                    b"OpenGL ES-CM 1.1 (76)"
-                }
+                gles11::VENDOR => b"Imagination Technologies",
+                gles11::RENDERER => b"PowerVR MBXLite with VGPLite",
+                gles11::VERSION => b"OpenGL ES-CM 1.1 (76)",
                 gles11::EXTENSIONS => {
                     // Only advertise extensions whose behavior is actually
                     // available through touchHLE. Apps such as older Unity
