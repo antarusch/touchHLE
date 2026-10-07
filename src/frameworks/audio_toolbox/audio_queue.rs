@@ -657,7 +657,8 @@ fn AudioQueueOfflineRender(
                 host_object.offline_buffer_offset = 0;
             }
 
-            callback_proc.call_from_host(env, (callback_user_data, in_aq, input_buffer));
+            let (): () =
+                callback_proc.call_from_host(env, (callback_user_data, in_aq, input_buffer));
 
             if input.audio_data_byte_size == 0 {
                 empty_callback_count += 1;
