@@ -806,12 +806,13 @@ fn fcntl(
             return match fd {
                 STDIN_FILENO => O_RDONLY,
                 STDOUT_FILENO | STDERR_FILENO => O_WRONLY,
-                _ => env
-                    .libc_state
-                    .posix_io
-                    .file_for_fd(fd)
-                    .unwrap()
-                    .status_flags,
+                _ => {
+                    env.libc_state
+                        .posix_io
+                        .file_for_fd(fd)
+                        .unwrap()
+                        .status_flags
+                }
             };
         }
         F_SETFL => {
