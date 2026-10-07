@@ -95,8 +95,7 @@ fn initialize_host_stream(
 
     // SAFETY: z_stream is a C data structure whose all-zero state is the
     // required precondition for inflateInit2_ when default allocators are used.
-    let mut host_stream: Box<libz_sys::z_stream> =
-        Box::new(unsafe { std::mem::zeroed() });
+    let mut host_stream: Box<libz_sys::z_stream> = Box::new(unsafe { std::mem::zeroed() });
 
     // SAFETY: host_stream points to valid writable storage. zlibVersion()
     // supplies the matching host zlib version string and stream size.
