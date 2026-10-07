@@ -1672,9 +1672,7 @@ impl Environment {
                         }
                     }
                     dyld::Dyld::SVC_THREAD_EXIT => {
-                        assert!(
-                            svc_pc == self.dyld.thread_exit_routine().addr_without_thumb_bit()
-                        );
+                        assert!(svc_pc == self.dyld.thread_exit_routine().addr_without_thumb_bit());
                         ThreadNextAction::ReturnToHost
                     }
                 }
