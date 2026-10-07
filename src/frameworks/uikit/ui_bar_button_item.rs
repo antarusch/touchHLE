@@ -18,8 +18,6 @@ struct UIBarButtonItemHostObject {
     custom_view: id,
     target: id,
     action: Option<SEL>,
-    style: UIBarButtonItemStyle,
-    system_item: Option<UIBarButtonSystemItem>,
     enabled: bool,
 }
 impl HostObject for UIBarButtonItemHostObject {}
@@ -31,8 +29,6 @@ impl Default for UIBarButtonItemHostObject {
             custom_view: nil,
             target: nil,
             action: None,
-            style: 0,
-            system_item: None,
             enabled: true,
         }
     }
@@ -61,25 +57,23 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.dealloc_object(this, &mut env.mem);
 }
 
-- (id)initWithBarButtonSystemItem:(UIBarButtonSystemItem)system_item
+- (id)initWithBarButtonSystemItem:(UIBarButtonSystemItem)_system_item
                            target:(id)target
                            action:(SEL)action {
     let host = env.objc.borrow_mut::<UIBarButtonItemHostObject>(this);
-    host.system_item = Some(system_item);
     host.target = target; // UIKit target is non-retaining.
     host.action = Some(action);
     this
 }
 
 - (id)initWithTitle:(id)title
-              style:(UIBarButtonItemStyle)style
+              style:(UIBarButtonItemStyle)_style
              target:(id)target
              action:(SEL)action {
     retain(env, title);
     let old_title = env.objc.borrow::<UIBarButtonItemHostObject>(this).title;
     let host = env.objc.borrow_mut::<UIBarButtonItemHostObject>(this);
     host.title = title;
-    host.style = style;
     host.target = target; // UIKit target is non-retaining.
     host.action = Some(action);
     release(env, old_title);
