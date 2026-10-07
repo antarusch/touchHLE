@@ -115,9 +115,7 @@ fn pthread_condattr_setpshared(
         return EINVAL;
     }
     if pshared == PTHREAD_PROCESS_SHARED {
-        log_once!(
-            "Warning: process-shared pthread condition variables are not fully emulated"
-        );
+        log_once!("Warning: process-shared pthread condition variables are not fully emulated");
     }
     let mut attr_copy = env.mem.read(attr);
     attr_copy.pshared = pshared;
