@@ -182,7 +182,8 @@ pub const CLASSES: ClassExports = objc_classes! {
     for &dependency in &dependencies {
         retain(env, dependency);
     }
-    autorelease(env, ns_array::from_vec(env, dependencies))
+    let array = ns_array::from_vec(env, dependencies);
+    autorelease(env, array)
 }
 
 - (NSInteger)queuePriority {
@@ -248,7 +249,8 @@ pub const CLASSES: ClassExports = objc_classes! {
     for &operation in &operations {
         retain(env, operation);
     }
-    autorelease(env, ns_array::from_vec(env, operations))
+    let array = ns_array::from_vec(env, operations);
+    autorelease(env, array)
 }
 
 - (NSUInteger)operationCount {
