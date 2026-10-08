@@ -144,21 +144,46 @@ pub const CLASSES: ClassExports = objc_classes! {
     let _: () = msg![env; center postNotificationName:name object:this userInfo:nil];
 }
 
+- (id)textColor {
+    let text_label = env.objc.borrow::<UITextFieldHostObject>(this).text_label;
+    msg![env; text_label textColor]
+}
 - (())setTextColor:(id)color { // UIColor*
     let text_label = env.objc.borrow_mut::<UITextFieldHostObject>(this).text_label;
     msg![env; text_label setTextColor:color]
 }
 
+- (UITextAlignment)textAlignment {
+    let text_label = env.objc.borrow::<UITextFieldHostObject>(this).text_label;
+    msg![env; text_label textAlignment]
+}
 - (())setTextAlignment:(UITextAlignment)text_alignment {
     let text_label = env.objc.borrow_mut::<UITextFieldHostObject>(this).text_label;
     () = msg![env; text_label setTextAlignment:text_alignment];
 }
 
+- (id)font {
+    let text_label = env.objc.borrow::<UITextFieldHostObject>(this).text_label;
+    msg![env; text_label font]
+}
 - (())setFont:(id)new_font { // UIFont*
     let text_label = env.objc.borrow_mut::<UITextFieldHostObject>(this).text_label;
     msg![env; text_label setFont:new_font]
 }
 
+- (bool)adjustsFontSizeToFitWidth {
+    let text_label = env.objc.borrow::<UITextFieldHostObject>(this).text_label;
+    msg![env; text_label adjustsFontSizeToFitWidth]
+}
+- (())setAdjustsFontSizeToFitWidth:(bool)adjusts {
+    let text_label = env.objc.borrow_mut::<UITextFieldHostObject>(this).text_label;
+    () = msg![env; text_label setAdjustsFontSizeToFitWidth:adjusts];
+}
+
+- (CGFloat)minimumFontSize {
+    let text_label = env.objc.borrow::<UITextFieldHostObject>(this).text_label;
+    msg![env; text_label minimumFontSize]
+}
 - (())setMinimumFontSize:(CGFloat)size {
     let text_label = env.objc.borrow_mut::<UITextFieldHostObject>(this).text_label;
     () = msg![env; text_label setMinimumFontSize:size];
