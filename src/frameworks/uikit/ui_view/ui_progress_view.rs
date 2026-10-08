@@ -5,9 +5,7 @@
  */
 //! `UIProgressView`.
 
-use crate::frameworks::core_graphics::cg_context::{
-    CGContextFillRect, CGContextSetRGBFillColor,
-};
+use crate::frameworks::core_graphics::cg_context::{CGContextFillRect, CGContextSetRGBFillColor};
 use crate::frameworks::core_graphics::{CGRect, CGSize};
 use crate::frameworks::foundation::ns_string::get_static_str;
 use crate::frameworks::foundation::NSInteger;
