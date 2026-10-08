@@ -8,12 +8,14 @@
 
 @interface NSDictionary (NilDictionaryTest)
 + (instancetype)dictionaryWithDictionary:(NSDictionary *)dictionary;
++ (instancetype)dictionaryWithObject:(id)object forKey:(id)key;
 - (instancetype)initWithDictionary:(NSDictionary *)dictionary;
 @end
 
 @interface NSMutableDictionary : NSDictionary
 - (void)setObject:(id)object forKey:(id)key;
 - (void)removeObjectForKey:(id)key;
+- (void)setValue:(id)value forKey:(NSString *)key;
 @end
 
 static BOOL checkNilDictionary(void) {
@@ -37,6 +39,17 @@ static BOOL checkNilDictionary(void) {
   [mutable removeObjectForKey:key];
   ok &= [mutable count] == 0 && [copy count] == 1 &&
         [copy objectForKey:key] == value;
+
+  // An inherited class factory must preserve NSMutableDictionary mutability.
+  NSDictionary *singleImmutable =
+      [NSDictionary dictionaryWithObject:value forKey:key];
+  NSMutableDictionary *singleMutable =
+      [NSMutableDictionary dictionaryWithObject:value forKey:key];
+  NSString *additionalKey = [NSString stringWithUTF8String:"another"];
+  [singleMutable setValue:value forKey:additionalKey];
+  ok &= [singleMutable isKindOfClass:[NSMutableDictionary class]] &&
+        [singleImmutable count] == 1 && [singleMutable count] == 2 &&
+        [singleMutable objectForKey:additionalKey] == value;
   [initialized release];
   [initializedMutable release];
   [pool drain];

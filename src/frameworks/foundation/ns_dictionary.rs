@@ -453,8 +453,13 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 + (id)dictionaryWithObject:(id)object forKey:(id)key {
     assert_ne!(key, nil); // TODO: raise proper exception
-
-    let new_dict = dict_from_keys_and_objects(env, &[(key, object)]);
+    // The factory is inherited by NSMutableDictionary. Allocating the
+    // receiver's class, rather than a hard-coded NSDictionary, preserves
+    // mutability for [NSMutableDictionary dictionaryWithObject:forKey:].
+    let new_dict: id = msg![env; this alloc];
+    let keys: id = msg_class![env; NSArray arrayWithObject:key];
+    let objects: id = msg_class![env; NSArray arrayWithObject:object];
+    let new_dict: id = msg![env; new_dict initWithObjects:objects forKeys:keys];
     autorelease(env, new_dict)
 }
 
