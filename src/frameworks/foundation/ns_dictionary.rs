@@ -35,6 +35,28 @@ use std::collections::HashMap;
 /// Alias for the return type of the `hash` method of the `NSObject` protocol.
 type Hash = NSUInteger;
 
+/// Some legacy software uses Foundation dictionaries as pointer maps and casts
+/// opaque C/C++ pointers to `id`. Those pointers are not Objective-C objects,
+/// so attempting to send them retain/release messages is invalid. Preserve
+/// untracked guest pointers non-owningly while keeping normal NSDictionary
+/// ownership semantics for real Objective-C objects.
+fn retain_dictionary_value(env: &mut Environment, value: id) -> id {
+    if env.objc.get_host_object(value).is_some() {
+        retain(env, value)
+    } else {
+        log_once!(
+            "Warning: NSDictionary received an opaque non-Objective-C value; storing it non-owningly"
+        );
+        value
+    }
+}
+
+fn release_dictionary_value(env: &mut Environment, value: id) {
+    if env.objc.get_host_object(value).is_some() {
+        release(env, value);
+    }
+}
+
 /// Belongs to _touchHLE_NSDictionary, also used by _touchHLE_NSSet
 #[derive(Debug, Default)]
 pub(super) struct DictionaryHostObject {
@@ -69,7 +91,7 @@ impl DictionaryHostObject {
         };
         let hash: Hash = msg![env; key hash];
 
-        let value = retain(env, value);
+        let value = retain_dictionary_value(env, value);
 
         let Some(collisions) = self.map.get_mut(&hash) else {
             self.map.insert(hash, vec![(key, value)]);
@@ -78,7 +100,7 @@ impl DictionaryHostObject {
         };
         for &mut (candidate_key, ref mut existing_value) in collisions.iter_mut() {
             if candidate_key == key || msg![env; candidate_key isEqual:key] {
-                release(env, *existing_value);
+                release_dictionary_value(env, *existing_value);
                 *existing_value = value;
                 return;
             }
@@ -98,7 +120,7 @@ impl DictionaryHostObject {
         };
         let (existing_key, value) = collisions[idx];
         release(env, existing_key);
-        release(env, value);
+        release_dictionary_value(env, value);
         collisions.remove(idx);
         self.count -= 1;
     }
@@ -106,7 +128,7 @@ impl DictionaryHostObject {
         for collisions in self.map.values() {
             for &(key, value) in collisions {
                 release(env, key);
-                release(env, value);
+                release_dictionary_value(env, value);
             }
         }
     }
