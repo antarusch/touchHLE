@@ -11,8 +11,7 @@ use crate::frameworks::foundation::ns_string::get_static_str;
 use crate::frameworks::foundation::NSInteger;
 use crate::frameworks::uikit::ui_geometry::UIEdgeInsets;
 use crate::objc::{
-    id, impl_HostObject_with_superclass, msg, nil, objc_classes, todo_objc_setter, ClassExports,
-    NSZonePtr, SEL,
+    id, impl_HostObject_with_superclass, msg, nil, objc_classes, ClassExports, NSZonePtr, SEL,
 };
 
 type UIScrollViewIndicatorStyle = NSInteger;
@@ -22,6 +21,16 @@ pub struct UIScrollViewHostObject {
     /// UIScrollViewDelegate, weak reference
     delegate: id,
     scroll_enabled: bool,
+    delays_content_touches: bool,
+    bounces: bool,
+    always_bounce_vertical: bool,
+    always_bounce_horizontal: bool,
+    directional_lock_enabled: bool,
+    paging_enabled: bool,
+    shows_horizontal_scroll_indicator: bool,
+    shows_vertical_scroll_indicator: bool,
+    scrolls_to_top: bool,
+    indicator_style: UIScrollViewIndicatorStyle,
     content_offset: CGPoint,
     content_size: CGSize,
     content_inset: UIEdgeInsets,
@@ -33,6 +42,16 @@ impl Default for UIScrollViewHostObject {
             superclass: Default::default(),
             delegate: nil,
             scroll_enabled: true,
+            delays_content_touches: true,
+            bounces: true,
+            always_bounce_vertical: false,
+            always_bounce_horizontal: false,
+            directional_lock_enabled: false,
+            paging_enabled: false,
+            shows_horizontal_scroll_indicator: true,
+            shows_vertical_scroll_indicator: true,
+            scrolls_to_top: true,
+            indicator_style: 0,
             content_offset: CGPoint { x: 0.0, y: 0.0 },
             content_size: CGSize {
                 width: 0.0,
@@ -77,11 +96,44 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.borrow_mut::<UIScrollViewHostObject>(this).delegate = delegate;
 }
 
-- (())setDelaysContentTouches:(id)_delay_content_touches{
-    // TODO
+- (bool)delaysContentTouches {
+    env.objc
+        .borrow::<UIScrollViewHostObject>(this)
+        .delays_content_touches
 }
-- (())setBounces:(id)_bounces {
-    // TODO
+- (())setDelaysContentTouches:(bool)value {
+    env.objc
+        .borrow_mut::<UIScrollViewHostObject>(this)
+        .delays_content_touches = value;
+}
+
+- (bool)bounces {
+    env.objc.borrow::<UIScrollViewHostObject>(this).bounces
+}
+- (())setBounces:(bool)value {
+    env.objc.borrow_mut::<UIScrollViewHostObject>(this).bounces = value;
+}
+
+- (bool)alwaysBounceVertical {
+    env.objc
+        .borrow::<UIScrollViewHostObject>(this)
+        .always_bounce_vertical
+}
+- (())setAlwaysBounceVertical:(bool)value {
+    env.objc
+        .borrow_mut::<UIScrollViewHostObject>(this)
+        .always_bounce_vertical = value;
+}
+
+- (bool)alwaysBounceHorizontal {
+    env.objc
+        .borrow::<UIScrollViewHostObject>(this)
+        .always_bounce_horizontal
+}
+- (())setAlwaysBounceHorizontal:(bool)value {
+    env.objc
+        .borrow_mut::<UIScrollViewHostObject>(this)
+        .always_bounce_horizontal = value;
 }
 
 - (bool)scrollEnabled {
@@ -91,24 +143,51 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.borrow_mut::<UIScrollViewHostObject>(this).scroll_enabled = scroll_enabled;
 }
 
+- (bool)isDirectionalLockEnabled {
+    env.objc
+        .borrow::<UIScrollViewHostObject>(this)
+        .directional_lock_enabled
+}
 - (())setDirectionalLockEnabled:(bool)enabled {
-    todo_objc_setter!(this, enabled);
+    env.objc
+        .borrow_mut::<UIScrollViewHostObject>(this)
+        .directional_lock_enabled = enabled;
 }
 
+- (bool)isPagingEnabled {
+    env.objc.borrow::<UIScrollViewHostObject>(this).paging_enabled
+}
 - (())setPagingEnabled:(bool)enabled {
-    todo_objc_setter!(this, enabled);
+    env.objc.borrow_mut::<UIScrollViewHostObject>(this).paging_enabled = enabled;
 }
 
+- (bool)showsHorizontalScrollIndicator {
+    env.objc
+        .borrow::<UIScrollViewHostObject>(this)
+        .shows_horizontal_scroll_indicator
+}
 - (())setShowsHorizontalScrollIndicator:(bool)value {
-    todo_objc_setter!(this, value);
+    env.objc
+        .borrow_mut::<UIScrollViewHostObject>(this)
+        .shows_horizontal_scroll_indicator = value;
 }
 
+- (bool)showsVerticalScrollIndicator {
+    env.objc
+        .borrow::<UIScrollViewHostObject>(this)
+        .shows_vertical_scroll_indicator
+}
 - (())setShowsVerticalScrollIndicator:(bool)value {
-    todo_objc_setter!(this, value);
+    env.objc
+        .borrow_mut::<UIScrollViewHostObject>(this)
+        .shows_vertical_scroll_indicator = value;
 }
 
+- (bool)scrollsToTop {
+    env.objc.borrow::<UIScrollViewHostObject>(this).scrolls_to_top
+}
 - (())setScrollsToTop:(bool)value {
-    todo_objc_setter!(this, value);
+    env.objc.borrow_mut::<UIScrollViewHostObject>(this).scrolls_to_top = value;
 }
 
 - (CGPoint)contentOffset {
@@ -152,8 +231,11 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.borrow_mut::<UIScrollViewHostObject>(this).content_size = size;
 }
 
+- (UIScrollViewIndicatorStyle)indicatorStyle {
+    env.objc.borrow::<UIScrollViewHostObject>(this).indicator_style
+}
 - (())setIndicatorStyle:(UIScrollViewIndicatorStyle)style {
-    todo_objc_setter!(this, style);
+    env.objc.borrow_mut::<UIScrollViewHostObject>(this).indicator_style = style;
 }
 
 - (())touchesMoved:(id)touches // NSSet* of UITouch*
