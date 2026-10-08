@@ -401,17 +401,22 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (id)attributesOfItemAtPath:(id)path // NSString *
                        error:(MutPtr<id>)error { // NSError **
-    assert!(error.is_null()); // TODO
-
     // TODO: other attributes
     log_once!("Warning: NSFileManager attributesOfItemAtPath:error: returns only NSFileType, NSFileModificationDate and NSFileSize attributes!");
 
-    let path = ns_string::to_rust_string(env, path); // TODO: avoid copy
-    // TODO: traverse link
-    log_dbg!("[(NSFileManager *){:?} attributesOfItemAtPath:{} error:{:?}]", this, path, error);
-    let guest_path = GuestPath::new(&path);
+    if path == nil {
+        write_file_not_found_error(env, error);
+        return nil;
+    }
 
-    file_attributes_common(env, guest_path)
+    let path = ns_string::to_rust_string(env, path); // TODO: avoid copy
+    log_dbg!("[(NSFileManager *){:?} attributesOfItemAtPath:{} error:{:?}]", this, path, error);
+    let attributes = file_attributes_common(env, GuestPath::new(&path));
+    if attributes == nil {
+        write_file_not_found_error(env, error);
+    }
+    // Cocoa does not require overwriting the NSError output on success.
+    attributes
 }
 
 - (id)attributesOfFileSystemForPath:(id)_path
@@ -449,6 +454,19 @@ pub const CLASSES: ClassExports = objc_classes! {
 @end
 
 };
+
+/// Populate an optional NSError** for a missing filesystem item.
+/// Do not touch the caller's output pointer on success.
+fn write_file_not_found_error(env: &mut Environment, out_error: MutPtr<id>) {
+    if out_error.is_null() {
+        return;
+    }
+    let domain = get_static_str(env, NSCocoaErrorDomain);
+    let error: id = msg_class![env; NSError errorWithDomain:domain
+                                                    code:NSFileReadNoSuchFileError
+                                                userInfo:nil];
+    env.mem.write(out_error, error);
+}
 
 /// Helper function for `fileAttributesAtPath:traverseLink:` and
 /// `attributesOfItemAtPath:error:`
