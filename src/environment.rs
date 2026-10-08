@@ -153,6 +153,8 @@ pub enum ThreadBlock {
     Condition(MutPtr<pthread_cond_t>, Option<Duration>),
     // Thread is waiting for another thread to finish (joining).
     Joining(ThreadId, MutPtr<MutVoidPtr>),
+    // Thread is waiting for the owner of a dispatch_once predicate.
+    DispatchOnce(MutPtr<u32>),
     // Thread has hit a cpu error, and is waiting to be debugged.
     WaitingForDebugger(Option<cpu::CpuError>),
     // Thread is suspended. We keep a suspend count and a previous thread state
@@ -179,6 +181,7 @@ impl std::fmt::Display for ThreadBlock {
             ThreadBlock::Condition(ptr, _) => write!(f, "Blocked on condition {ptr:?}"),
             // tid adds 1 to match gdb's thread numbers
             ThreadBlock::Joining(tid, _) => write!(f, "Joining on thread {}", tid + 1),
+            ThreadBlock::DispatchOnce(ptr) => write!(f, "Waiting on dispatch_once {ptr:?}"),
             ThreadBlock::Suspended(count, old) => {
                 write!(f, "Suspended (count {}, previously {})", count, old)
             }
@@ -1868,6 +1871,13 @@ impl Environment {
                                 self.mem
                                     .write(ptr, self.threads[joinee_thread].return_value.unwrap());
                             }
+                            self.threads[thread_id].blocked_by = ThreadBlock::NotBlocked;
+                            return thread_id;
+                        }
+                    }
+                    ThreadBlock::DispatchOnce(predicate) => {
+                        let value: u32 = self.mem.read(predicate);
+                        if value == crate::libc::dispatch::DISPATCH_ONCE_DONE {
                             self.threads[thread_id].blocked_by = ThreadBlock::NotBlocked;
                             return thread_id;
                         }

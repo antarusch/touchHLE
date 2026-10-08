@@ -11,7 +11,8 @@
 
 use crate::abi::{CallFromHost, GuestFunction};
 use crate::dyld::{export_c_func, ConstantExports, FunctionExports, HostConstant};
-use crate::mem::{ConstVoidPtr, MutPtr};
+use crate::environment::ThreadBlock;
+use crate::mem::{ConstVoidPtr, MutPtr, MutVoidPtr};
 use crate::Environment;
 
 #[derive(Default)]
@@ -76,6 +77,60 @@ fn invoke_block(env: &mut Environment, block: MutPtr<u8>) {
     let _: () = invoke.call_from_host(env, (block,));
 }
 
+/// A completed 32-bit libdispatch predicate is all-one bits.
+pub const DISPATCH_ONCE_DONE: u32 = u32::MAX;
+const DISPATCH_ONCE_RUNNING: u32 = 1;
+
+#[derive(Debug, PartialEq, Eq)]
+enum OnceAction {
+    Run,
+    Wait,
+    Done,
+}
+
+fn once_action(value: u32) -> OnceAction {
+    match value {
+        0 => OnceAction::Run,
+        DISPATCH_ONCE_DONE => OnceAction::Done,
+        _ => OnceAction::Wait,
+    }
+}
+
+/// Run the initializer synchronously, blocking other emulated threads until
+/// the same predicate is complete. This also supports dispatch_once_f.
+fn dispatch_once_common(
+    env: &mut Environment,
+    predicate: MutPtr<u32>,
+    initializer: impl FnOnce(&mut Environment),
+) {
+    assert!(!predicate.is_null(), "dispatch_once called with a null predicate");
+    match once_action(env.mem.read(predicate)) {
+        OnceAction::Done => {}
+        OnceAction::Wait => env.yield_thread(ThreadBlock::DispatchOnce(predicate)),
+        OnceAction::Run => {
+            env.mem.write(predicate, DISPATCH_ONCE_RUNNING);
+            initializer(env);
+            env.mem.write(predicate, DISPATCH_ONCE_DONE);
+        }
+    }
+}
+
+fn dispatch_once(env: &mut Environment, predicate: MutPtr<u32>, block: MutPtr<u8>) {
+    assert!(!block.is_null(), "dispatch_once called with a null block");
+    dispatch_once_common(env, predicate, |env| invoke_block(env, block));
+}
+
+fn dispatch_once_f(
+    env: &mut Environment,
+    predicate: MutPtr<u32>,
+    context: MutVoidPtr,
+    work: GuestFunction,
+) {
+    dispatch_once_common(env, predicate, |env| {
+        let _: () = work.call_from_host(env, (context,));
+    });
+}
+
 fn dispatch_async(env: &mut Environment, _queue: MutPtr<u8>, block: MutPtr<u8>) {
     invoke_block(env, block);
 }
@@ -88,4 +143,18 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(dispatch_get_global_queue(_, _)),
     export_c_func!(dispatch_async(_, _)),
     export_c_func!(dispatch_sync(_, _)),
+    export_c_func!(dispatch_once(_, _)),
+    export_c_func!(dispatch_once_f(_, _, _)),
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::{once_action, OnceAction, DISPATCH_ONCE_DONE, DISPATCH_ONCE_RUNNING};
+
+    #[test]
+    fn once_predicate_states() {
+        assert_eq!(once_action(0), OnceAction::Run);
+        assert_eq!(once_action(DISPATCH_ONCE_RUNNING), OnceAction::Wait);
+        assert_eq!(once_action(DISPATCH_ONCE_DONE), OnceAction::Done);
+    }
+}
