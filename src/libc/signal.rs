@@ -58,7 +58,7 @@ fn validate_alt_stack(new: stack_t) -> Result<(), i32> {
 /// Query, register, or disable the calling thread's alternate signal stack.
 /// SS_ONSTACK is never reported until emulated signal delivery is implemented.
 fn sigaltstack(env: &mut Environment, ss: ConstPtr<stack_t>, old_ss: MutPtr<stack_t>) -> i32 {
-    // Read the new value before writing old_ss, because guest pointers can alias.
+    // Read the new value before writing old_ss. Guest pointers can alias.
     let requested = if ss.is_null() {
         None
     } else {
