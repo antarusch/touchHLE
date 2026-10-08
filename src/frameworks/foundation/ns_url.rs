@@ -144,8 +144,9 @@ pub const CLASSES: ClassExports = objc_classes! {
     match *env.objc.borrow(this) {
         // FIXME: file URLs should be rendered with a file:// scheme.
         NSURLHostObject::FileURL { ns_string, .. } => ns_string,
-        // NSURL accepts arbitrary URL schemes (and relative URL strings), not
-        // only HTTP(S). Without a base URL, absoluteString is the stored string.
+        // NSURL accepts arbitrary URL schemes (and relative URL strings),
+        // not only HTTP(S). Without a base URL, absoluteString is the stored
+        // string.
         NSURLHostObject::OtherURL { ns_string } => ns_string,
     }
 }
