@@ -6,7 +6,7 @@
 //! `Mach-O` related functions.
 
 use crate::dyld::{export_c_func, FunctionExports};
-use crate::mem::{GuestUSize, MutPtr};
+use crate::mem::{ConstPtr, GuestUSize, MutPtr, Ptr};
 use crate::Environment;
 
 fn _NSGetExecutablePath(env: &mut Environment, buf: MutPtr<u8>, buf_size: MutPtr<u32>) -> i32 {
@@ -33,6 +33,40 @@ fn get_end(env: &mut Environment) -> u32 {
     env.bins[0].last_segment_end
 }
 
+fn _dyld_image_count(env: &mut Environment) -> u32 {
+    env.bins.len().try_into().unwrap()
+}
+
+fn _dyld_get_image_header(env: &mut Environment, image_index: u32) -> ConstPtr<u8> {
+    env.bins
+        .get(image_index as usize)
+        .map(|bin| Ptr::from_bits(bin.header_addr))
+        .unwrap_or_else(Ptr::null)
+}
+
+fn _dyld_get_image_vmaddr_slide(env: &mut Environment, image_index: u32) -> i32 {
+    env.bins
+        .get(image_index as usize)
+        .map(|bin| bin.vmaddr_slide as i32)
+        .unwrap_or(0)
+}
+
+fn _dyld_get_image_name(env: &mut Environment, image_index: u32) -> ConstPtr<u8> {
+    let Some(bin) = env.bins.get(image_index as usize) else {
+        return Ptr::null();
+    };
+
+    // touchHLE currently has real guest Mach-O images only for the app and
+    // bundled /usr/lib dylibs. Host-implemented frameworks have no guest
+    // Mach-O header to enumerate.
+    let path = if image_index == 0 {
+        env.bundle.executable_path().as_str().to_owned()
+    } else {
+        format!("/usr/lib/{}", bin.name)
+    };
+    env.mem.alloc_and_write_cstr(path.as_bytes()).cast_const()
+}
+
 fn get_etext(env: &mut Environment) -> u32 {
     // Assume app binary is the first.
     let app_sections = &env.bins[0].sections;
@@ -52,6 +86,10 @@ fn get_etext(env: &mut Environment) -> u32 {
 
 pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(_NSGetExecutablePath(_, _)),
+    export_c_func!(_dyld_image_count()),
+    export_c_func!(_dyld_get_image_header(_)),
+    export_c_func!(_dyld_get_image_name(_)),
+    export_c_func!(_dyld_get_image_vmaddr_slide(_)),
     export_c_func!(get_end()),
     export_c_func!(get_etext()),
 ];

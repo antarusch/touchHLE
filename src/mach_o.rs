@@ -55,6 +55,10 @@ pub struct MachO {
     /// This is used by get_end() to return the first address after the last
     /// segment in the executable.
     pub last_segment_end: u32,
+    /// Address of the in-memory Mach-O header (the start of __TEXT).
+    pub header_addr: u32,
+    /// dyld virtual-memory slide applied when this image was loaded.
+    pub vmaddr_slide: u32,
 }
 
 #[derive(Debug)]
@@ -688,6 +692,8 @@ impl MachO {
             external_relocations,
             entry_point_pc,
             last_segment_end,
+            header_addr: text_segment_base.unwrap(),
+            vmaddr_slide: slide,
         })
     }
 
