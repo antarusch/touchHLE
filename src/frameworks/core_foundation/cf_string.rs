@@ -17,7 +17,7 @@ use crate::dyld::{export_c_func, FunctionExports};
 use crate::frameworks::foundation::{ns_string, unichar, NSNotFound, NSRange, NSUInteger};
 use crate::libc::string::strlen;
 use crate::mem::{ConstPtr, GuestUSize, MutPtr};
-use crate::objc::{id, msg, msg_class};
+use crate::objc::{id, msg, msg_class, nil};
 use crate::Environment;
 
 pub type CFStringRef = super::CFTypeRef;
@@ -32,6 +32,7 @@ pub const kCFStringEncodingUTF16: CFStringEncoding = kCFStringEncodingUnicode;
 pub const kCFStringEncodingUTF16BE: CFStringEncoding = 0x10000100;
 pub const kCFStringEncodingUTF16LE: CFStringEncoding = 0x14000100;
 pub const kCFStringEncodingISOLatin1: CFStringEncoding = 0x0201;
+pub const kCFStringEncodingInvalidId: CFStringEncoding = 0xffff_ffff;
 
 fn CFStringAppend(
     env: &mut Environment,
@@ -39,6 +40,18 @@ fn CFStringAppend(
     appended_string: CFStringRef,
 ) {
     msg![env; the_string appendString:appended_string]
+}
+
+fn CFStringAppendCharacters(
+    env: &mut Environment,
+    string: CFMutableStringRef,
+    characters: ConstPtr<unichar>,
+    num_chars: CFIndex,
+) {
+    let length: NSUInteger = num_chars.try_into().unwrap();
+    let to_append: id =
+        msg_class![env; NSString stringWithCharacters:characters length:length];
+    msg![env; string appendString:to_append]
 }
 
 fn CFStringAppendCString(
@@ -81,6 +94,40 @@ pub fn CFStringConvertEncodingToNSStringEncoding(
         _ => unimplemented!("Unhandled: CFStringEncoding {:#x}", encoding),
     }
 }
+fn CFStringConvertEncodingToIANACharSetName(
+    env: &mut Environment,
+    encoding: CFStringEncoding,
+) -> CFStringRef {
+    let name = match encoding {
+        kCFStringEncodingMacRoman => "macintosh",
+        kCFStringEncodingASCII => "us-ascii",
+        kCFStringEncodingUTF8 => "utf-8",
+        kCFStringEncodingUTF16 => "utf-16",
+        kCFStringEncodingUTF16BE => "utf-16be",
+        kCFStringEncodingUTF16LE => "utf-16le",
+        kCFStringEncodingISOLatin1 => "iso-8859-1",
+        _ => return nil,
+    };
+    ns_string::get_static_str(env, name)
+}
+
+fn CFStringConvertIANACharSetNameToEncoding(
+    env: &mut Environment,
+    name: CFStringRef,
+) -> CFStringEncoding {
+    let name = ns_string::to_rust_string(env, name).to_ascii_lowercase();
+    match name.as_str() {
+        "macintosh" | "macroman" => kCFStringEncodingMacRoman,
+        "us-ascii" | "ascii" => kCFStringEncodingASCII,
+        "utf-8" | "utf8" => kCFStringEncodingUTF8,
+        "utf-16" | "utf16" => kCFStringEncodingUTF16,
+        "utf-16be" | "utf16be" => kCFStringEncodingUTF16BE,
+        "utf-16le" | "utf16le" => kCFStringEncodingUTF16LE,
+        "iso-8859-1" | "iso8859-1" | "latin1" => kCFStringEncodingISOLatin1,
+        _ => kCFStringEncodingInvalidId,
+    }
+}
+
 fn CFStringConvertNSStringEncodingToEncoding(
     _env: &mut Environment,
     encoding: ns_string::NSStringEncoding,
@@ -141,6 +188,20 @@ fn CFStringCreateWithBytes(
     let length: NSUInteger = num_bytes.try_into().unwrap();
     let ns_string: id = msg_class![env; NSString alloc];
     msg![env; ns_string initWithBytes:bytes length:length encoding:encoding]
+}
+
+fn CFStringCreateWithBytesNoCopy(
+    env: &mut Environment,
+    allocator: CFAllocatorRef,
+    bytes: ConstPtr<u8>,
+    num_bytes: CFIndex,
+    encoding: CFStringEncoding,
+    is_external: bool,
+    _contents_deallocator: CFAllocatorRef,
+) -> CFStringRef {
+    // Copying is permitted as a compatibility fallback: callers must not rely
+    // on the returned CFString retaining the original byte buffer.
+    CFStringCreateWithBytes(env, allocator, bytes, num_bytes, encoding, is_external)
 }
 
 fn CFStringCreateWithCString(
@@ -337,6 +398,39 @@ fn CFStringGetBytes(
     length.try_into().unwrap()
 }
 
+fn CFStringGetFastestEncoding(
+    _env: &mut Environment,
+    _the_string: CFStringRef,
+) -> CFStringEncoding {
+    // UTF-8 can represent every CFString and is efficient with touchHLE's
+    // NSString implementation. Apple's result is an implementation detail,
+    // so callers must not assume a particular backing-store encoding.
+    kCFStringEncodingUTF8
+}
+
+fn CFStringGetMaximumSizeForEncoding(
+    _env: &mut Environment,
+    length: CFIndex,
+    encoding: CFStringEncoding,
+) -> CFIndex {
+    if length < 0 {
+        return 0;
+    }
+
+    let bytes_per_code_unit = match encoding {
+        kCFStringEncodingMacRoman
+        | kCFStringEncodingASCII
+        | kCFStringEncodingISOLatin1 => 1,
+        kCFStringEncodingUTF8 => 3,
+        kCFStringEncodingUTF16 | kCFStringEncodingUTF16BE | kCFStringEncodingUTF16LE => 2,
+        _ => return 0,
+    };
+
+    length
+        .checked_mul(bytes_per_code_unit)
+        .unwrap_or(CFIndex::MAX)
+}
+
 fn CFStringGetFileSystemRepresentation(
     env: &mut Environment,
     string: CFStringRef,
@@ -446,14 +540,18 @@ fn CFStringNormalize(
 
 pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CFStringAppend(_, _)),
+    export_c_func!(CFStringAppendCharacters(_, _, _)),
     export_c_func!(CFStringAppendCString(_, _, _)),
     export_c_func!(CFStringAppendFormat(_, _, _, _)),
+    export_c_func!(CFStringConvertEncodingToIANACharSetName(_)),
     export_c_func!(CFStringConvertEncodingToNSStringEncoding(_)),
+    export_c_func!(CFStringConvertIANACharSetNameToEncoding(_)),
     export_c_func!(CFStringConvertNSStringEncodingToEncoding(_)),
     export_c_func!(CFStringCreateCopy(_, _)),
     export_c_func!(CFStringCreateMutable(_, _)),
     export_c_func!(CFStringCreateMutableCopy(_, _, _)),
     export_c_func!(CFStringCreateWithBytes(_, _, _, _, _)),
+    export_c_func!(CFStringCreateWithBytesNoCopy(_, _, _, _, _, _)),
     export_c_func!(CFStringCreateWithCString(_, _, _)),
     export_c_func!(CFStringCreateWithCStringNoCopy(_, _, _, _)),
     export_c_func!(CFStringCreateWithFormat(_, _, _, _)),
@@ -468,8 +566,10 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CFStringGetCStringPtr(_, _)),
     export_c_func!(CFStringGetCString(_, _, _, _)),
     export_c_func!(CFStringGetBytes(_, _, _, _, _, _, _, _)),
+    export_c_func!(CFStringGetFastestEncoding(_)),
     export_c_func!(CFStringGetFileSystemRepresentation(_, _, _)),
     export_c_func!(CFStringGetIntValue(_)),
+    export_c_func!(CFStringGetMaximumSizeForEncoding(_, _)),
     export_c_func!(CFStringGetLength(_)),
     export_c_func!(CFStringFind(_, _, _)),
     export_c_func!(CFStringHasSuffix(_, _)),
