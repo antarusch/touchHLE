@@ -984,6 +984,11 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (id)objectForKey:(id)key {
+    // CFDictionary does not allow NULL keys. Avoid calling a client-supplied
+    // hash callback with NULL, which may not be prepared to handle it.
+    if key.is_null() {
+        return nil;
+    }
     let host_obj: CFDictionaryHostObject = std::mem::take(env.objc.borrow_mut(this));
     let res = host_obj.lookup(env, key);
     *env.objc.borrow_mut(this) = host_obj;
@@ -996,14 +1001,22 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (())setObject:(id)object
          forKey:(id)key {
-    assert!(!key.is_null());
+    // Some legacy applications pass NULL to CFDictionarySetValue. This is
+    // invalid per Core Foundation's API contract; ignore the insertion rather
+    // than crashing touchHLE or adding an unusable NULL key to the map.
+    if key.is_null() {
+        log_once!("Warning: CFDictionary insertion with NULL key ignored");
+        return;
+    }
     let mut host_obj: CFDictionaryHostObject = std::mem::take(env.objc.borrow_mut(this));
     host_obj.insert(env, key, object);
     *env.objc.borrow_mut(this) = host_obj;
 }
 
 - (())removeObjectForKey:(id)key {
-    assert!(!key.is_null());
+    if key.is_null() {
+        return;
+    }
     let mut host_obj: CFDictionaryHostObject = std::mem::take(env.objc.borrow_mut(this));
     host_obj.remove(env, key);
     *env.objc.borrow_mut(this) = host_obj;
