@@ -14,6 +14,7 @@ pub mod ui_image_view;
 pub mod ui_label;
 pub mod ui_page_control;
 pub mod ui_picker_view;
+pub mod ui_progress_view;
 pub mod ui_scroll_view;
 pub mod ui_table_view;
 pub mod ui_toolbar;
