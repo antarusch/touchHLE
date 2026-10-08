@@ -128,22 +128,30 @@ pub const CLASSES: ClassExports = objc_classes! {
         .map(|identifier| from_rust_string(env, identifier.to_owned()))
         .unwrap_or(nil);
 
-    let host = env.objc.borrow_mut::<NSBundleHostObject>(this);
-    if host.bundle_path != nil {
-        release(env, host.bundle_path);
-    }
-    if host.bundle_identifier != nil {
-        release(env, host.bundle_identifier);
-    }
-    if let Some(bundle_url) = host.bundle_url.take() {
+    let (old_bundle_path, old_bundle_identifier, old_bundle_url, old_info_dictionary) = {
+        let host = env.objc.borrow_mut::<NSBundleHostObject>(this);
+        let old_bundle_path = std::mem::replace(&mut host.bundle_path, bundle_path);
+        let old_bundle_identifier =
+            std::mem::replace(&mut host.bundle_identifier, bundle_identifier);
+        let old_bundle_url = host.bundle_url.take();
+        let old_info_dictionary = host.info_dictionary.take();
+        host.bundle = Some(bundle);
+        (
+            old_bundle_path,
+            old_bundle_identifier,
+            old_bundle_url,
+            old_info_dictionary,
+        )
+    };
+
+    release(env, old_bundle_path);
+    release(env, old_bundle_identifier);
+    if let Some(bundle_url) = old_bundle_url {
         release(env, bundle_url);
     }
-    if let Some(info_dictionary) = host.info_dictionary.take() {
+    if let Some(info_dictionary) = old_info_dictionary {
         release(env, info_dictionary);
     }
-    host.bundle = Some(bundle);
-    host.bundle_path = bundle_path;
-    host.bundle_identifier = bundle_identifier;
     this
 }
 
