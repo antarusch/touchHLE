@@ -276,13 +276,28 @@ pub const CONSTANTS: ConstantExports = &[
     ),
 ];
 
-/// This exception handler is supposed to do last-minute logging before the
-/// program terminates. For our purposes, it's completely safe to ignore that.
-fn NSSetUncaughtExceptionHandler(_env: &mut Environment, handler: MutVoidPtr) {
-    log!(
-        "TODO: Ignoring uncaught exception handler at address {:?}",
-        handler
-    );
+/// Process-wide Foundation exception-handler registration. Callbacks are
+/// stored even though invoking them on an uncaught exception is not yet
+/// implemented by touchHLE's Objective-C exception runtime.
+#[derive(Default)]
+pub struct State {
+    handler: Option<MutVoidPtr>,
 }
 
-pub const FUNCTIONS: FunctionExports = &[export_c_func!(NSSetUncaughtExceptionHandler(_))];
+fn NSGetUncaughtExceptionHandler(env: &mut Environment) -> MutVoidPtr {
+    env.framework_state
+        .foundation
+        .ns_exception
+        .handler
+        .unwrap_or(MutVoidPtr::null())
+}
+
+fn NSSetUncaughtExceptionHandler(env: &mut Environment, handler: MutVoidPtr) {
+    env.framework_state.foundation.ns_exception.handler = Some(handler);
+    log_dbg!("NSSetUncaughtExceptionHandler({handler:?})");
+}
+
+pub const FUNCTIONS: FunctionExports = &[
+    export_c_func!(NSGetUncaughtExceptionHandler()),
+    export_c_func!(NSSetUncaughtExceptionHandler(_)),
+];
