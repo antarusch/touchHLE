@@ -296,4 +296,10 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 @end
 
+// Private UIKit helper archived inside UITextView NIBs on older iOS releases.
+// Selection/caret interaction is not yet emulated, but the object still needs
+// to decode as a normal UIView so legacy NIBs can be instantiated.
+@implementation UITextSelectionView: UIView
+@end
+
 };
