@@ -34,6 +34,128 @@ enum NSURLHostObject {
 }
 impl HostObject for NSURLHostObject {}
 
+fn has_url_scheme(url: &str) -> bool {
+    let Some(colon) = url.find(':') else {
+        return false;
+    };
+    if colon == 0 {
+        return false;
+    }
+    let scheme = &url[..colon];
+    scheme
+        .chars()
+        .enumerate()
+        .all(|(idx, ch)| {
+            if idx == 0 {
+                ch.is_ascii_alphabetic()
+            } else {
+                ch.is_ascii_alphanumeric() || matches!(ch, '+' | '-' | '.')
+            }
+        })
+}
+
+fn normalize_url_path(path: &str) -> String {
+    let trailing_slash = path.ends_with('/');
+    let mut parts: Vec<&str> = Vec::new();
+    for part in path.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                parts.pop();
+            }
+            _ => parts.push(part),
+        }
+    }
+
+    let mut result = String::from("/");
+    result.push_str(&parts.join("/"));
+    if trailing_slash && result != "/" {
+        result.push('/');
+    }
+    result
+}
+
+fn resolve_relative_url(base: &str, relative: &str) -> String {
+    if has_url_scheme(relative) {
+        return relative.to_owned();
+    }
+
+    if let Some(scheme_end) = base.find("://") {
+        let scheme = &base[..scheme_end];
+        if relative.starts_with("//") {
+            return format!("{scheme}:{relative}");
+        }
+
+        let after_scheme = &base[scheme_end + 3..];
+        let authority_end = after_scheme
+            .find(['/', '?', '#'])
+            .unwrap_or(after_scheme.len());
+        let authority = &after_scheme[..authority_end];
+        let remainder = &after_scheme[authority_end..];
+
+        if relative.starts_with('#') {
+            let without_fragment = base.split('#').next().unwrap_or(base);
+            return format!("{without_fragment}{relative}");
+        }
+        if relative.starts_with('?') {
+            let without_query = base
+                .split('#')
+                .next()
+                .unwrap_or(base)
+                .split('?')
+                .next()
+                .unwrap_or(base);
+            return format!("{without_query}{relative}");
+        }
+
+        let relative_path_end = relative
+            .find(['?', '#'])
+            .unwrap_or(relative.len());
+        let relative_path = &relative[..relative_path_end];
+        let relative_suffix = &relative[relative_path_end..];
+
+        let path_and_more = remainder.split('#').next().unwrap_or(remainder);
+        let base_path = path_and_more.split('?').next().unwrap_or(path_and_more);
+        let combined_path = if relative_path.starts_with('/') {
+            relative_path.to_owned()
+        } else {
+            let base_dir = match base_path.rfind('/') {
+                Some(idx) => &base_path[..=idx],
+                None => "/",
+            };
+            format!("{base_dir}{relative_path}")
+        };
+
+        return format!(
+            "{scheme}://{authority}{}{}",
+            normalize_url_path(&combined_path),
+            relative_suffix
+        );
+    }
+
+    if relative.starts_with('/') {
+        return normalize_url_path(relative);
+    }
+
+    let base_without_suffix = base
+        .split('#')
+        .next()
+        .unwrap_or(base)
+        .split('?')
+        .next()
+        .unwrap_or(base);
+    let base_dir = match base_without_suffix.rfind('/') {
+        Some(idx) => &base_without_suffix[..=idx],
+        None => "",
+    };
+    let combined = format!("{base_dir}{relative}");
+    if combined.starts_with('/') {
+        normalize_url_path(&combined)
+    } else {
+        combined
+    }
+}
+
 pub const CLASSES: ClassExports = objc_classes! {
 
 (env, this, _cmd);
@@ -48,6 +170,12 @@ pub const CLASSES: ClassExports = objc_classes! {
 + (id)URLWithString:(id)url { // NSString*
     let new: id = msg![env; this alloc];
     let new: id = msg![env; new initWithString:url];
+    autorelease(env, new)
+}
+
++ (id)URLWithString:(id)url relativeToURL:(id)base_url { // NSString*, NSURL*
+    let new: id = msg![env; this alloc];
+    let new: id = msg![env; new initWithString:url relativeToURL:base_url];
     autorelease(env, new)
 }
 
@@ -103,6 +231,24 @@ pub const CLASSES: ClassExports = objc_classes! {
     let url: id = msg![env; url copy];
     *env.objc.borrow_mut(this) = NSURLHostObject::OtherURL { ns_string: url };
     this
+}
+
+- (id)initWithString:(id)url relativeToURL:(id)base_url { // NSString*, NSURL*
+    if url == nil {
+        return nil;
+    }
+    if base_url == nil {
+        return msg![env; this initWithString:url];
+    }
+
+    let relative = to_rust_string(env, url).into_owned();
+    let base_string: id = msg![env; base_url absoluteString];
+    let base = to_rust_string(env, base_string).into_owned();
+    let resolved = resolve_relative_url(&base, &relative);
+    let resolved = from_rust_string(env, resolved);
+    let result: id = msg![env; this initWithString:resolved];
+    release(env, resolved);
+    result
 }
 
 - (bool)isFileURL {
