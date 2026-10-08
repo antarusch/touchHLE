@@ -193,6 +193,59 @@ fn NSStringFromRange(env: &mut Environment, range: NSRange) -> id {
     ns_string::from_rust_string(env, string)
 }
 
+/// Decode an NSRange in the format produced by NSStringFromRange.
+/// The labeled form is also used by some Foundation implementations.
+fn parse_range_string(string: &str) -> NSRange {
+    fn field(s: &str, label: &str) -> Option<NSUInteger> {
+        let s = s.trim();
+        let number = if let Some(rest) = s.strip_prefix(label) {
+            rest.trim().strip_prefix('=')?.trim()
+        } else {
+            s
+        };
+        let value = number.parse::<i64>().ok()?;
+        if !(i32::MIN as i64..=u32::MAX as i64).contains(&value) {
+            return None;
+        }
+        Some(value as NSUInteger)
+    }
+
+    let zero = || NSRange {
+        location: 0,
+        length: 0,
+    };
+    let string = string.trim();
+    let inner = if let Some(s) = string.strip_prefix('{') {
+        match s.strip_suffix('}') {
+            Some(s) => s,
+            None => return zero(),
+        }
+    } else if let Some(s) = string.strip_prefix('(') {
+        match s.strip_suffix(')') {
+            Some(s) => s,
+            None => return zero(),
+        }
+    } else {
+        string
+    };
+    let mut values = inner.split(',');
+    let (Some(loc), Some(len), None) = (values.next(), values.next(), values.next()) else {
+        return zero();
+    };
+    match (field(loc, "location"), field(len, "length")) {
+        (Some(location), Some(length)) => NSRange { location, length },
+        _ => zero(),
+    }
+}
+
+fn NSRangeFromString(env: &mut Environment, string: id) -> NSRange {
+    if string.is_null() {
+        return parse_range_string("");
+    }
+    let string = ns_string::to_rust_string(env, string);
+    parse_range_string(&string)
+}
+
 pub type NSComparisonResult = NSInteger;
 pub const NSOrderedAscending: NSComparisonResult = -1;
 pub const NSOrderedSame: NSComparisonResult = 0;
@@ -233,5 +286,36 @@ fn NSUnionRange(_env: &mut Environment, a: NSRange, b: NSRange) -> NSRange {
 
 const FUNCTIONS: FunctionExports = &[
     export_c_func!(NSStringFromRange(_)),
+    export_c_func!(NSRangeFromString(_)),
     export_c_func!(NSUnionRange(_, _)),
 ];
+
+#[cfg(test)]
+mod range_string_tests {
+    use super::parse_range_string;
+
+    fn matches(string: &str, location: u32, length: u32) {
+        let range = parse_range_string(string);
+        assert_eq!(range.location, location, "input: {string}");
+        assert_eq!(range.length, length, "input: {string}");
+    }
+
+    #[test]
+    fn parses_foundation_ranges() {
+        matches("{12, 34}", 12, 34);
+        matches(" { 12 , 34 } ", 12, 34);
+        matches("(12,34)", 12, 34);
+        matches("12, 34", 12, 34);
+        matches("{location=12, length=34}", 12, 34);
+        matches("{4294967295, 1}", u32::MAX, 1);
+        matches("{-1, 0}", u32::MAX, 0);
+    }
+
+    #[test]
+    fn malformed_ranges_return_zero() {
+        for input in ["", "invalid", "{1}", "{1, 2, 3}", "{1, x}",
+                      "{99999999999999, 2}", "{1, 2", "{-2147483649, 2}"] {
+            matches(input, 0, 0);
+        }
+    }
+}
