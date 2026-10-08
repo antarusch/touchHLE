@@ -213,11 +213,7 @@ impl ObjC {
 
     /// Return a guest implementation declared directly on `class`, without
     /// searching its superclass chain.
-    pub fn class_get_uninherited_guest_method(
-        &self,
-        class: Class,
-        sel: SEL,
-    ) -> Option<GuestIMP> {
+    pub fn class_get_uninherited_guest_method(&self, class: Class, sel: SEL) -> Option<GuestIMP> {
         let ClassHostObject { methods, .. } = self.borrow(class);
         match methods.get(&sel) {
             Some(IMP::Guest(imp)) => Some(*imp),
