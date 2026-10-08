@@ -30,6 +30,7 @@ const KERN_OSVERSION: i32 = 65;
 
 // KERN_PROC
 const KERN_PROC_ALL: i32 = 0;
+const KERN_PROC_PID: i32 = 1;
 
 // CTL_HW
 const HW_MACHINE: i32 = 1;
@@ -166,6 +167,40 @@ fn sysctl(
                 env.mem.read(name + 2),
                 env.mem.read(name + 3),
             );
+            if name0 == CTL_KERN && name1 == KERN_PROC && name2 == KERN_PROC_PID {
+                assert!(newp.is_null());
+                assert_eq!(newlen, 0);
+
+                // Darwin returns a kinfo_proc record for this query. touchHLE
+                // currently exposes a single guest process, so provide a
+                // zero-initialized record with the requested PID and, most
+                // importantly, no P_TRACED flag. This is also what normal
+                // non-debugged applications expect from KERN_PROC_PID.
+                if oldlenp.is_null() {
+                    set_errno(env, ENOENT);
+                    return -1;
+                }
+
+                if oldp.is_null() {
+                    // user32_kinfo_proc is an opaque structure to most callers.
+                    // 492 bytes is the 32-bit Darwin layout size used by the
+                    // iOS generation targeted by touchHLE.
+                    env.mem.write(oldlenp, 492);
+                    return 0;
+                }
+
+                let oldlen = env.mem.read(oldlenp);
+                let out = env.mem.bytes_at_mut(oldp.cast(), oldlen);
+                out.fill(0);
+
+                // user32_extern_proc.p_pid is at byte offset 24.
+                if out.len() >= 28 {
+                    out[24..28].copy_from_slice(&name3.to_le_bytes());
+                }
+
+                return 0;
+            }
+
             if SysCtlNamePath::Length4(name0, name1, name2, name3)
                 == SysCtlNamePath::Length4(CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0)
             {
