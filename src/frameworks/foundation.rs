@@ -296,8 +296,10 @@ mod range_string_tests {
 
     fn matches(string: &str, location: u32, length: u32) {
         let range = parse_range_string(string);
-        assert_eq!(range.location, location, "input: {string}");
-        assert_eq!(range.length, length, "input: {string}");
+        let actual_location = range.location;
+        let actual_length = range.length;
+        assert_eq!(actual_location, location, "input: {string}");
+        assert_eq!(actual_length, length, "input: {string}");
     }
 
     #[test]
@@ -313,8 +315,16 @@ mod range_string_tests {
 
     #[test]
     fn malformed_ranges_return_zero() {
-        for input in ["", "invalid", "{1}", "{1, 2, 3}", "{1, x}",
-                      "{99999999999999, 2}", "{1, 2", "{-2147483649, 2}"] {
+        for input in [
+            "",
+            "invalid",
+            "{1}",
+            "{1, 2, 3}",
+            "{1, x}",
+            "{99999999999999, 2}",
+            "{1, 2",
+            "{-2147483649, 2}",
+        ] {
             matches(input, 0, 0);
         }
     }
