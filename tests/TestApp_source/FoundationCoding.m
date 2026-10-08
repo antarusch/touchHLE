@@ -6,6 +6,12 @@
 #import "system_headers.h"
 #include <string.h>
 
+@interface NSString (UTF8ValidationTest)
+- (instancetype)initWithBytes:(const void *)bytes
+                       length:(NSUInteger)length
+                     encoding:(NSUInteger)encoding;
+- (instancetype)initWithData:(NSData *)data encoding:(NSUInteger)encoding;
+@end
 @interface NSMutableString (ArchiveTest)
 - (void)appendString:(NSString *)suffix;
 @end
@@ -76,6 +82,19 @@ int test_Foundation_coding(void) {
         [(NSData *)[decoded objectAtIndex:7] length] == 0 &&
         [(NSData *)[decoded objectAtIndex:8] length] == 0 &&
         [[decoded objectAtIndex:8] isKindOfClass:[NSMutableData class]];
+  unsigned char malformedUTF8[] = {0xdd, 0, 0, 0, 1};
+  NSString *badString = [[NSString alloc] initWithBytes:malformedUTF8
+                                                length:sizeof(malformedUTF8)
+                                              encoding:4];
+  NSMutableString *badMutable = [[NSMutableString alloc]
+      initWithBytes:malformedUTF8
+            length:sizeof(malformedUTF8)
+          encoding:4];
+  NSData *invalidData = [NSData dataWithBytes:malformedUTF8
+                                      length:sizeof(malformedUTF8)];
+  NSString *badDataString = [[NSString alloc] initWithData:invalidData
+                                                 encoding:4];
+  ok &= badString == nil && badMutable == nil && badDataString == nil;
   [date release];
   [mutable release];
   [pool drain];
