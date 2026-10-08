@@ -5,6 +5,7 @@
  */
 //! `NSNull`.
 
+use crate::frameworks::foundation::ns_string;
 use crate::objc::{id, msg, objc_classes, ClassExports, NSZonePtr, TrivialHostObject};
 
 #[derive(Default)]
@@ -43,6 +44,26 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (())encodeWithCoder:(id)_coder {}
 - (())release {}
 - (id)autorelease { this }
+
+- (id)description {
+    ns_string::get_static_str(env, "<null>")
+}
+
+- (id)debugDescription {
+    msg![env; this description]
+}
+
+- (id)descriptionWithLocale:(id)_locale {
+    msg![env; this description]
+}
+
+- (id)descriptionWithLocale:(id)_locale indent:(usize)_level {
+    msg![env; this description]
+}
+
+- (id)copyWithZone:(NSZonePtr)_zone {
+    this
+}
 
 @end
 
