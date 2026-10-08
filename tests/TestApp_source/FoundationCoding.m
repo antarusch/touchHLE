@@ -31,6 +31,12 @@
 @interface NSNull : NSObject
 + (instancetype)null;
 @end
+@interface NSThread : NSObject
++ (NSThread *)mainThread;
++ (NSThread *)currentThread;
++ (BOOL)isMainThread;
+- (BOOL)isMainThread;
+@end
 
 int test_Foundation_coding(void) {
   NSAutoreleasePool *pool = [NSAutoreleasePool new];
@@ -90,6 +96,10 @@ int test_Foundation_coding(void) {
   NSData *badData = [NSData dataWithBytes:bad length:5];
   id badDataString = [[NSString alloc] initWithData:badData encoding:4];
   ok &= badString == nil && badMutable == nil && badDataString == nil;
+  NSThread *main = [NSThread mainThread];
+  ok &= main != nil && main == [NSThread mainThread] &&
+        main == [NSThread currentThread] && [main isMainThread] &&
+        [NSThread isMainThread];
   [date release];
   [mutable release];
   [pool drain];

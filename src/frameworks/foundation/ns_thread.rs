@@ -27,6 +27,7 @@ use std::time::Duration;
 #[derive(Default)]
 pub struct State {
     is_multi_threaded: bool,
+    main_thread: id,
     ns_threads: HashMap<pthread_t, id>,
 }
 impl State {
@@ -86,7 +87,24 @@ pub const CLASSES: ClassExports = objc_classes! {
     msg![env; thread setThreadPriority:priority]
 }
 
++ (id)mainThread {
+    // The main NSThread must remain the same object even when first
+    // requested by a background thread. It represents emulator thread 0.
+    let main = State::get(env).main_thread;
+    if main != nil {
+        return main;
+    }
+    let main: id = msg_class![env; NSThread alloc];
+    let main: id = msg![env; main init];
+    env.objc.borrow_mut::<NSThreadHostObject>(main).thread_id = Some(0);
+    State::get(env).main_thread = main;
+    main
+}
+
 + (id)currentThread {
+    if env.current_thread == 0 {
+        return msg![env; this mainThread];
+    }
     // TODO: use ThreadId as key for lookup
     // `pthread_self` internally is O(num of threads) time
     let pthread = pthread_self(env);
@@ -182,6 +200,10 @@ pub const CLASSES: ClassExports = objc_classes! {
     } else {
         () = msg_send(env, (target, selector.unwrap(), object));
     }
+}
+
+- (bool)isMainThread {
+    env.objc.borrow::<NSThreadHostObject>(this).thread_id == Some(0)
 }
 
 - (id)threadDictionary {
