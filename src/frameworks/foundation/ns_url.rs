@@ -42,16 +42,13 @@ fn has_url_scheme(url: &str) -> bool {
         return false;
     }
     let scheme = &url[..colon];
-    scheme
-        .chars()
-        .enumerate()
-        .all(|(idx, ch)| {
-            if idx == 0 {
-                ch.is_ascii_alphabetic()
-            } else {
-                ch.is_ascii_alphanumeric() || matches!(ch, '+' | '-' | '.')
-            }
-        })
+    scheme.chars().enumerate().all(|(idx, ch)| {
+        if idx == 0 {
+            ch.is_ascii_alphabetic()
+        } else {
+            ch.is_ascii_alphanumeric() || matches!(ch, '+' | '-' | '.')
+        }
+    })
 }
 
 fn normalize_url_path(path: &str) -> String {
@@ -108,9 +105,7 @@ fn resolve_relative_url(base: &str, relative: &str) -> String {
             return format!("{without_query}{relative}");
         }
 
-        let relative_path_end = relative
-            .find(['?', '#'])
-            .unwrap_or(relative.len());
+        let relative_path_end = relative.find(['?', '#']).unwrap_or(relative.len());
         let relative_path = &relative[..relative_path_end];
         let relative_suffix = &relative[relative_path_end..];
 
