@@ -26,7 +26,9 @@ use crate::frameworks::uikit::ui_device::{
 use crate::frameworks::uikit::ui_touch::{
     UITouchPhase, UITouchPhaseBegan, UITouchPhaseCancelled, UITouchPhaseEnded, UITouchPhaseMoved,
 };
-use crate::objc::{autorelease, id, msg, msg_class, msg_super, nil, objc_classes, ClassExports};
+use crate::objc::{
+    autorelease, id, msg, msg_class, msg_super, nil, objc_classes, release, retain, ClassExports,
+};
 
 #[derive(Default)]
 pub struct State {
@@ -37,6 +39,8 @@ pub struct State {
     /// The most recent window which received `makeKeyAndVisible` message.
     /// Non-retaining!
     pub key_window: Option<id>,
+    /// Strong root-view-controller reference owned by each UIWindow.
+    root_view_controllers: std::collections::HashMap<id, id>,
 }
 
 pub const CLASSES: ClassExports = objc_classes! {
@@ -123,6 +127,16 @@ pub const CLASSES: ClassExports = objc_classes! {
             env.framework_state.uikit.ui_view.ui_window.key_window = None;
         }
     }
+    let root_view_controller = env
+        .framework_state
+        .uikit
+        .ui_view
+        .ui_window
+        .root_view_controllers
+        .remove(&this)
+        .unwrap_or(nil);
+    release(env, root_view_controller);
+
     let list = &mut env.framework_state.uikit.ui_view.ui_window.windows;
     let idx = list.iter().position(|&w| w == this).unwrap();
     list.remove(idx);
@@ -165,6 +179,74 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     // TODO: post UIWindowDidBecomeVisibleNotification
     () = msg![env; this setHidden:false];
+}
+
+- (id)rootViewController {
+    env.framework_state
+        .uikit
+        .ui_view
+        .ui_window
+        .root_view_controllers
+        .get(&this)
+        .copied()
+        .unwrap_or(nil)
+}
+
+- (())setRootViewController:(id)new_controller {
+    let old_controller = env
+        .framework_state
+        .uikit
+        .ui_view
+        .ui_window
+        .root_view_controllers
+        .get(&this)
+        .copied()
+        .unwrap_or(nil);
+    if old_controller == new_controller {
+        return;
+    }
+
+    // UIWindow owns its root view controller strongly.
+    retain(env, new_controller);
+
+    // Remove the previous controller's root view before installing the new one.
+    // UIView's normal hierarchy code handles the corresponding view retain.
+    if old_controller != nil {
+        let old_view: id = msg![env; old_controller view];
+        if old_view != nil {
+            let superview: id = msg![env; old_view superview];
+            if superview == this {
+                () = msg![env; old_controller viewWillDisappear:false];
+                () = msg![env; old_view removeFromSuperview];
+                () = msg![env; old_controller viewDidDisappear:false];
+            }
+        }
+    }
+
+    {
+        let roots = &mut env
+            .framework_state
+            .uikit
+            .ui_view
+            .ui_window
+            .root_view_controllers;
+        if new_controller == nil {
+            roots.remove(&this);
+        } else {
+            roots.insert(this, new_controller);
+        }
+    }
+
+    if new_controller != nil {
+        let new_view: id = msg![env; new_controller view];
+        if new_view != nil {
+            // UIWindow::addSubview: already supplies appearance callbacks and
+            // the pre-iOS-6 autorotation behavior used elsewhere in touchHLE.
+            () = msg![env; this addSubview:new_view];
+        }
+    }
+
+    release(env, old_controller);
 }
 
 // We only model the single main screen
