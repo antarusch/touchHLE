@@ -34,6 +34,8 @@ pub struct UILabelHostObject {
     line_break_mode: UILineBreakMode,
     number_of_lines: NSInteger,
     enabled: bool,
+    adjusts_font_size_to_fit_width: bool,
+    minimum_font_size: CGFloat,
 }
 impl_HostObject_with_superclass!(UILabelHostObject);
 impl Default for UILabelHostObject {
@@ -47,6 +49,8 @@ impl Default for UILabelHostObject {
             line_break_mode: UILineBreakModeTailTruncation,
             number_of_lines: 1,
             enabled: true,
+            adjusts_font_size_to_fit_width: false,
+            minimum_font_size: 0.0,
         }
     }
 }
@@ -131,6 +135,8 @@ pub const CLASSES: ClassExports = objc_classes! {
         line_break_mode: _,
         number_of_lines: _,
         enabled: _,
+        adjusts_font_size_to_fit_width: _,
+        minimum_font_size: _,
     } = env.objc.borrow(this);
     release(env, text);
     release(env, font);
@@ -185,14 +191,23 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (bool)adjustsFontSizeToFitWidth {
-    false // default value
+    env.objc
+        .borrow::<UILabelHostObject>(this)
+        .adjusts_font_size_to_fit_width
 }
 - (())setAdjustsFontSizeToFitWidth:(bool)adjusts {
-    assert!(!adjusts); // TODO
+    env.objc
+        .borrow_mut::<UILabelHostObject>(this)
+        .adjusts_font_size_to_fit_width = adjusts;
+    () = msg![env; this setNeedsDisplay];
 }
 
+- (CGFloat)minimumFontSize {
+    env.objc.borrow::<UILabelHostObject>(this).minimum_font_size
+}
 - (())setMinimumFontSize:(CGFloat)size {
-    todo_objc_setter!(this, size);
+    env.objc.borrow_mut::<UILabelHostObject>(this).minimum_font_size = size.max(0.0);
+    () = msg![env; this setNeedsDisplay];
 }
 
 - (id)textColor {
@@ -299,6 +314,8 @@ pub const CLASSES: ClassExports = objc_classes! {
         line_break_mode,
         number_of_lines,
         enabled,
+        adjusts_font_size_to_fit_width,
+        minimum_font_size,
     } = env.objc.borrow_mut(this);
 
     let (r, g, b, a) = ui_color::get_rgba(&env.objc, text_color);
@@ -310,10 +327,28 @@ pub const CLASSES: ClassExports = objc_classes! {
     // (note the log message in setNumberOfLines:)
     let single_line = number_of_lines == 1;
 
-    let calculated_size: CGSize = if single_line {
-        msg![env; text sizeWithFont:font]
+    // UILabel can automatically shrink a single-line font until the text fits.
+    // Preserve the original font object and use a temporary same-style font for
+    // drawing, matching UIKit's non-destructive property semantics.
+    let draw_font = if single_line && adjusts_font_size_to_fit_width && bounds.size.width > 0.0 {
+        let measured: CGSize = msg![env; text sizeWithFont:font];
+        if measured.width > bounds.size.width && measured.width > 0.0 {
+            let point_size: CGFloat = msg![env; font pointSize];
+            let minimum_size = minimum_font_size.min(point_size).max(0.0);
+            let fitted_size =
+                (point_size * bounds.size.width / measured.width).clamp(minimum_size, point_size);
+            super::super::ui_font::font_with_size(env, font, fitted_size)
+        } else {
+            font
+        }
     } else {
-        msg![env; text sizeWithFont:font
+        font
+    };
+
+    let calculated_size: CGSize = if single_line {
+        msg![env; text sizeWithFont:draw_font]
+    } else {
+        msg![env; text sizeWithFont:draw_font
                   constrainedToSize:(bounds.size)
                       lineBreakMode:line_break_mode]
     };
@@ -346,10 +381,10 @@ pub const CLASSES: ClassExports = objc_classes! {
             y: rect.origin.y
         };
         msg![env; text drawAtPoint:point
-                          withFont:font]
+                          withFont:draw_font]
     } else {
         msg![env; text drawInRect:rect
-                         withFont:font
+                         withFont:draw_font
                     lineBreakMode:line_break_mode
                         alignment:text_alignment]
     };

@@ -89,6 +89,16 @@ pub const UITextAlignmentLeft: UITextAlignment = 0;
 pub const UITextAlignmentCenter: UITextAlignment = 1;
 pub const UITextAlignmentRight: UITextAlignment = 2;
 
+pub fn font_with_size(env: &mut Environment, font: id, size: CGFloat) -> id {
+    let kind = env.objc.borrow::<UIFontHostObject>(font).kind;
+    let class: id = msg![env; font class];
+    let host_object = UIFontHostObject { size, kind };
+    let new = env
+        .objc
+        .alloc_object(class, Box::new(host_object), &mut env.mem);
+    autorelease(env, new)
+}
+
 pub const CLASSES: ClassExports = objc_classes! {
 
 (env, this, _cmd);
