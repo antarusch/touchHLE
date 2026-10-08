@@ -82,10 +82,13 @@ fn if_nameindex(env: &mut Environment) -> MutPtr<if_nameindex> {
     // Darwin's struct if_nameindex is two 32-bit fields on armv7:
     // unsigned int if_index; char *if_name;
     const ENTRY_SIZE: u32 = 8;
-    let result: MutPtr<u8> = env.mem.alloc((INTERFACES.len() as u32 + 1) * ENTRY_SIZE);
+    let result: MutPtr<u8> = env
+        .mem
+        .alloc((INTERFACES.len() as u32 + 1) * ENTRY_SIZE)
+        .cast();
 
     for (entry_index, &(if_index, name)) in INTERFACES.iter().enumerate() {
-        let name_ptr: MutPtr<u8> = env.mem.alloc((name.len() + 1) as u32);
+        let name_ptr: MutPtr<u8> = env.mem.alloc((name.len() + 1) as u32).cast();
         copy_interface_name(env, name, name_ptr);
 
         let entry = result + entry_index as u32 * ENTRY_SIZE;
