@@ -49,8 +49,7 @@ fn CFStringAppendCharacters(
     num_chars: CFIndex,
 ) {
     let length: NSUInteger = num_chars.try_into().unwrap();
-    let to_append: id =
-        msg_class![env; NSString stringWithCharacters:characters length:length];
+    let to_append: id = msg_class![env; NSString stringWithCharacters:characters length:length];
     msg![env; string appendString:to_append]
 }
 
@@ -418,9 +417,7 @@ fn CFStringGetMaximumSizeForEncoding(
     }
 
     let bytes_per_code_unit = match encoding {
-        kCFStringEncodingMacRoman
-        | kCFStringEncodingASCII
-        | kCFStringEncodingISOLatin1 => 1,
+        kCFStringEncodingMacRoman | kCFStringEncodingASCII | kCFStringEncodingISOLatin1 => 1,
         kCFStringEncodingUTF8 => 3,
         kCFStringEncodingUTF16 | kCFStringEncodingUTF16BE | kCFStringEncodingUTF16LE => 2,
         _ => return 0,
