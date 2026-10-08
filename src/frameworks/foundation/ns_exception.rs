@@ -289,7 +289,7 @@ fn NSGetUncaughtExceptionHandler(env: &mut Environment) -> MutVoidPtr {
         .foundation
         .ns_exception
         .handler
-        .unwrap_or(MutVoidPtr::null())
+        .unwrap_or_default()
 }
 
 fn NSSetUncaughtExceptionHandler(env: &mut Environment, handler: MutVoidPtr) {
