@@ -12,7 +12,7 @@
 use crate::abi::DotDotDot;
 use crate::dyld::{export_c_func, FunctionExports};
 use crate::libc::stdio::printf::printf_inner;
-use crate::mem::{ConstPtr, MutPtr, MutVoidPtr, Ptr};
+use crate::mem::{ConstPtr, MutPtr, MutVoidPtr};
 use crate::Environment;
 
 type AslClient = MutPtr<u8>;
@@ -27,12 +27,22 @@ fn asl_open(
     let ident = if ident.is_null() {
         None
     } else {
-        Some(env.mem.cstr_at_utf8(ident).to_string())
+        Some(
+            env.mem
+                .cstr_at_utf8(ident)
+                .map(str::to_owned)
+                .unwrap_or_else(|bytes| String::from_utf8_lossy(bytes).into_owned()),
+        )
     };
     let facility = if facility.is_null() {
         None
     } else {
-        Some(env.mem.cstr_at_utf8(facility).to_string())
+        Some(
+            env.mem
+                .cstr_at_utf8(facility)
+                .map(str::to_owned)
+                .unwrap_or_else(|bytes| String::from_utf8_lossy(bytes).into_owned()),
+        )
     };
 
     log_dbg!(
