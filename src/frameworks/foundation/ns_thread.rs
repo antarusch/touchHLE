@@ -6,12 +6,13 @@
 //! `NSThread`.
 
 use super::NSTimeInterval;
+use crate::environment::ThreadId;
 use crate::dyld::HostFunction;
 use crate::frameworks::core_foundation::CFTypeRef;
 use crate::frameworks::foundation::NSUInteger;
 use crate::libc::pthread::thread::{
     pthread_attr_init, pthread_attr_setdetachstate, pthread_attr_setstacksize, pthread_attr_t,
-    pthread_create, pthread_self, pthread_t, PTHREAD_CREATE_DETACHED,
+    pthread_create, pthread_self, pthread_t, pthread_thread_id, PTHREAD_CREATE_DETACHED,
 };
 use crate::mem::{guest_size_of, Mem, MutPtr};
 use crate::objc::{
@@ -35,6 +36,7 @@ impl State {
 }
 
 struct NSThreadHostObject {
+    thread_id: Option<ThreadId>,
     target: id,
     selector: Option<SEL>,
     object: id,
@@ -55,6 +57,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 + (id)allocWithZone:(NSZonePtr)_zone {
     let host_object = Box::new(NSThreadHostObject {
+        thread_id: None,
         target: nil,
         selector: None,
         object: nil,
@@ -93,6 +96,8 @@ pub const CLASSES: ClassExports = objc_classes! {
         // We lazily instantiate NSThreads for POSIX threads
         let ns_thread: id = msg_class![env; NSThread alloc];
         let ns_thread: id = msg![env; ns_thread init];
+        let thread_id = env.current_thread;
+        env.objc.borrow_mut::<NSThreadHostObject>(ns_thread).thread_id = Some(thread_id);
         State::get(env).ns_threads.insert(pthread, ns_thread);
     }
     *State::get(env).ns_threads.get(&pthread).unwrap()
@@ -153,6 +158,8 @@ pub const CLASSES: ClassExports = objc_classes! {
     pthread_create(env, thread_ptr, attr.cast_const(), gf, this.cast());
 
     let pthread = env.mem.read(thread_ptr);
+    let thread_id = pthread_thread_id(env, pthread).expect("new pthread must have a thread ID");
+    env.objc.borrow_mut::<NSThreadHostObject>(this).thread_id = Some(thread_id);
     assert!(!State::get(env).ns_threads.contains_key(&pthread));
     State::get(env).ns_threads.insert(pthread, this);
 
@@ -236,6 +243,12 @@ pub const CLASSES: ClassExports = objc_classes! {
 @end
 
 };
+
+/// Resolve an NSThread to its emulator thread. Unstarted NSThreads have no
+/// run loop yet, so there is no thread on which to schedule a selector.
+pub(super) fn thread_id_for_ns_thread(env: &mut Environment, thread: id) -> Option<ThreadId> {
+    env.objc.borrow::<NSThreadHostObject>(thread).thread_id
+}
 
 type NSThreadRef = CFTypeRef;
 

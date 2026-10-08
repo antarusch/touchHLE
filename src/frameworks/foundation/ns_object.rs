@@ -17,8 +17,10 @@
 use super::ns_string::{from_rust_string, to_rust_string};
 use super::{NSTimeInterval, NSUInteger};
 use crate::abi::CallFromHost;
-use crate::frameworks::foundation::ns_run_loop::{add_perform_request, cancel_perform_requests};
-use crate::frameworks::foundation::ns_thread::detach_new_thread_inner;
+use crate::frameworks::foundation::ns_run_loop::{
+    add_perform_request, cancel_perform_requests, run_loop_for_thread,
+};
+use crate::frameworks::foundation::ns_thread::{detach_new_thread_inner, thread_id_for_ns_thread};
 use crate::libc::semaphore::{host_destroy_semaphore, sem_wait};
 use crate::mem::MutVoidPtr;
 use crate::objc::{
@@ -449,6 +451,43 @@ forUndefinedKey:(id)key { // NSString*
     }
 
     let run_loop: id = msg_class![env; NSRunLoop mainRunLoop];
+    let sem = add_perform_request(env, run_loop, this, sel, arg, None, wait);
+    if wait {
+        sem_wait(env, sem);
+        host_destroy_semaphore(env, sem);
+    }
+}
+
+
+// Unlike performSelectorOnMainThread:, this targets the run loop associated
+// with the supplied NSThread. A synchronous request to the current thread
+// must execute immediately to avoid deadlocking on our own semaphore.
+- (())performSelector:(SEL)sel
+            onThread:(id)thread
+          withObject:(id)arg
+       waitUntilDone:(bool)wait {
+    assert!(!sel.is_null());
+    let Some(thread_id) = thread_id_for_ns_thread(env, thread) else {
+        log!("Warning: performSelector:onThread: requested on an NSThread that has not started");
+        return;
+    };
+    if !env.threads[thread_id].is_alive() {
+        log!("Warning: performSelector:onThread: requested on an NSThread that has finished");
+        return;
+    }
+
+    if wait && env.current_thread == thread_id {
+        if sel.as_str(&env.mem).ends_with(':') {
+            () = msg_send_no_type_checking(env, (this, sel, arg));
+        } else {
+            assert!(arg.is_null());
+            () = msg_send_no_type_checking(env, (this, sel));
+        }
+        return;
+    }
+
+    let run_loop_class = env.objc.get_known_class("NSRunLoop", &mut env.mem);
+    let run_loop = run_loop_for_thread(env, run_loop_class, thread_id);
     let sem = add_perform_request(env, run_loop, this, sel, arg, None, wait);
     if wait {
         sem_wait(env, sem);
