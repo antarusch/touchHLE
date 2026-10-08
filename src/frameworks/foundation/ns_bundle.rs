@@ -19,6 +19,7 @@ use crate::objc::{
     autorelease, id, msg, msg_class, nil, objc_classes, release, retain, Class, ClassExports,
     HostObject, NSZonePtr,
 };
+use crate::window::DeviceFamily;
 use crate::Environment;
 use std::collections::{HashMap, HashSet};
 
@@ -195,7 +196,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     // TODO: cache result of lookups
 
-    let path = path_for_resource_helper(env, this, name, nil, directory, extension);
+    let path = path_for_resource_with_device_helper(env, this, name, nil, directory, extension);
     if path != nil {
         return path
     }
@@ -212,7 +213,8 @@ pub const CLASSES: ClassExports = objc_classes! {
         if let Some(&(_, lprojs)) = LANG_ID_TO_LANG_PROJ.iter().find(|&&(code, _)| code == lang_code) {
             for lproj in lprojs {
                 let lproj: id = ns_string::get_static_str(env, lproj);
-                let localized_path = path_for_resource_helper(env, this, name, lproj, directory, extension);
+                let localized_path =
+                    path_for_resource_with_device_helper(env, this, name, lproj, directory, extension);
                 if localized_path != nil {
                     return localized_path;
                 }
@@ -221,8 +223,6 @@ pub const CLASSES: ClassExports = objc_classes! {
             unknown_codes.insert(lang_code);
         }
     }
-
-    // TODO: Support look up for device specific resources, e.g. ~iphone
 
     // As a last resort, fallback to English
     // TODO: fallback to a development language (CFBundleDevelopmentRegion from
@@ -233,7 +233,8 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     for lproj in ["English.lproj", "en.lproj"] {
         let lproj: id = ns_string::get_static_str(env, lproj);
-        let path = path_for_resource_helper(env, this, name, lproj, directory, extension);
+        let path =
+            path_for_resource_with_device_helper(env, this, name, lproj, directory, extension);
         if path != nil {
             return path;
         }
@@ -393,6 +394,39 @@ pub const CLASSES: ClassExports = objc_classes! {
 @end
 
 };
+
+fn path_for_resource_with_device_helper(
+    env: &mut Environment,
+    bundle: id,
+    name: id,
+    lproj: id,
+    directory: id,
+    extension: id,
+) -> id {
+    // iOS automatically prefers resources specialized for the current device
+    // family, e.g. Foo~iphone.nib or Foo~ipad.nib, when callers request Foo.
+    if name != nil {
+        let name_string = to_rust_string(env, name).into_owned();
+        if !name_string.ends_with("~iphone") && !name_string.ends_with("~ipad") {
+            let suffix = match env.options.device_family {
+                Some(DeviceFamily::iPhone) => Some("~iphone"),
+                Some(DeviceFamily::iPad) => Some("~ipad"),
+                None => None,
+            };
+            if let Some(suffix) = suffix {
+                let device_name = from_rust_string(env, format!("{name_string}{suffix}"));
+                let path =
+                    path_for_resource_helper(env, bundle, device_name, lproj, directory, extension);
+                release(env, device_name);
+                if path != nil {
+                    return path;
+                }
+            }
+        }
+    }
+
+    path_for_resource_helper(env, bundle, name, lproj, directory, extension)
+}
 
 fn path_for_resource_helper(
     env: &mut Environment,
