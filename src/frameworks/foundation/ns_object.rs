@@ -19,6 +19,7 @@ use super::{NSTimeInterval, NSUInteger};
 use crate::frameworks::foundation::ns_run_loop::{add_perform_request, cancel_perform_requests};
 use crate::frameworks::foundation::ns_thread::detach_new_thread_inner;
 use crate::libc::semaphore::{host_destroy_semaphore, sem_wait};
+use crate::Environment;
 use crate::mem::MutVoidPtr;
 use crate::objc::{
     autorelease, id, msg, msg_class, msg_send, msg_send_no_type_checking, nil, objc_classes,
