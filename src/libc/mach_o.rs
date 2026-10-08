@@ -103,10 +103,7 @@ fn allocate_nx_arch_info(env: &mut Environment, arch: &NXArchDefinition) -> Cons
     const NX_ARCH_INFO_SIZE: u32 = 20;
 
     let name = env.mem.alloc_and_write_cstr(arch.name).cast_const();
-    let description = env
-        .mem
-        .alloc_and_write_cstr(arch.description)
-        .cast_const();
+    let description = env.mem.alloc_and_write_cstr(arch.description).cast_const();
     let info: MutPtr<u8> = env.mem.alloc(NX_ARCH_INFO_SIZE).cast();
 
     env.mem.write(info.cast::<ConstPtr<u8>>(), name);
@@ -119,11 +116,7 @@ fn allocate_nx_arch_info(env: &mut Environment, arch: &NXArchDefinition) -> Cons
     info.cast_const()
 }
 
-fn NXGetArchInfoFromCpuType(
-    env: &mut Environment,
-    cputype: i32,
-    cpusubtype: i32,
-) -> ConstPtr<u8> {
+fn NXGetArchInfoFromCpuType(env: &mut Environment, cputype: i32, cpusubtype: i32) -> ConstPtr<u8> {
     let Some(arch) = nx_arch_definition_from_cpu_type(cputype, cpusubtype) else {
         return Ptr::null();
     };
