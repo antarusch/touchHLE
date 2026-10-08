@@ -25,6 +25,23 @@ use crate::objc::{
     retain, Class, ClassExports, NSZonePtr, ObjC, TrivialHostObject, SEL,
 };
 
+fn method_for_selector(env: &mut Environment, receiver: id, selector: SEL) -> MutVoidPtr {
+    let class = ObjC::read_isa(receiver, &env.mem);
+    if !env.objc.class_has_method(class, selector) {
+        return MutVoidPtr::null();
+    }
+
+    // An Objective-C IMP has the same calling convention as objc_msgSend:
+    // receiver and selector first, followed by the method arguments. Returning
+    // a guest trampoline to objc_msgSend gives host-implemented methods a
+    // callable IMP while still preserving the selector supplied by the caller.
+    env.dyld
+        .create_proc_address(&mut env.mem, &mut env.cpu, "_objc_msgSend")
+        .expect("objc_msgSend must always be available")
+        .to_ptr()
+        .cast_mut()
+}
+
 pub const CLASSES: ClassExports = objc_classes! {
 
 (env, this, _cmd);
@@ -64,6 +81,10 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 + (bool)instancesRespondToSelector:(SEL)selector {
     env.objc.class_has_method(this, selector)
+}
+
++ (MutVoidPtr)methodForSelector:(SEL)selector {
+    method_for_selector(env, this, selector)
 }
 
 + (())cancelPreviousPerformRequestsWithTarget:(id)target selector:(SEL)selector object:(id)arg {
@@ -269,6 +290,10 @@ forUndefinedKey:(id)key { // NSString*
 
 - (bool)respondsToSelector:(SEL)selector {
     env.objc.object_has_method(&env.mem, this, selector)
+}
+
+- (MutVoidPtr)methodForSelector:(SEL)selector {
+    method_for_selector(env, this, selector)
 }
 
 - (id)performSelector:(SEL)sel {

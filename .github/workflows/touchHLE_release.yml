@@ -2,7 +2,7 @@ name: Build touchHLE
 
 on:
   push:
-    branches: [ "trunk", "eustrath-foundation-android", "eustrath-freeze-diagnostic", "multi-game-compatibility", "tactical-soldier-compatibility" ]
+    branches: [ "trunk", "eustrath-foundation-android", "eustrath-freeze-diagnostic", "multi-game-compatibility", "tactical-soldier-compatibility", "hunters-2-compatibility" ]
   pull_request:
     branches: [ "trunk" ]
   create: # for tags
@@ -12,7 +12,7 @@ env:
 
 jobs:
   native-set-archive:
-    if: ${{ github.ref != 'refs/heads/tactical-soldier-compatibility' }}
+    if: ${{ github.ref != 'refs/heads/tactical-soldier-compatibility' && github.ref != 'refs/heads/hunters-2-compatibility' }}
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
@@ -43,7 +43,7 @@ jobs:
             tests/TestApp.app/native_plist.bin
 
   build-osx:
-    if: ${{ github.ref != 'refs/heads/tactical-soldier-compatibility' }}
+    if: ${{ github.ref != 'refs/heads/tactical-soldier-compatibility' && github.ref != 'refs/heads/hunters-2-compatibility' }}
 
     runs-on: macos-15
 
@@ -239,7 +239,7 @@ jobs:
         path: touchHLE.apk
 
   build-win:
-    if: ${{ github.ref != 'refs/heads/tactical-soldier-compatibility' }}
+    if: ${{ github.ref != 'refs/heads/tactical-soldier-compatibility' && github.ref != 'refs/heads/hunters-2-compatibility' }}
 
     runs-on: windows-2022
 
