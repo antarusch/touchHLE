@@ -953,12 +953,16 @@ pub const CLASSES: ClassExports = objc_classes! {
 // our custom init, not a part of API
 - (id)initWithKeyCallbacks:(ConstPtr<CFDictionaryKeyCallBacks>)key_callbacks
          andValueCallbacks:(ConstPtr<CFDictionaryValueCallBacks>)value_callbacks {
+    // Key and value callbacks are independent in Core Foundation. A NULL
+    // callbacks pointer requests the default (non-retaining) pointer semantics
+    // for that side of the dictionary; the other side may still have callbacks.
+    let host_object = env.objc.borrow_mut::<CFDictionaryHostObject>(this);
     if !key_callbacks.is_null() {
-        assert!(!value_callbacks.is_null());
-        let host_object = env.objc.borrow_mut::<CFDictionaryHostObject>(this);
         host_object.key_callbacks = env.mem.read(key_callbacks);
+    }
+    if !value_callbacks.is_null() {
         host_object.value_callbacks = env.mem.read(value_callbacks);
-    };
+    }
     this
 }
 
