@@ -45,6 +45,7 @@ pub mod ns_notification;
 pub mod ns_notification_center;
 pub mod ns_null;
 pub mod ns_number_formatter;
+pub mod ns_operation;
 pub mod ns_objc_runtime;
 pub mod ns_object;
 pub mod ns_process_info;
@@ -93,6 +94,7 @@ pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
         ns_keyed_unarchiver::CLASSES,
         ns_locale::CLASSES,
         ns_number_formatter::CLASSES,
+        ns_operation::CLASSES,
         ns_lock::CLASSES,
         ns_notification::CLASSES,
         ns_notification_center::CLASSES,
