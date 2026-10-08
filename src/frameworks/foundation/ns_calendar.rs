@@ -238,14 +238,21 @@ pub const CLASSES: ClassExports = objc_classes! {
     let components: id = msg_class![env; NSDateComponents new];
     set_selected_components_from_date(env, components, units, date);
 
-    let host = env.objc.borrow_mut::<NSDateComponentsHostObject>(components);
-    if units & NS_CALENDAR_CALENDAR_UNIT != 0 {
-        host.calendar = retain(env, this);
-    }
-    if units & NS_TIME_ZONE_CALENDAR_UNIT != 0 {
+    let calendar = if units & NS_CALENDAR_CALENDAR_UNIT != 0 {
+        retain(env, this)
+    } else {
+        nil
+    };
+    let time_zone = if units & NS_TIME_ZONE_CALENDAR_UNIT != 0 {
         let time_zone: id = msg![env; this timeZone];
-        host.time_zone = retain(env, time_zone);
-    }
+        retain(env, time_zone)
+    } else {
+        nil
+    };
+
+    let host = env.objc.borrow_mut::<NSDateComponentsHostObject>(components);
+    host.calendar = calendar;
+    host.time_zone = time_zone;
 
     autorelease(env, components)
 }
