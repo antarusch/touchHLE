@@ -19,6 +19,7 @@ struct NSDateFormatterHostObject {
     date_format: Option<id>,
     date_style: NSInteger,
     time_style: NSInteger,
+    formatter_behavior: NSInteger,
 }
 impl HostObject for NSDateFormatterHostObject {}
 
@@ -33,8 +34,24 @@ pub const CLASSES: ClassExports = objc_classes! {
         date_format: None,
         date_style: 0,
         time_style: 0,
+        formatter_behavior: 0,
     });
     env.objc.alloc_object(this, host_object, &mut env.mem)
+}
+
+- (())setFormatterBehavior:(NSInteger)behavior {
+    // NSDateFormatterBehaviorDefault (0), 10_0 (1000), and 10_4 (1040)
+    // are the public values on the iOS versions touchHLE targets. Keep the
+    // value as state even though this formatter currently uses one formatting
+    // implementation for all behaviors.
+    env.objc
+        .borrow_mut::<NSDateFormatterHostObject>(this)
+        .formatter_behavior = behavior;
+}
+- (NSInteger)formatterBehavior {
+    env.objc
+        .borrow::<NSDateFormatterHostObject>(this)
+        .formatter_behavior
 }
 
 - (())setDateFormat:(id)format {
@@ -92,6 +109,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         date_format,
         date_style,
         time_style,
+        formatter_behavior: _,
     } = env.objc.borrow(this);
     let mut format = date_format
         .map(|value| ns_string::to_rust_string(env, value).to_string())
