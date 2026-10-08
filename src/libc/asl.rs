@@ -65,8 +65,7 @@ fn asl_log(
         return 0;
     }
 
-    let rendered =
-        printf_inner::<false, _>(env, |mem, idx| mem.read(format + idx), args.start());
+    let rendered = printf_inner::<false, _>(env, |mem, idx| mem.read(format + idx), args.start());
     log!(
         "Guest ASL [{}]: {}",
         level,
