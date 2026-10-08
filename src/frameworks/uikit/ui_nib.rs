@@ -176,7 +176,28 @@ pub const CLASSES: ClassExports = objc_classes! {
     let orig_nss: id = msg![env; coder decodeObjectForKey:orig_key];
     let orig = to_rust_string(env, orig_nss);
 
-    let class = env.objc.get_known_class(&name, &mut env.mem);
+    let class = env
+        .objc
+        .all_classes()
+        .find_map(|(class_name, class)| (class_name == name.as_ref()).then_some(*class));
+    let class = if let Some(class) = class {
+        class
+    } else if orig != "UICustomObject" {
+        // Interface Builder archives can contain a custom class name that is
+        // no longer present in the application binary. UIKit tolerates this by
+        // instantiating the original archived class instead.
+        log!(
+            "Warning: unknown Interface Builder class {:?}; falling back to original class {:?}",
+            name,
+            orig
+        );
+        env.objc.get_known_class(&orig, &mut env.mem)
+    } else {
+        // A UICustomObject normally represents an app-defined object such as
+        // the application delegate. There is no useful original UIKit class
+        // to fall back to in this case, so preserve the existing error.
+        env.objc.get_known_class(&name, &mut env.mem)
+    };
 
     let object: id = msg![env; class alloc];
     let object: id = if orig == "UICustomObject" {
