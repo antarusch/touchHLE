@@ -142,13 +142,11 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (id)absoluteString {
     match *env.objc.borrow(this) {
-        // FIXME: don't assume URL is already absolute
+        // FIXME: file URLs should be rendered with a file:// scheme.
         NSURLHostObject::FileURL { ns_string, .. } => ns_string,
-        NSURLHostObject::OtherURL { ns_string } => {
-            // TODO: full RFC 1808 resolution
-            assert!(to_rust_string(env, ns_string).starts_with("http"));
-            ns_string
-        },
+        // NSURL accepts arbitrary URL schemes (and relative URL strings), not
+        // only HTTP(S). Without a base URL, absoluteString is the stored string.
+        NSURLHostObject::OtherURL { ns_string } => ns_string,
     }
 }
 
