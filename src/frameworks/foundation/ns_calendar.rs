@@ -9,9 +9,9 @@
 //! with the rest of its date/time implementation and is sufficient for the
 //! Gregorian calendar APIs used by many iOS 4-era applications.
 
-use super::{NSInteger, NSUInteger, NSTimeInterval};
+use super::{NSInteger, NSTimeInterval, NSUInteger};
 use crate::dyld::{ConstantExports, HostConstant};
-use crate::libc::time::{timestamp_to_calendar_date, time_t};
+use crate::libc::time::{time_t, timestamp_to_calendar_date};
 use crate::objc::{
     autorelease, id, msg, msg_class, nil, objc_classes, release, retain, ClassExports, HostObject,
     NSZonePtr,
@@ -36,12 +36,8 @@ const NS_YEAR_FOR_WEEK_OF_YEAR_CALENDAR_UNIT: NSUInteger = 1 << 14;
 const NS_CALENDAR_CALENDAR_UNIT: NSUInteger = 1 << 20;
 const NS_TIME_ZONE_CALENDAR_UNIT: NSUInteger = 1 << 21;
 
-pub const CONSTANTS: ConstantExports = &[
-    (
-        "_NSGregorianCalendar",
-        HostConstant::NSString("gregorian"),
-    ),
-];
+pub const CONSTANTS: ConstantExports =
+    &[("_NSGregorianCalendar", HostConstant::NSString("gregorian"))];
 
 #[derive(Default)]
 struct NSCalendarHostObject {
