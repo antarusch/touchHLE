@@ -103,7 +103,10 @@ fn dispatch_once_common(
     predicate: MutPtr<u32>,
     initializer: impl FnOnce(&mut Environment),
 ) {
-    assert!(!predicate.is_null(), "dispatch_once called with a null predicate");
+    assert!(
+        !predicate.is_null(),
+        "dispatch_once called with a null predicate"
+    );
     match once_action(env.mem.read(predicate)) {
         OnceAction::Done => {}
         OnceAction::Wait => env.yield_thread(ThreadBlock::DispatchOnce(predicate)),
