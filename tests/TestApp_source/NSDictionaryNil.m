@@ -41,14 +41,13 @@ static BOOL checkNilDictionary(void) {
         [copy objectForKey:key] == value;
 
   // An inherited class factory must preserve NSMutableDictionary mutability.
-  NSDictionary *singleImmutable =
-      [NSDictionary dictionaryWithObject:value forKey:key];
+  NSDictionary *single = [NSDictionary dictionaryWithObject:value forKey:key];
   NSMutableDictionary *singleMutable =
       [NSMutableDictionary dictionaryWithObject:value forKey:key];
   NSString *additionalKey = [NSString stringWithUTF8String:"another"];
   [singleMutable setValue:value forKey:additionalKey];
   ok &= [singleMutable isKindOfClass:[NSMutableDictionary class]] &&
-        [singleImmutable count] == 1 && [singleMutable count] == 2 &&
+        [single count] == 1 && [singleMutable count] == 2 &&
         [singleMutable objectForKey:additionalKey] == value;
   [initialized release];
   [initializedMutable release];
