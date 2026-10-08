@@ -134,9 +134,12 @@ pub const CLASSES: ClassExports = objc_classes! {
         msg![env; this initWithContentsOfFile:ns_path]
     } else {
         let absolute_str: id = msg![env; url absoluteString];
-        let path = to_rust_string(env, absolute_str);
-        assert!(path.starts_with("http"));
-        log!("TODO: ignoring [(NSData*){:?} initWithContentsOfURL:{:?}]", this, path);
+        let url_string = to_rust_string(env, absolute_str);
+        log!(
+            "TODO: ignoring [(NSData*){:?} initWithContentsOfURL:{:?}]",
+            this,
+            url_string
+        );
         release(env, this);
         nil
     }
