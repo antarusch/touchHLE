@@ -11,8 +11,10 @@ use super::{
 };
 use crate::frameworks::core_animation::ca_transform_3d::CATransform3D;
 use crate::frameworks::core_foundation::cf_number::{
-    kCFNumberCharType, kCFNumberFloat32Type, kCFNumberFloatType, kCFNumberIntType,
-    kCFNumberSInt16Type, kCFNumberSInt32Type, kCFNumberSInt8Type, kCFNumberShortType, CFNumberType,
+    kCFNumberCFIndexType, kCFNumberCGFloatType, kCFNumberCharType, kCFNumberDoubleType,
+    kCFNumberFloat32Type, kCFNumberFloat64Type, kCFNumberFloatType, kCFNumberIntType,
+    kCFNumberLongLongType, kCFNumberLongType, kCFNumberNSIntegerType, kCFNumberSInt16Type,
+    kCFNumberSInt32Type, kCFNumberSInt64Type, kCFNumberSInt8Type, kCFNumberShortType, CFNumberType,
 };
 use crate::frameworks::core_graphics::{CGPoint, CGRect, CGSize};
 use crate::frameworks::foundation::ns_keyed_archiver::get_value_to_encode_for_current_key;
@@ -663,13 +665,25 @@ pub const CLASSES: ClassExports = objc_classes! {
 pub fn is_conversion_lossless(env: &mut Environment, this: id, type_: CFNumberType) -> bool {
     let num = env.objc.borrow::<NSNumberHostObject>(this);
     let num2: id = match type_ {
-        kCFNumberSInt32Type | kCFNumberIntType => {
+        kCFNumberSInt32Type
+        | kCFNumberIntType
+        | kCFNumberLongType
+        | kCFNumberCFIndexType
+        | kCFNumberNSIntegerType => {
             let val: i32 = num.as_int();
             msg_class![env; NSNumber numberWithInt:val]
         }
-        kCFNumberFloat32Type | kCFNumberFloatType => {
+        kCFNumberFloat32Type | kCFNumberFloatType | kCFNumberCGFloatType => {
             let val: f32 = num.as_float();
             msg_class![env; NSNumber numberWithFloat:val]
+        }
+        kCFNumberFloat64Type | kCFNumberDoubleType => {
+            let val: f64 = num.as_double();
+            msg_class![env; NSNumber numberWithDouble:val]
+        }
+        kCFNumberSInt64Type | kCFNumberLongLongType => {
+            let val: i64 = num.as_long_long();
+            msg_class![env; NSNumber numberWithLongLong:val]
         }
         kCFNumberSInt16Type | kCFNumberShortType => {
             let val: i16 = num.as_short();

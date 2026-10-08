@@ -26,9 +26,13 @@ pub const kCFNumberFloat64Type: CFNumberType = 6;
 pub const kCFNumberCharType: CFNumberType = 7;
 pub const kCFNumberShortType: CFNumberType = 8;
 pub const kCFNumberIntType: CFNumberType = 9;
+pub const kCFNumberLongType: CFNumberType = 10;
 pub const kCFNumberLongLongType: CFNumberType = 11;
 pub const kCFNumberFloatType: CFNumberType = 12;
 pub const kCFNumberDoubleType: CFNumberType = 13;
+pub const kCFNumberCFIndexType: CFNumberType = 14;
+pub const kCFNumberNSIntegerType: CFNumberType = 15;
+pub const kCFNumberCGFloatType: CFNumberType = 16;
 
 type CFNumberRef = CFTypeRef;
 // Note: on iOS SDK side this type is defined as a pointer to an opaque struct
@@ -45,7 +49,11 @@ fn CFNumberCreate(
     log_dbg!("CFNumberCreate type {}", type_);
     let num = msg_class![env; NSNumber alloc];
     match type_ {
-        kCFNumberSInt32Type | kCFNumberIntType => {
+        kCFNumberSInt32Type
+        | kCFNumberIntType
+        | kCFNumberLongType
+        | kCFNumberCFIndexType
+        | kCFNumberNSIntegerType => {
             let val: i32 = env.mem.read(value_ptr.cast());
             msg![env; num initWithInt:val]
         }
@@ -57,7 +65,7 @@ fn CFNumberCreate(
             let val: i16 = env.mem.read(value_ptr.cast());
             msg![env; num initWithShort:val]
         }
-        kCFNumberFloat32Type | kCFNumberFloatType => {
+        kCFNumberFloat32Type | kCFNumberFloatType | kCFNumberCGFloatType => {
             let val: f32 = env.mem.read(value_ptr.cast());
             msg![env; num initWithFloat:val]
         }
@@ -80,7 +88,11 @@ fn CFNumberGetValue(
     value_ptr: MutVoidPtr,
 ) -> bool {
     match type_ {
-        kCFNumberSInt32Type | kCFNumberIntType => {
+        kCFNumberSInt32Type
+        | kCFNumberIntType
+        | kCFNumberLongType
+        | kCFNumberCFIndexType
+        | kCFNumberNSIntegerType => {
             let val: i32 = msg![env; num intValue];
             env.mem.write(value_ptr.cast(), val);
             is_conversion_lossless(env, num, type_)
@@ -95,8 +107,18 @@ fn CFNumberGetValue(
             env.mem.write(value_ptr.cast(), val);
             is_conversion_lossless(env, num, type_)
         }
-        kCFNumberFloat32Type | kCFNumberFloatType => {
+        kCFNumberFloat32Type | kCFNumberFloatType | kCFNumberCGFloatType => {
             let val: f32 = msg![env; num floatValue];
+            env.mem.write(value_ptr.cast(), val);
+            is_conversion_lossless(env, num, type_)
+        }
+        kCFNumberFloat64Type | kCFNumberDoubleType => {
+            let val: f64 = msg![env; num doubleValue];
+            env.mem.write(value_ptr.cast(), val);
+            is_conversion_lossless(env, num, type_)
+        }
+        kCFNumberSInt64Type | kCFNumberLongLongType => {
+            let val: i64 = msg![env; num longLongValue];
             env.mem.write(value_ptr.cast(), val);
             is_conversion_lossless(env, num, type_)
         }
