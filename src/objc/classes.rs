@@ -747,13 +747,20 @@ impl ObjC {
                     let align_mask = max_alignment - 1;
                     diff = (diff + align_mask) & !align_mask;
 
-                    for (offset, _) in ivars.values_mut() {
+                    for (offset, _) in ivars.values() {
                         if offset.is_null() {
                             // anonymous bitfield
                             continue;
                         }
 
-                        *offset = Ptr::from_bits((*offset).to_bits() + diff);
+                        // Non-fragile Objective-C ivar references in guest code
+                        // load the offset value through this pointer. When a
+                        // superclass grows, Apple's runtime patches that value;
+                        // moving our host-side pointer instead leaves guest code
+                        // using the stale offset and makes KVC disagree with
+                        // compiled ivar accesses.
+                        let old_offset = mem.read(*offset);
+                        mem.write(offset.cast_mut(), old_offset + diff);
                     }
                 }
 
