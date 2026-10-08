@@ -753,12 +753,12 @@ impl ObjC {
                             continue;
                         }
 
-                        // Non-fragile Objective-C ivar references in guest code
-                        // load the offset value through this pointer. When a
-                        // superclass grows, Apple's runtime patches that value;
-                        // moving our host-side pointer instead leaves guest code
-                        // using the stale offset and makes KVC disagree with
-                        // compiled ivar accesses.
+                        // Non-fragile Objective-C ivar references in guest
+                        // code load the offset value through this pointer. When
+                        // a superclass grows, Apple's runtime patches that
+                        // value. Moving our host-side pointer instead leaves
+                        // guest code using the stale offset and makes KVC
+                        // disagree with compiled ivar accesses.
                         let old_offset = mem.read(*offset);
                         mem.write(offset.cast_mut(), old_offset + diff);
                     }
