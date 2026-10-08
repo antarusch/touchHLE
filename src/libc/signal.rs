@@ -93,7 +93,6 @@ fn sigaltstack(env: &mut Environment, ss: ConstPtr<stack_t>, old_ss: MutPtr<stac
     0
 }
 
-
 fn sigaction(env: &mut Environment, signum: i32, act: ConstVoidPtr, old_act: MutVoidPtr) -> i32 {
     // TODO: handle errno properly
     set_errno(env, 0);
