@@ -5,7 +5,7 @@
  */
 //! `NSTimeZone`.
 
-use crate::frameworks::foundation::{ns_string, NSInteger};
+use crate::frameworks::foundation::{ns_string, NSInteger, NSTimeInterval};
 use crate::objc::{autorelease, id, nil, release, retain, ClassExports, HostObject, NSZonePtr};
 use crate::{msg, objc_classes};
 
@@ -85,9 +85,41 @@ pub const CLASSES: ClassExports = objc_classes! {
     ns_string::get_static_str(env, "GMT")
 }
 
+- (id)abbreviationForDate:(id)_date {
+    // All time zones are currently represented as GMT by touchHLE.
+    msg![env; this abbreviation]
+}
+
 - (NSInteger)secondsFromGMT {
     // TODO: respect timezone
     0
+}
+
+- (NSInteger)secondsFromGMTForDate:(id)_date {
+    msg![env; this secondsFromGMT]
+}
+
+- (id)localizedName:(NSInteger)_style locale:(id)_locale {
+    // NSTimeZoneNameStyle changes presentation only. Until touchHLE has a
+    // real time-zone database, returning the zone's canonical name is the
+    // safest locale-independent representation.
+    msg![env; this name]
+}
+
+- (bool)isDaylightSavingTime {
+    false
+}
+
+- (bool)isDaylightSavingTimeForDate:(id)_date {
+    false
+}
+
+- (NSTimeInterval)daylightSavingTimeOffset {
+    0.0
+}
+
+- (NSTimeInterval)daylightSavingTimeOffsetForDate:(id)_date {
+    0.0
 }
 
 // NSCopying implementation
