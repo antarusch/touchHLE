@@ -8,7 +8,7 @@
 use crate::dyld::{export_c_func, FunctionExports};
 use crate::fs::GuestPath;
 use crate::libc::dirent::MAXPATHLEN;
-use crate::libc::errno::{set_errno, EBADF, ENOENT};
+use crate::libc::errno::{set_errno, EBADF, EFAULT, ENOENT};
 use crate::libc::posix_io::stat::uid_t;
 use crate::libc::posix_io::{FileDescriptor, STDERR_FILENO, STDIN_FILENO, STDOUT_FILENO};
 use crate::mem::{ConstPtr, MutPtr, SafeRead};
@@ -76,14 +76,12 @@ fn fake_statfs() -> statfs {
 
 /// Internal helper for `statfs`, not a part of the API.
 pub fn statfs_inner(env: &mut Environment, path: ConstPtr<u8>) -> Result<statfs, i32> {
-    // FIXME does directory matter?
-    assert!(env
-        .mem
-        .cstr_at_utf8(path)
-        .is_ok_and(|path| path.starts_with(env.fs.home_directory().join("Documents").as_str())));
-
-    // TODO: Handle additional errors
-    let path = env.mem.cstr_at_utf8(path).unwrap();
+    // statfs applies to any existing file or directory, not only Documents.
+    // Resolve through the guest filesystem to avoid accessing host paths.
+    if path.is_null() {
+        return Err(EFAULT);
+    }
+    let path = env.mem.cstr_at_utf8(path).map_err(|_| EFAULT)?;
     if !env.fs.exists(GuestPath::new(path)) {
         return Err(ENOENT);
     }
