@@ -211,6 +211,20 @@ impl ObjC {
         methods.contains_key(&sel)
     }
 
+    /// Return a guest implementation declared directly on `class`, without
+    /// searching its superclass chain.
+    pub fn class_get_uninherited_guest_method(
+        &self,
+        class: Class,
+        sel: SEL,
+    ) -> Option<GuestIMP> {
+        let ClassHostObject { methods, .. } = self.borrow(class);
+        match methods.get(&sel) {
+            Some(IMP::Guest(imp)) => Some(*imp),
+            _ => None,
+        }
+    }
+
     pub fn class_get_method_signature(&self, class: Class, sel: SEL) -> Option<&ConstPtr<u8>> {
         // TODO: support `host` method signatures
         let mut class = class;

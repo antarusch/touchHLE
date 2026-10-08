@@ -16,6 +16,7 @@
 
 use super::ns_string::{from_rust_string, to_rust_string};
 use super::{NSTimeInterval, NSUInteger};
+use crate::abi::CallFromHost;
 use crate::frameworks::foundation::ns_run_loop::{add_perform_request, cancel_perform_requests};
 use crate::frameworks::foundation::ns_thread::detach_new_thread_inner;
 use crate::libc::semaphore::{host_destroy_semaphore, sem_wait};
@@ -43,6 +44,68 @@ fn method_for_selector(env: &mut Environment, receiver: id, selector: SEL) -> Mu
         .cast_mut()
 }
 
+fn invoke_cxx_constructors(env: &mut Environment, object: id, class: Class) {
+    let Some(selector) = env.objc.lookup_selector(".cxx_construct") else {
+        return;
+    };
+
+    // Apple's Objective-C runtime constructs C++ ivars from superclass to
+    // subclass. Compiler-generated .cxx_construct methods only initialize the
+    // ivars belonging to their own class, so invoke each uninherited method.
+    let mut class_chain = Vec::new();
+    let mut current = class;
+    while current != nil {
+        class_chain.push(current);
+        current = env.objc.get_superclass(current);
+    }
+
+    for current in class_chain.into_iter().rev() {
+        let Some(imp) = env
+            .objc
+            .class_get_uninherited_guest_method(current, selector)
+        else {
+            continue;
+        };
+        log_dbg!(
+            "Invoking .cxx_construct for class {:?} on object {:?}",
+            env.objc.try_get_class_name(current),
+            object
+        );
+        let result: id = imp.call_from_host(env, (object, selector));
+        if result == nil {
+            log!(
+                "Warning: .cxx_construct for class {:?} returned nil",
+                env.objc.try_get_class_name(current)
+            );
+            break;
+        }
+    }
+}
+
+fn invoke_cxx_destructors(env: &mut Environment, object: id) {
+    let Some(selector) = env.objc.lookup_selector(".cxx_destruct") else {
+        return;
+    };
+
+    // Destruction runs in the opposite order: subclass before superclass.
+    let mut current = ObjC::read_isa(object, &env.mem);
+    while current != nil {
+        let next = env.objc.get_superclass(current);
+        if let Some(imp) = env
+            .objc
+            .class_get_uninherited_guest_method(current, selector)
+        {
+            log_dbg!(
+                "Invoking .cxx_destruct for class {:?} on object {:?}",
+                env.objc.try_get_class_name(current),
+                object
+            );
+            let _: () = imp.call_from_host(env, (object, selector));
+        }
+        current = next;
+    }
+}
+
 pub const CLASSES: ClassExports = objc_classes! {
 
 (env, this, _cmd);
@@ -54,7 +117,11 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 + (id)allocWithZone:(NSZonePtr)_zone { // struct _NSZone*
     log_dbg!("[{:?} allocWithZone:]", this);
-    env.objc.alloc_object(this, Box::new(TrivialHostObject), &mut env.mem)
+    let object = env
+        .objc
+        .alloc_object(this, Box::new(TrivialHostObject), &mut env.mem);
+    invoke_cxx_constructors(env, object, this);
+    object
 }
 
 + (id)new {
@@ -163,6 +230,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (())dealloc {
     log_dbg!("[{:?} dealloc]", this);
+    invoke_cxx_destructors(env, this);
     env.objc.dealloc_object(this, &mut env.mem)
 }
 
