@@ -6,8 +6,8 @@
 //! `NSThread`.
 
 use super::NSTimeInterval;
-use crate::environment::ThreadId;
 use crate::dyld::HostFunction;
+use crate::environment::ThreadId;
 use crate::frameworks::core_foundation::CFTypeRef;
 use crate::frameworks::foundation::NSUInteger;
 use crate::libc::pthread::thread::{

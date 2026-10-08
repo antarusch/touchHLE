@@ -229,7 +229,10 @@ pub fn pthread_create(
 
 /// Look up the emulator thread created for a POSIX pthread handle.
 pub fn pthread_thread_id(env: &mut Environment, thread: pthread_t) -> Option<ThreadId> {
-    State::get(env).threads.get(&thread).map(|obj| obj.thread_id)
+    State::get(env)
+        .threads
+        .get(&thread)
+        .map(|obj| obj.thread_id)
 }
 
 fn pthread_equal(env: &mut Environment, thread1: pthread_t, thread2: pthread_t) -> i32 {
