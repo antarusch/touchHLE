@@ -57,7 +57,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     msg![env; this description]
 }
 
-- (id)descriptionWithLocale:(id)_locale indent:(usize)_level {
+- (id)descriptionWithLocale:(id)_locale indent:(u32)_level {
     msg![env; this description]
 }
 
