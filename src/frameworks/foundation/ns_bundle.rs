@@ -13,7 +13,7 @@ use crate::frameworks::core_foundation::cf_bundle::{
 use crate::frameworks::foundation::ns_string::{
     from_rust_string, to_rust_string, NSUTF8StringEncoding,
 };
-use crate::fs::GuestPath;
+use crate::fs::{GuestPath, GuestPathBuf};
 use crate::mem::{ConstPtr, ConstVoidPtr, MutPtr, Ptr};
 use crate::objc::{
     autorelease, id, msg, msg_class, nil, objc_classes, release, retain, Class, ClassExports,
@@ -67,6 +67,18 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 @implementation NSBundle: NSObject
 
++ (id)allocWithZone:(NSZonePtr)_zone {
+    let host_object = NSBundleHostObject {
+        bundle: Some(Bundle::new_fake_bundle()),
+        bundle_path: nil,
+        bundle_identifier: nil,
+        bundle_url: None,
+        info_dictionary: None,
+    };
+    env.objc
+        .alloc_object(this, Box::new(host_object), &mut env.mem)
+}
+
 + (id)mainBundle {
     if let Some(bundle) = env.framework_state.foundation.ns_bundle.main_bundle {
         bundle
@@ -82,14 +94,79 @@ pub const CLASSES: ClassExports = objc_classes! {
     autorelease(env, preferredLocalizations)
 }
 
++ (id)bundleWithPath:(id)path {
+    let new: id = msg![env; this alloc];
+    let new: id = msg![env; new initWithPath:path];
+    if new == nil {
+        return nil;
+    }
+    autorelease(env, new)
+}
+
++ (id)bundleWithURL:(id)url {
+    if url == nil {
+        return nil;
+    }
+    let path: id = msg![env; url path];
+    msg![env; this bundleWithPath:path]
+}
+
+- (id)initWithPath:(id)path {
+    if path == nil {
+        return nil;
+    }
+
+    let path_string = to_rust_string(env, path).into_owned();
+    let path_buf = GuestPathBuf::from(path_string.clone());
+    let Ok(bundle) = Bundle::new_from_guest_path(&env.fs, path_buf) else {
+        return nil;
+    };
+
+    let bundle_path = from_rust_string(env, path_string);
+    let bundle_identifier = bundle
+        .bundle_identifier_opt()
+        .map(|identifier| from_rust_string(env, identifier.to_owned()))
+        .unwrap_or(nil);
+
+    let host = env.objc.borrow_mut::<NSBundleHostObject>(this);
+    if host.bundle_path != nil {
+        release(env, host.bundle_path);
+    }
+    if host.bundle_identifier != nil {
+        release(env, host.bundle_identifier);
+    }
+    if let Some(bundle_url) = host.bundle_url.take() {
+        release(env, bundle_url);
+    }
+    if let Some(info_dictionary) = host.info_dictionary.take() {
+        release(env, info_dictionary);
+    }
+    host.bundle = Some(bundle);
+    host.bundle_path = bundle_path;
+    host.bundle_identifier = bundle_identifier;
+    this
+}
+
+- (id)initWithURL:(id)url {
+    if url == nil {
+        return nil;
+    }
+    let path: id = msg![env; url path];
+    msg![env; this initWithPath:path]
+}
+
 - (())dealloc {
-    let &NSBundleHostObject {
-        bundle: _,
-        bundle_path: _, // FIXME?
-        bundle_identifier: _, // FIXME?
-        bundle_url,
-        info_dictionary,
-    } = env.objc.borrow(this);
+    let (bundle_path, bundle_identifier, bundle_url, info_dictionary) = {
+        let host = env.objc.borrow::<NSBundleHostObject>(this);
+        (
+            host.bundle_path,
+            host.bundle_identifier,
+            host.bundle_url,
+            host.info_dictionary,
+        )
+    };
+    release(env, bundle_path);
+    release(env, bundle_identifier);
     if let Some(bundle_url) = bundle_url {
         release(env, bundle_url);
     }
@@ -180,8 +257,18 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (id)executablePath {
-    let exec_path_str = env.bundle.executable_path().as_str().to_string();
-    let exec_path = from_rust_string(env, exec_path_str);
+    let exec_path = {
+        let host = env.objc.borrow::<NSBundleHostObject>(this);
+        if let Some(bundle) = host.bundle.as_ref() {
+            bundle.executable_path_opt()
+        } else {
+            Some(env.bundle.executable_path())
+        }
+    };
+    let Some(exec_path) = exec_path else {
+        return nil;
+    };
+    let exec_path = from_rust_string(env, exec_path.as_str().to_string());
     autorelease(env, exec_path)
 }
 - (id)executableURL {

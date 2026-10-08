@@ -59,6 +59,25 @@ impl Bundle {
         Ok((bundle, fs))
     }
 
+    /// Create a bundle object for an already-mounted directory in the guest
+    /// filesystem. This is used by NSBundle for nested resource/framework
+    /// bundles inside the application.
+    pub fn new_from_guest_path(fs: &Fs, path: GuestPathBuf) -> Result<Bundle, String> {
+        if !fs.is_dir(&path) {
+            return Err("Bundle path is not a directory".to_string());
+        }
+
+        let plist_bytes = fs
+            .read(path.join("Info.plist"))
+            .map_err(|_| "Could not read bundle Info.plist".to_string())?;
+        let plist = Value::from_reader(Cursor::new(plist_bytes))
+            .map_err(|_| "Could not deserialize bundle Info.plist".to_string())?
+            .into_dictionary()
+            .ok_or_else(|| "bundle Info.plist root is not a dictionary".to_string())?;
+
+        Ok(Bundle { path, plist })
+    }
+
     /// Create a fake bundle (see [crate::Environment::new_without_app]).
     pub fn new_fake_bundle() -> Bundle {
         Bundle {
@@ -73,6 +92,12 @@ impl Bundle {
 
     pub fn bundle_identifier(&self) -> &str {
         self.plist["CFBundleIdentifier"].as_string().unwrap()
+    }
+
+    pub fn bundle_identifier_opt(&self) -> Option<&str> {
+        self.plist
+            .get("CFBundleIdentifier")
+            .and_then(Value::as_string)
     }
 
     pub fn bundle_version(&self) -> &str {
@@ -137,6 +162,13 @@ impl Bundle {
         // FIXME: Is this key optional? All iPhone apps seem to have it.
         self.path
             .join(self.plist["CFBundleExecutable"].as_string().unwrap())
+    }
+
+    pub fn executable_path_opt(&self) -> Option<GuestPathBuf> {
+        self.plist
+            .get("CFBundleExecutable")
+            .and_then(Value::as_string)
+            .map(|executable| self.path.join(executable))
     }
 
     pub fn launch_image_path(&self) -> GuestPathBuf {
