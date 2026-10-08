@@ -33,6 +33,9 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 struct SCNetworkReachabilityHostObject {
     address: Option<SocketAddrV4>,
+    callback: Option<GuestFunction>,
+    callback_context: MutVoidPtr,
+    scheduled: bool,
 }
 impl HostObject for SCNetworkReachabilityHostObject {}
 
@@ -59,7 +62,12 @@ fn SCNetworkReachabilityCreateWithName(
         .get_known_class("_touchHLE_SCNetworkReachability", &mut env.mem);
     let res = env.objc.alloc_object(
         isa,
-        Box::new(SCNetworkReachabilityHostObject { address: None }), // TODO
+        Box::new(SCNetworkReachabilityHostObject {
+            address: None,
+            callback: None,
+            callback_context: Ptr::null(),
+            scheduled: false,
+        }),
         &mut env.mem,
     );
     log!(
@@ -86,6 +94,9 @@ fn SCNetworkReachabilityCreateWithAddress(
         isa,
         Box::new(SCNetworkReachabilityHostObject {
             address: Some(address_val.to_sockaddr_v4()),
+            callback: None,
+            callback_context: Ptr::null(),
+            scheduled: false,
         }),
         &mut env.mem,
     );
@@ -156,13 +167,66 @@ fn SCNetworkReachabilitySetCallback(
         env.objc
             .get_known_class("_touchHLE_SCNetworkReachability", &mut env.mem)
     );
-    log!(
-        "TODO: SCNetworkReachabilitySetCallback({:?}, {:?}, {:?}) -> FALSE",
+    let host_object = env
+        .objc
+        .borrow_mut::<SCNetworkReachabilityHostObject>(target);
+    host_object.callback = Some(callout);
+    host_object.callback_context = context;
+    log_dbg!(
+        "SCNetworkReachabilitySetCallback({:?}, {:?}, {:?}) -> true",
         target,
         callout,
         context
     );
-    false
+    true
+}
+
+fn SCNetworkReachabilityScheduleWithRunLoop(
+    env: &mut Environment,
+    target: SCNetworkReachabilityRef,
+    run_loop: CFTypeRef,
+    run_loop_mode: CFTypeRef,
+) -> bool {
+    let target_class: Class = msg![env; target class];
+    assert_eq!(
+        target_class,
+        env.objc
+            .get_known_class("_touchHLE_SCNetworkReachability", &mut env.mem)
+    );
+    env.objc
+        .borrow_mut::<SCNetworkReachabilityHostObject>(target)
+        .scheduled = true;
+    log_dbg!(
+        "SCNetworkReachabilityScheduleWithRunLoop({:?}, {:?}, {:?}) -> true",
+        target,
+        run_loop,
+        run_loop_mode
+    );
+    true
+}
+
+fn SCNetworkReachabilityUnscheduleFromRunLoop(
+    env: &mut Environment,
+    target: SCNetworkReachabilityRef,
+    run_loop: CFTypeRef,
+    run_loop_mode: CFTypeRef,
+) -> bool {
+    let target_class: Class = msg![env; target class];
+    assert_eq!(
+        target_class,
+        env.objc
+            .get_known_class("_touchHLE_SCNetworkReachability", &mut env.mem)
+    );
+    env.objc
+        .borrow_mut::<SCNetworkReachabilityHostObject>(target)
+        .scheduled = false;
+    log_dbg!(
+        "SCNetworkReachabilityUnscheduleFromRunLoop({:?}, {:?}, {:?}) -> true",
+        target,
+        run_loop,
+        run_loop_mode
+    );
+    true
 }
 
 pub const FUNCTIONS: FunctionExports = &[
@@ -170,4 +234,6 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(SCNetworkReachabilityCreateWithAddress(_, _)),
     export_c_func!(SCNetworkReachabilityGetFlags(_, _)),
     export_c_func!(SCNetworkReachabilitySetCallback(_, _, _)),
+    export_c_func!(SCNetworkReachabilityScheduleWithRunLoop(_, _, _)),
+    export_c_func!(SCNetworkReachabilityUnscheduleFromRunLoop(_, _, _)),
 ];
