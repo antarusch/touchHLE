@@ -17,7 +17,7 @@ use crate::frameworks::core_foundation::cf_number::{
 use crate::frameworks::core_graphics::{CGPoint, CGRect, CGSize};
 use crate::frameworks::foundation::ns_keyed_archiver::get_value_to_encode_for_current_key;
 use crate::frameworks::foundation::NSInteger;
-use crate::mem::{ConstVoidPtr, MutVoidPtr};
+use crate::mem::{ConstPtr, ConstVoidPtr, MutVoidPtr};
 use crate::objc::{
     autorelease, id, msg, msg_class, nil, objc_classes, release, retain, Class, ClassExports,
     HostObject, NSZonePtr,
@@ -101,6 +101,21 @@ impl NSNumberHostObject {
     impl_AsValue!(as_unsigned_short, u16);
     impl_AsValue!(as_char, i8);
     impl_AsValue!(as_i128, i128);
+
+    fn objc_type(&self) -> &'static [u8] {
+        match self {
+            // BOOL is a signed char in the 32-bit iOS ABI.
+            NSNumberHostObject::Bool(_) | NSNumberHostObject::Char(_) => b"c",
+            NSNumberHostObject::UnsignedLongLong(_) => b"Q",
+            NSNumberHostObject::UnsignedInt(_) => b"I",
+            NSNumberHostObject::Int(_) => b"i",
+            NSNumberHostObject::LongLong(_) => b"q",
+            NSNumberHostObject::Float(_) => b"f",
+            NSNumberHostObject::Double(_) => b"d",
+            NSNumberHostObject::Short(_) => b"s",
+            NSNumberHostObject::UnsignedShort(_) => b"S",
+        }
+    }
 }
 
 pub const CLASSES: ClassExports = objc_classes! {
@@ -519,6 +534,26 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (i8)charValue {
     env.objc.borrow::<NSNumberHostObject>(this).as_char()
+}
+
+- (ConstPtr<u8>)objCType {
+    let encoding = env.objc.borrow::<NSNumberHostObject>(this).objc_type();
+    env.mem.alloc_and_write_cstr(encoding).cast_const()
+}
+
+- (())getValue:(MutVoidPtr)buffer {
+    match env.objc.borrow::<NSNumberHostObject>(this) {
+        NSNumberHostObject::Bool(value) => env.mem.write(buffer.cast(), i8::from(*value)),
+        NSNumberHostObject::UnsignedLongLong(value) => env.mem.write(buffer.cast(), *value),
+        NSNumberHostObject::UnsignedInt(value) => env.mem.write(buffer.cast(), *value),
+        NSNumberHostObject::Int(value) => env.mem.write(buffer.cast(), *value),
+        NSNumberHostObject::LongLong(value) => env.mem.write(buffer.cast(), *value),
+        NSNumberHostObject::Float(value) => env.mem.write(buffer.cast(), *value),
+        NSNumberHostObject::Double(value) => env.mem.write(buffer.cast(), *value),
+        NSNumberHostObject::Short(value) => env.mem.write(buffer.cast(), *value),
+        NSNumberHostObject::UnsignedShort(value) => env.mem.write(buffer.cast(), *value),
+        NSNumberHostObject::Char(value) => env.mem.write(buffer.cast(), *value),
+    }
 }
 
 - (id)description {
