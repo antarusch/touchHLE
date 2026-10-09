@@ -268,10 +268,11 @@ fn movie_video_tick(env: &mut Environment) {
                         let parent: id = msg![env; container superview];
                         if parent != nil {
                             () = msg![env; parent bringSubviewToFront:container];
-                            // Let touches pass through to the menu underneath.
-                            () = msg![env; container setUserInteractionEnabled:false];
+                            // Only the movie surface is noninteractive.
+                            // Keep its container's save-slot controls enabled.
+                            () = msg![env; view setUserInteractionEnabled:false];
                             log!(
-                                "Hunters 2 movie overlay: raised container {container:?} in {parent:?}; touch passthrough enabled"
+                                "Hunters 2 movie overlay: raised container {container:?} in {parent:?}; video view {view:?} ignores touches"
                             );
                         }
                     }
