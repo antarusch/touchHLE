@@ -263,8 +263,7 @@ impl MovieDecoder {
                     continue;
                 }
                 let mut mime = ptr::null();
-                let available =
-                    AMediaFormat_getString(format, c"mime".as_ptr(), &mut mime);
+                let available = AMediaFormat_getString(format, c"mime".as_ptr(), &mut mime);
                 let name = if available && !mime.is_null() {
                     CStr::from_ptr(mime).to_string_lossy().into_owned()
                 } else {
@@ -292,11 +291,7 @@ impl MovieDecoder {
                 }
                 // Request a byte-buffer YUV420 output. Surface decoding
                 // cannot be composited into touchHLE's emulated CALayer yet.
-                AMediaFormat_setInt32(
-                    format,
-                    c"color-format".as_ptr(),
-                    COLOR_YUV420_FLEXIBLE,
-                );
+                AMediaFormat_setInt32(format, c"color-format".as_ptr(), COLOR_YUV420_FLEXIBLE);
                 let configured =
                     AMediaCodec_configure(self.codec, format, ptr::null_mut(), ptr::null_mut(), 0);
                 AMediaFormat_delete(format);
