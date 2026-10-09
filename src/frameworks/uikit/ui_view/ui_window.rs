@@ -77,7 +77,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         if env.bundle.bundle_identifier_opt() == Some("uk.co.rodeogames.hunterstwo")
             && matches!(phase, UITouchPhaseBegan | UITouchPhaseEnded)
         {
-            let class: id = msg![env; view class];
+            let class: crate::objc::Class = msg![env; view class];
             log!(
                 "Hunters 2 touch target: phase={phase}, view={view:?}, class={:?}",
                 env.objc.try_get_class_name(class)
