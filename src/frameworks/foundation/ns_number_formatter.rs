@@ -7,7 +7,7 @@
 
 use super::{ns_string, NSInteger, NSUInteger};
 use crate::objc::{
-    autorelease, id, msg, nil, objc_classes, release, ClassExports, HostObject, NSZonePtr,
+    autorelease, id, msg, msg_class, nil, objc_classes, release, ClassExports, HostObject, NSZonePtr,
 };
 
 struct NSNumberFormatterHostObject {
@@ -58,6 +58,75 @@ fn apply_grouping(input: &str, separator: &str, grouping_size: usize) -> String 
     result.push_str(fraction);
     result.push_str(exponent);
     result
+}
+
+// NSNumberFormatter returns nil if the input does not represent a number.
+// Keep integer values as integers, rather than losing precision through f64.
+#[derive(Debug, PartialEq)]
+enum ParsedNumber {
+    Signed(i64),
+    Unsigned(u64),
+    Double(f64),
+}
+
+fn parse_number(
+    input: &str,
+    grouping_separator: Option<&str>,
+    grouping_size: usize,
+) -> Option<ParsedNumber> {
+    let input = input.trim();
+    if input.is_empty() {
+        return None;
+    }
+
+    let normalized = if let Some(separator) = grouping_separator.filter(|s| !s.is_empty()) {
+        if input.contains(separator) {
+            if grouping_size == 0 {
+                return None;
+            }
+            let exponent_at = input.find(['e', 'E']).unwrap_or(input.len());
+            let (mantissa, exponent) = input.split_at(exponent_at);
+            let integer_end = if separator == "." {
+                mantissa.len()
+            } else {
+                mantissa.find('.').unwrap_or(mantissa.len())
+            };
+            let (integer, fractional) = mantissa.split_at(integer_end);
+            let (sign, digits) = if let Some(digits) = integer.strip_prefix('-') {
+                ("-", digits)
+            } else if let Some(digits) = integer.strip_prefix('+') {
+                ("+", digits)
+            } else {
+                ("", integer)
+            };
+            let groups: Vec<_> = digits.split(separator).collect();
+            if groups.len() < 2
+                || groups[0].is_empty()
+                || groups[0].len() > grouping_size
+                || !groups[0].bytes().all(|c| c.is_ascii_digit())
+                || groups[1..].iter().any(|group| {
+                    group.len() != grouping_size
+                        || !group.bytes().all(|c| c.is_ascii_digit())
+                })
+            {
+                return None;
+            }
+            format!("{}{}{}{}", sign, groups.concat(), fractional, exponent)
+        } else {
+            input.to_string()
+        }
+    } else {
+        input.to_string()
+    };
+
+    if let Ok(value) = normalized.parse::<i64>() {
+        return Some(ParsedNumber::Signed(value));
+    }
+    if let Ok(value) = normalized.parse::<u64>() {
+        return Some(ParsedNumber::Unsigned(value));
+    }
+    let value = normalized.parse::<f64>().ok()?;
+    value.is_finite().then_some(ParsedNumber::Double(value))
 }
 
 pub const CLASSES: ClassExports = objc_classes! {
@@ -143,6 +212,44 @@ pub const CLASSES: ClassExports = objc_classes! {
         .grouping_size
 }
 
+- (id)numberFromString:(id)string {
+    if string == nil {
+        return nil;
+    }
+
+    let input = ns_string::to_rust_string(env, string).into_owned();
+    let (grouping_enabled, grouping_separator, grouping_size) = {
+        let host = env.objc.borrow::<NSNumberFormatterHostObject>(this);
+        (
+            host.uses_grouping_separator,
+            host.grouping_separator,
+            host.grouping_size as usize,
+        )
+    };
+    let separator = if grouping_enabled {
+        Some(
+            grouping_separator
+                .map(|value| ns_string::to_rust_string(env, value).into_owned())
+                .unwrap_or_else(|| ",".to_string()),
+        )
+    } else {
+        None
+    };
+
+    match parse_number(&input, separator.as_deref(), grouping_size) {
+        Some(ParsedNumber::Signed(value)) => {
+            msg_class![env; NSNumber numberWithLongLong:value]
+        }
+        Some(ParsedNumber::Unsigned(value)) => {
+            msg_class![env; NSNumber numberWithUnsignedLongLong:value]
+        }
+        Some(ParsedNumber::Double(value)) => {
+            msg_class![env; NSNumber numberWithDouble:value]
+        }
+        None => nil,
+    }
+}
+
 - (id)stringFromNumber:(id)number {
     if number == nil {
         return nil;
@@ -191,6 +298,37 @@ pub const CLASSES: ClassExports = objc_classes! {
 #[cfg(test)]
 mod tests {
     use super::apply_grouping;
+
+    #[test]
+    fn parse_plain_numbers_and_reject_invalid_input() {
+        use super::ParsedNumber;
+        let parse = |text| super::parse_number(text, None, 3);
+        assert_eq!(parse("2000"), Some(ParsedNumber::Signed(2000)));
+        assert_eq!(parse(" -42 "), Some(ParsedNumber::Signed(-42)));
+        assert_eq!(parse("1.25"), Some(ParsedNumber::Double(1.25)));
+        assert_eq!(parse("1e3"), Some(ParsedNumber::Double(1000.0)));
+        assert_eq!(
+            parse("18446744073709551615"),
+            Some(ParsedNumber::Unsigned(u64::MAX))
+        );
+        assert_eq!(parse(""), None);
+        assert_eq!(parse("no value"), None);
+        assert_eq!(parse("2,000"), None);
+        assert_eq!(parse("NaN"), None);
+        assert_eq!(parse("Infinity"), None);
+    }
+
+    #[test]
+    fn parse_grouped_numbers_when_enabled() {
+        use super::ParsedNumber;
+        let parse = |text| super::parse_number(text, Some(","), 3);
+        assert_eq!(parse("2,000"), Some(ParsedNumber::Signed(2000)));
+        assert_eq!(parse("-1,234.5"), Some(ParsedNumber::Double(-1234.5)));
+        assert_eq!(parse("1,234,567"), Some(ParsedNumber::Signed(1234567)));
+        assert_eq!(parse("12,34"), None);
+        assert_eq!(parse("1,,234"), None);
+        assert_eq!(parse("1234,567"), None);
+    }
 
     #[test]
     fn grouping_keeps_sign_fraction_and_exponent() {
