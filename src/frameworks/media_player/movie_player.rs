@@ -7,9 +7,9 @@
 
 #[cfg(target_os = "android")]
 use super::android_video::{Frame, MovieDecoder};
+use crate::dyld::{ConstantExports, HostConstant};
 #[cfg(target_os = "android")]
 use crate::frameworks::core_animation::ca_layer::present_movie_pixels;
-use crate::dyld::{ConstantExports, HostConstant};
 use crate::frameworks::core_graphics::{CGPoint, CGRect, CGSize};
 use crate::frameworks::foundation::{ns_string, ns_url, NSInteger, NSTimeInterval};
 use crate::frameworks::uikit::ui_device::UIDeviceOrientation;
@@ -127,20 +127,26 @@ struct MPMoviePlayerControllerHostObject {
 }
 impl HostObject for MPMoviePlayerControllerHostObject {}
 
-
 #[cfg(target_os = "android")]
 fn load_android_movie(env: &mut Environment, player: id) -> bool {
     let (url, loaded) = {
         let host = env.objc.borrow::<MPMoviePlayerControllerHostObject>(player);
         (host.content_url, host.decoder.is_some())
     };
-    if loaded { return true; }
-    if url == nil { return false; }
+    if loaded {
+        return true;
+    }
+    if url == nil {
+        return false;
+    }
     let path = ns_url::to_rust_path(env, url);
     let movie = match env.fs.read(path.as_ref()) {
         Ok(movie) => movie,
         Err(()) => {
-            log!("Android movie file not found in guest filesystem: {:?}", path);
+            log!(
+                "Android movie file not found in guest filesystem: {:?}",
+                path
+            );
             return false;
         }
     };
@@ -151,28 +157,47 @@ fn load_android_movie(env: &mut Environment, player: id) -> bool {
             return false;
         }
     };
-    let size = CGSize { width: decoder.width as f32, height: decoder.height as f32 };
+    let size = CGSize {
+        width: decoder.width as f32,
+        height: decoder.height as f32,
+    };
     let duration = decoder.duration_us as f64 / 1_000_000.0;
-    log!("Android video prepared: {:?}, {}x{}, duration {:.3}s",
-        path, decoder.width, decoder.height, duration);
-    let host = env.objc.borrow_mut::<MPMoviePlayerControllerHostObject>(player);
+    log!(
+        "Android video prepared: {:?}, {}x{}, duration {:.3}s",
+        path,
+        decoder.width,
+        decoder.height,
+        duration
+    );
+    let host = env
+        .objc
+        .borrow_mut::<MPMoviePlayerControllerHostObject>(player);
     host.natural_size = size;
-    if duration > 0.0 { host.duration = duration; }
+    if duration > 0.0 {
+        host.duration = duration;
+    }
     host.decoder = Some(decoder);
     true
 }
 
 #[cfg(target_os = "android")]
 fn movie_video_tick(env: &mut Environment) {
-    let Some(player) = State::get(env).active_player else { return };
+    let Some(player) = State::get(env).active_player else {
+        return;
+    };
     let (frame, view, ending, looping, error) = {
-        let host = env.objc.borrow_mut::<MPMoviePlayerControllerHostObject>(player);
+        let host = env
+            .objc
+            .borrow_mut::<MPMoviePlayerControllerHostObject>(player);
         if host.playback_state != MPMoviePlaybackStatePlaying {
             return;
         }
-        let Some(decoder) = host.decoder.as_mut() else { return };
+        let Some(decoder) = host.decoder.as_mut() else {
+            return;
+        };
         let now = Instant::now();
-        let elapsed = host.playback_started_at
+        let elapsed = host
+            .playback_started_at
             .map(|since| now.saturating_duration_since(since).as_secs_f64())
             .unwrap_or(0.0);
         let time = host.playback_start_position + elapsed;
@@ -202,12 +227,23 @@ fn movie_video_tick(env: &mut Environment) {
     if let Some(err) = error {
         log!("Android movie decoding stopped: {err}");
     }
-    if let Some(Frame { pixels, width, height, time_us: _ }) = frame {
+    if let Some(Frame {
+        pixels,
+        width,
+        height,
+        time_us: _,
+    }) = frame
+    {
         if view != nil {
             let layer: id = msg![env; view layer];
             let frame: CGRect = msg![env; view frame];
-            log_once!("Android movie compositing: UIKit view {:?}, frame {:?}, frame dimensions {}x{}",
-                view, frame, width, height);
+            log_once!(
+                "Android movie compositing: UIKit view {:?}, frame {:?}, frame dimensions {}x{}",
+                view,
+                frame,
+                width,
+                height
+            );
             present_movie_pixels(env, layer, pixels, width, height);
         } else {
             log_once!("Android movie frame decoded but player has no view");
@@ -218,7 +254,11 @@ fn movie_video_tick(env: &mut Environment) {
         if !pending.iter().any(|(name, obj, _)| {
             *name == MPMoviePlayerPlaybackDidFinishNotification && *obj == player
         }) {
-            pending.push_back((MPMoviePlayerPlaybackDidFinishNotification, player, Instant::now()));
+            pending.push_back((
+                MPMoviePlayerPlaybackDidFinishNotification,
+                player,
+                Instant::now(),
+            ));
         }
     }
 }

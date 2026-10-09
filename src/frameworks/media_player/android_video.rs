@@ -57,45 +57,98 @@ struct BufferInfo {
 unsafe extern "C" {
     fn AMediaExtractor_new() -> *mut AMediaExtractor;
     fn AMediaExtractor_delete(extractor: *mut AMediaExtractor) -> i32;
-    fn AMediaExtractor_setDataSourceFd(extractor: *mut AMediaExtractor, fd: i32, offset: i64, length: i64) -> i32;
+    fn AMediaExtractor_setDataSourceFd(
+        extractor: *mut AMediaExtractor,
+        fd: i32,
+        offset: i64,
+        length: i64,
+    ) -> i32;
     fn AMediaExtractor_getTrackCount(extractor: *mut AMediaExtractor) -> usize;
-    fn AMediaExtractor_getTrackFormat(extractor: *mut AMediaExtractor, idx: usize) -> *mut AMediaFormat;
+    fn AMediaExtractor_getTrackFormat(
+        extractor: *mut AMediaExtractor,
+        idx: usize,
+    ) -> *mut AMediaFormat;
     fn AMediaExtractor_selectTrack(extractor: *mut AMediaExtractor, idx: usize) -> i32;
-    fn AMediaExtractor_readSampleData(extractor: *mut AMediaExtractor, buffer: *mut u8, capacity: usize) -> isize;
+    fn AMediaExtractor_readSampleData(
+        extractor: *mut AMediaExtractor,
+        buffer: *mut u8,
+        capacity: usize,
+    ) -> isize;
     fn AMediaExtractor_getSampleTime(extractor: *mut AMediaExtractor) -> i64;
     fn AMediaExtractor_advance(extractor: *mut AMediaExtractor) -> bool;
     fn AMediaExtractor_seekTo(extractor: *mut AMediaExtractor, time_us: i64, mode: i32) -> i32;
 
     fn AMediaFormat_delete(format: *mut AMediaFormat);
-    fn AMediaFormat_getString(format: *const AMediaFormat, name: *const c_char, out: *mut *const c_char) -> bool;
-    fn AMediaFormat_getInt32(format: *const AMediaFormat, name: *const c_char, out: *mut i32) -> bool;
-    fn AMediaFormat_getInt64(format: *const AMediaFormat, name: *const c_char, out: *mut i64) -> bool;
+    fn AMediaFormat_getString(
+        format: *const AMediaFormat,
+        name: *const c_char,
+        out: *mut *const c_char,
+    ) -> bool;
+    fn AMediaFormat_getInt32(
+        format: *const AMediaFormat,
+        name: *const c_char,
+        out: *mut i32,
+    ) -> bool;
+    fn AMediaFormat_getInt64(
+        format: *const AMediaFormat,
+        name: *const c_char,
+        out: *mut i64,
+    ) -> bool;
     fn AMediaFormat_setInt32(format: *mut AMediaFormat, name: *const c_char, value: i32);
 
     fn AMediaCodec_createDecoderByType(mime: *const c_char) -> *mut AMediaCodec;
     fn AMediaCodec_delete(codec: *mut AMediaCodec) -> i32;
-    fn AMediaCodec_configure(codec: *mut AMediaCodec, format: *const AMediaFormat, surface: *mut c_void, crypto: *mut c_void, flags: u32) -> i32;
+    fn AMediaCodec_configure(
+        codec: *mut AMediaCodec,
+        format: *const AMediaFormat,
+        surface: *mut c_void,
+        crypto: *mut c_void,
+        flags: u32,
+    ) -> i32;
     fn AMediaCodec_start(codec: *mut AMediaCodec) -> i32;
     fn AMediaCodec_stop(codec: *mut AMediaCodec) -> i32;
     fn AMediaCodec_flush(codec: *mut AMediaCodec) -> i32;
     fn AMediaCodec_dequeueInputBuffer(codec: *mut AMediaCodec, timeout_us: i64) -> isize;
-    fn AMediaCodec_getInputBuffer(codec: *mut AMediaCodec, index: usize, capacity: *mut usize) -> *mut u8;
-    fn AMediaCodec_queueInputBuffer(codec: *mut AMediaCodec, index: usize, offset: usize, size: usize, time_us: i64, flags: u32) -> i32;
-    fn AMediaCodec_dequeueOutputBuffer(codec: *mut AMediaCodec, info: *mut BufferInfo, timeout_us: i64) -> isize;
-    fn AMediaCodec_getOutputBuffer(codec: *mut AMediaCodec, index: usize, capacity: *mut usize) -> *mut u8;
+    fn AMediaCodec_getInputBuffer(
+        codec: *mut AMediaCodec,
+        index: usize,
+        capacity: *mut usize,
+    ) -> *mut u8;
+    fn AMediaCodec_queueInputBuffer(
+        codec: *mut AMediaCodec,
+        index: usize,
+        offset: usize,
+        size: usize,
+        time_us: i64,
+        flags: u32,
+    ) -> i32;
+    fn AMediaCodec_dequeueOutputBuffer(
+        codec: *mut AMediaCodec,
+        info: *mut BufferInfo,
+        timeout_us: i64,
+    ) -> isize;
+    fn AMediaCodec_getOutputBuffer(
+        codec: *mut AMediaCodec,
+        index: usize,
+        capacity: *mut usize,
+    ) -> *mut u8;
     fn AMediaCodec_getOutputFormat(codec: *mut AMediaCodec) -> *mut AMediaFormat;
     fn AMediaCodec_releaseOutputBuffer(codec: *mut AMediaCodec, index: usize, render: bool) -> i32;
 }
 
 fn format_i32(format: *const AMediaFormat, key: &'static [u8], default: i32) -> i32 {
     let mut value = default;
-    unsafe { AMediaFormat_getInt32(format, key.as_ptr().cast(), &mut value); }
+    unsafe {
+        AMediaFormat_getInt32(format, key.as_ptr().cast(), &mut value);
+    }
     value
 }
 
 fn format_i64(format: *const AMediaFormat, key: &'static [u8], default: i64) -> i64 {
     let mut value = default;
-    unsafe { AMediaFormat_getInt64(format, key.as_ptr().cast(), &mut value); }
+    unsafe {
+        AMediaFormat_getInt64(format, key.as_ptr().cast(), &mut value);
+    }
     value
 }
 
@@ -130,7 +183,9 @@ impl Drop for MovieDecoder {
                 AMediaCodec_stop(self.codec);
                 AMediaCodec_delete(self.codec);
             }
-            if !self.extractor.is_null() { AMediaExtractor_delete(self.extractor); }
+            if !self.extractor.is_null() {
+                AMediaExtractor_delete(self.extractor);
+            }
         }
         let _ = std::fs::remove_file(&self.source_path);
     }
@@ -148,10 +203,16 @@ impl MovieDecoder {
         }
         let storage_dir = unsafe { CStr::from_ptr(storage_path) }.to_string_lossy();
         let path = PathBuf::from(storage_dir.as_ref()).join(format!(
-            "touchhle_movie_{}_{}.mp4", std::process::id(), id
+            "touchhle_movie_{}_{}.mp4",
+            std::process::id(),
+            id
         ));
-        let mut source = OpenOptions::new().write(true).read(true).create_new(true)
-            .open(&path).map_err(|err| format!("Movie temporary file: {err}"))?;
+        let mut source = OpenOptions::new()
+            .write(true)
+            .read(true)
+            .create_new(true)
+            .open(&path)
+            .map_err(|err| format!("Movie temporary file: {err}"))?;
         if let Err(err) = source.write_all(bytes) {
             let _ = std::fs::remove_file(&path);
             return Err(format!("Movie source write: {err}"));
@@ -159,11 +220,20 @@ impl MovieDecoder {
         // Keep ownership of the file and both NDK objects so early errors
         // never leak a codec, descriptor or temporary MP4.
         let mut decoder = Self {
-            extractor: ptr::null_mut(), codec: ptr::null_mut(),
-            source, source_path: path, width: 0, height: 0,
-            duration_us: 0, stride: 0, slice_height: 0,
-            color_format: 0, input_finished: false, output_finished: false,
-            pending: None, reported_first_frame: false,
+            extractor: ptr::null_mut(),
+            codec: ptr::null_mut(),
+            source,
+            source_path: path,
+            width: 0,
+            height: 0,
+            duration_us: 0,
+            stride: 0,
+            slice_height: 0,
+            color_format: 0,
+            input_finished: false,
+            output_finished: false,
+            pending: None,
+            reported_first_frame: false,
         };
         decoder.initialize(bytes.len() as i64)?;
         Ok(decoder)
@@ -172,22 +242,28 @@ impl MovieDecoder {
     fn initialize(&mut self, size: i64) -> Result<(), String> {
         unsafe {
             self.extractor = AMediaExtractor_new();
-            if self.extractor.is_null() { return Err("No Android MediaExtractor".into()); }
-            let status = AMediaExtractor_setDataSourceFd(
-                self.extractor, self.source.as_raw_fd(), 0, size
-            );
+            if self.extractor.is_null() {
+                return Err("No Android MediaExtractor".into());
+            }
+            let status =
+                AMediaExtractor_setDataSourceFd(self.extractor, self.source.as_raw_fd(), 0, size);
             if status != 0 {
                 return Err(format!("MediaExtractor setDataSourceFd: {status}"));
             }
             let tracks = AMediaExtractor_getTrackCount(self.extractor);
             for index in 0..tracks {
                 let format = AMediaExtractor_getTrackFormat(self.extractor, index);
-                if format.is_null() { continue; }
+                if format.is_null() {
+                    continue;
+                }
                 let mut mime = ptr::null();
-                let available = AMediaFormat_getString(format, b"mime\0".as_ptr().cast(), &mut mime);
+                let available =
+                    AMediaFormat_getString(format, b"mime\0".as_ptr().cast(), &mut mime);
                 let name = if available && !mime.is_null() {
                     CStr::from_ptr(mime).to_string_lossy().into_owned()
-                } else { String::new() };
+                } else {
+                    String::new()
+                };
                 if !name.starts_with("video/") {
                     AMediaFormat_delete(format);
                     continue;
@@ -195,8 +271,10 @@ impl MovieDecoder {
                 self.width = format_i32(format, b"width\0", 0).max(0) as u32;
                 self.height = format_i32(format, b"height\0", 0).max(0) as u32;
                 self.duration_us = format_i64(format, b"durationUs\0", 0);
-                if self.width == 0 || self.height == 0
-                    || self.width as usize * self.height as usize > MAX_FRAME_PIXELS {
+                if self.width == 0
+                    || self.height == 0
+                    || self.width as usize * self.height as usize > MAX_FRAME_PIXELS
+                {
                     AMediaFormat_delete(format);
                     return Err("Video dimensions not supported".into());
                 }
@@ -208,10 +286,13 @@ impl MovieDecoder {
                 }
                 // Request a byte-buffer YUV420 output. Surface decoding
                 // cannot be composited into touchHLE's emulated CALayer yet.
-                AMediaFormat_setInt32(format, b"color-format\0".as_ptr().cast(), COLOR_YUV420_FLEXIBLE);
-                let configured = AMediaCodec_configure(
-                    self.codec, format, ptr::null_mut(), ptr::null_mut(), 0
+                AMediaFormat_setInt32(
+                    format,
+                    b"color-format\0".as_ptr().cast(),
+                    COLOR_YUV420_FLEXIBLE,
                 );
+                let configured =
+                    AMediaCodec_configure(self.codec, format, ptr::null_mut(), ptr::null_mut(), 0);
                 AMediaFormat_delete(format);
                 if configured != 0 {
                     // Some hardware decoders refuse an explicit flexible-YUV
@@ -227,23 +308,37 @@ impl MovieDecoder {
                         return Err("MediaExtractor could not recreate track format".into());
                     }
                     let fallback = AMediaCodec_configure(
-                        self.codec, native_format, ptr::null_mut(), ptr::null_mut(), 0
+                        self.codec,
+                        native_format,
+                        ptr::null_mut(),
+                        ptr::null_mut(),
+                        0,
                     );
                     AMediaFormat_delete(native_format);
                     if fallback != 0 {
-                        return Err(format!("MediaCodec native configuration failed: {fallback}"));
+                        return Err(format!(
+                            "MediaCodec native configuration failed: {fallback}"
+                        ));
                     }
                     log!("Android H.264 decoder using negotiated native YUV output");
                 }
                 let selected = AMediaExtractor_selectTrack(self.extractor, index);
-                if selected != 0 { return Err(format!("MediaExtractor selectTrack: {selected}")); }
+                if selected != 0 {
+                    return Err(format!("MediaExtractor selectTrack: {selected}"));
+                }
                 let started = AMediaCodec_start(self.codec);
-                if started != 0 { return Err(format!("MediaCodec start failed: {started}")); }
+                if started != 0 {
+                    return Err(format!("MediaCodec start failed: {started}"));
+                }
                 self.stride = self.width as usize;
                 self.slice_height = self.height as usize;
                 self.refresh_output_format();
-                log!("Android MediaCodec started {name} {}x{} duration={}us",
-                    self.width, self.height, self.duration_us);
+                log!(
+                    "Android MediaCodec started {name} {}x{} duration={}us",
+                    self.width,
+                    self.height,
+                    self.duration_us
+                );
                 return Ok(());
             }
         }
@@ -266,41 +361,70 @@ impl MovieDecoder {
     }
 
     fn feed_sample(&mut self) -> Result<bool, String> {
-        if self.input_finished { return Ok(false); }
+        if self.input_finished {
+            return Ok(false);
+        }
         let index = unsafe { AMediaCodec_dequeueInputBuffer(self.codec, 0) };
-        if index < 0 { return Ok(false); }
+        if index < 0 {
+            return Ok(false);
+        }
         let mut capacity = 0usize;
-        let buffer = unsafe { AMediaCodec_getInputBuffer(self.codec, index as usize, &mut capacity) };
-        if buffer.is_null() { return Err("MediaCodec returned null input buffer".into()); }
+        let buffer =
+            unsafe { AMediaCodec_getInputBuffer(self.codec, index as usize, &mut capacity) };
+        if buffer.is_null() {
+            return Err("MediaCodec returned null input buffer".into());
+        }
         let count = unsafe { AMediaExtractor_readSampleData(self.extractor, buffer, capacity) };
         let end = count < 0;
-        let pts = if end { 0 } else { unsafe { AMediaExtractor_getSampleTime(self.extractor) } };
+        let pts = if end {
+            0
+        } else {
+            unsafe { AMediaExtractor_getSampleTime(self.extractor) }
+        };
         let status = unsafe {
             AMediaCodec_queueInputBuffer(
-                self.codec, index as usize, 0, if end { 0 } else { count as usize },
-                pts.max(0), if end { BUFFER_FLAG_END_OF_STREAM } else { 0 }
+                self.codec,
+                index as usize,
+                0,
+                if end { 0 } else { count as usize },
+                pts.max(0),
+                if end { BUFFER_FLAG_END_OF_STREAM } else { 0 },
             )
         };
-        if status != 0 { return Err(format!("MediaCodec input queue: {status}")); }
+        if status != 0 {
+            return Err(format!("MediaCodec input queue: {status}"));
+        }
         if end {
             self.input_finished = true;
         } else {
-            unsafe { AMediaExtractor_advance(self.extractor); }
+            unsafe {
+                AMediaExtractor_advance(self.extractor);
+            }
         }
         Ok(true)
     }
 
     fn refresh_output_format(&mut self) {
         let format = unsafe { AMediaCodec_getOutputFormat(self.codec) };
-        if format.is_null() { return; }
-        self.stride = format_i32(format, b"stride\0", self.width as i32)
-            .max(self.width as i32) as usize;
+        if format.is_null() {
+            return;
+        }
+        self.stride =
+            format_i32(format, b"stride\0", self.width as i32).max(self.width as i32) as usize;
         self.slice_height = format_i32(format, b"slice-height\0", self.height as i32)
             .max(self.height as i32) as usize;
         self.color_format = format_i32(format, b"color-format\0", 0);
-        log!("Android video output: format={:#x}, stride={}, sliceHeight={}, dimensions={}x{}",
-            self.color_format, self.stride, self.slice_height, self.width, self.height);
-        unsafe { AMediaFormat_delete(format); }
+        log!(
+            "Android video output: format={:#x}, stride={}, sliceHeight={}, dimensions={}x{}",
+            self.color_format,
+            self.stride,
+            self.slice_height,
+            self.width,
+            self.height
+        );
+        unsafe {
+            AMediaFormat_delete(format);
+        }
     }
 
     fn decode_frame(&mut self, data: &[u8], pts: i64) -> Result<Frame, String> {
@@ -311,24 +435,37 @@ impl MovieDecoder {
         let y_size = stride.checked_mul(slice_height).ok_or("Bad luma size")?;
         let chroma_stride = stride.div_ceil(2);
         let chroma_rows = slice_height.div_ceil(2);
-        let uv_size = chroma_stride.checked_mul(chroma_rows).ok_or("Bad chroma size")?;
+        let uv_size = chroma_stride
+            .checked_mul(chroma_rows)
+            .ok_or("Bad chroma size")?;
         if stride < width.div_ceil(2) * 2 {
             return Err("MediaCodec chroma stride shorter than visible image".into());
         }
         let planar = self.color_format == COLOR_YUV420_PLANAR;
         let semi_planar = matches!(
             self.color_format,
-            COLOR_YUV420_SEMIPLANAR | COLOR_YUV420_PACKED_SEMIPLANAR |
-            COLOR_YUV420_FLEXIBLE | COLOR_QCOM_NV12 |
-            COLOR_QCOM_NV12_ALT | COLOR_QCOM_NV12_VENUS
+            COLOR_YUV420_SEMIPLANAR
+                | COLOR_YUV420_PACKED_SEMIPLANAR
+                | COLOR_YUV420_FLEXIBLE
+                | COLOR_QCOM_NV12
+                | COLOR_QCOM_NV12_ALT
+                | COLOR_QCOM_NV12_VENUS
         );
         if !planar && !semi_planar {
-            return Err(format!("Unsupported MediaCodec YUV color format {:#x}", self.color_format));
+            return Err(format!(
+                "Unsupported MediaCodec YUV color format {:#x}",
+                self.color_format
+            ));
         }
-        let required = if planar { y_size + uv_size * 2 } else { y_size + stride * chroma_rows };
+        let required = if planar {
+            y_size + uv_size * 2
+        } else {
+            y_size + stride * chroma_rows
+        };
         if data.len() < required {
             return Err(format!(
-                "Truncated decoder YUV buffer: {} bytes, expected {required}", data.len()
+                "Truncated decoder YUV buffer: {} bytes, expected {required}",
+                data.len()
             ));
         }
         let mut pixels = vec![0u8; width * height * 4];
@@ -351,13 +488,17 @@ impl MovieDecoder {
                 let e = v - 128;
                 let offset = (y * width + x) * 4;
                 pixels[offset] = ((298 * c + 409 * e + 128) >> 8).clamp(0, 255) as u8;
-                pixels[offset + 1] =
-                    ((298 * c - 100 * d - 208 * e + 128) >> 8).clamp(0, 255) as u8;
+                pixels[offset + 1] = ((298 * c - 100 * d - 208 * e + 128) >> 8).clamp(0, 255) as u8;
                 pixels[offset + 2] = ((298 * c + 516 * d + 128) >> 8).clamp(0, 255) as u8;
                 pixels[offset + 3] = 255;
             }
         }
-        Ok(Frame { pixels, width: self.width, height: self.height, time_us: pts })
+        Ok(Frame {
+            pixels,
+            width: self.width,
+            height: self.height,
+            time_us: pts,
+        })
     }
 
     pub fn frame_for_time(&mut self, target_us: i64) -> Result<Option<Frame>, String> {
@@ -367,7 +508,9 @@ impl MovieDecoder {
             return Ok(None);
         }
         let mut display = self.pending.take();
-        if self.output_finished { return Ok(display); }
+        if self.output_finished {
+            return Ok(display);
+        }
         for _ in 0..16 {
             // Keep codec input supplied without blocking the emulation loop.
             let _ = self.feed_sample()?;
@@ -377,8 +520,12 @@ impl MovieDecoder {
                 self.refresh_output_format();
                 continue;
             }
-            if index == TRY_AGAIN_LATER { break; }
-            if index < 0 { continue; }
+            if index == TRY_AGAIN_LATER {
+                break;
+            }
+            if index < 0 {
+                continue;
+            }
             let mut buffer_capacity = 0usize;
             let ptr = unsafe {
                 AMediaCodec_getOutputBuffer(self.codec, index as usize, &mut buffer_capacity)
@@ -387,22 +534,34 @@ impl MovieDecoder {
             let frame = if info.size > 0 && !ptr.is_null() {
                 let offset = info.offset.max(0) as usize;
                 let size = info.size as usize;
-                if offset.checked_add(size).is_some_and(|end| end <= buffer_capacity) {
+                if offset
+                    .checked_add(size)
+                    .is_some_and(|end| end <= buffer_capacity)
+                {
                     let bytes = unsafe { std::slice::from_raw_parts(ptr.add(offset), size) };
-                    self.decode_frame(bytes, info.presentation_time_us).map(Some)
+                    self.decode_frame(bytes, info.presentation_time_us)
+                        .map(Some)
                 } else {
                     Err("Invalid MediaCodec output buffer bounds".into())
                 }
-            } else { Ok(None) };
-            unsafe { AMediaCodec_releaseOutputBuffer(self.codec, index as usize, false); }
+            } else {
+                Ok(None)
+            };
+            unsafe {
+                AMediaCodec_releaseOutputBuffer(self.codec, index as usize, false);
+            }
             let frame = frame?;
             if info.flags & BUFFER_FLAG_END_OF_STREAM != 0 {
                 self.output_finished = true;
             }
             if let Some(frame) = frame {
                 if !self.reported_first_frame {
-                    log!("Android video decoded first frame at {}us ({}x{})",
-                        frame.time_us, frame.width, frame.height);
+                    log!(
+                        "Android video decoded first frame at {}us ({}x{})",
+                        frame.time_us,
+                        frame.width,
+                        frame.height
+                    );
                     self.reported_first_frame = true;
                 }
                 if frame.time_us > target_us {
@@ -411,7 +570,9 @@ impl MovieDecoder {
                 }
                 display = Some(frame);
             }
-            if self.output_finished { break; }
+            if self.output_finished {
+                break;
+            }
         }
         Ok(display)
     }

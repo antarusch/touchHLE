@@ -94,8 +94,6 @@ pub(crate) fn present_movie_pixels(
     host.gles_texture_is_up_to_date = false;
 }
 
-
-
 impl CALayerHostObject {
     pub(super) fn render_transform(&self) -> crate::matrix::Matrix<4> {
         use crate::matrix::Matrix;
