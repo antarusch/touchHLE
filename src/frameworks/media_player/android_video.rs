@@ -264,7 +264,7 @@ impl MovieDecoder {
                 }
                 let mut mime = ptr::null();
                 let available =
-                    AMediaFormat_getString(format, b"mime\0".as_ptr().cast(), &mut mime);
+                    AMediaFormat_getString(format, c"mime".as_ptr(), &mut mime);
                 let name = if available && !mime.is_null() {
                     CStr::from_ptr(mime).to_string_lossy().into_owned()
                 } else {
@@ -294,7 +294,7 @@ impl MovieDecoder {
                 // cannot be composited into touchHLE's emulated CALayer yet.
                 AMediaFormat_setInt32(
                     format,
-                    b"color-format\0".as_ptr().cast(),
+                    c"color-format".as_ptr(),
                     COLOR_YUV420_FLEXIBLE,
                 );
                 let configured =
