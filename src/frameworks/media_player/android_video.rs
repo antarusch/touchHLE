@@ -53,6 +53,7 @@ struct BufferInfo {
 }
 
 #[link(name = "mediandk")]
+#[allow(non_snake_case)]
 unsafe extern "C" {
     fn AMediaExtractor_new() -> *mut AMediaExtractor;
     fn AMediaExtractor_delete(extractor: *mut AMediaExtractor) -> i32;
@@ -213,7 +214,26 @@ impl MovieDecoder {
                 );
                 AMediaFormat_delete(format);
                 if configured != 0 {
-                    return Err(format!("MediaCodec configure failed: {configured}"));
+                    // Some hardware decoders refuse an explicit flexible-YUV
+                    // output request. Retry with the extractor's native format
+                    // and inspect the returned layout at the first frame.
+                    AMediaCodec_delete(self.codec);
+                    self.codec = AMediaCodec_createDecoderByType(c_mime.as_ptr());
+                    if self.codec.is_null() {
+                        return Err(format!("MediaCodec recreate failed after {configured}"));
+                    }
+                    let native_format = AMediaExtractor_getTrackFormat(self.extractor, index);
+                    if native_format.is_null() {
+                        return Err("MediaExtractor could not recreate track format".into());
+                    }
+                    let fallback = AMediaCodec_configure(
+                        self.codec, native_format, ptr::null_mut(), ptr::null_mut(), 0
+                    );
+                    AMediaFormat_delete(native_format);
+                    if fallback != 0 {
+                        return Err(format!("MediaCodec native configuration failed: {fallback}"));
+                    }
+                    log!("Android H.264 decoder using negotiated native YUV output");
                 }
                 let selected = AMediaExtractor_selectTrack(self.extractor, index);
                 if selected != 0 { return Err(format!("MediaExtractor selectTrack: {selected}")); }
@@ -292,6 +312,9 @@ impl MovieDecoder {
         let chroma_stride = stride.div_ceil(2);
         let chroma_rows = slice_height.div_ceil(2);
         let uv_size = chroma_stride.checked_mul(chroma_rows).ok_or("Bad chroma size")?;
+        if stride < width.div_ceil(2) * 2 {
+            return Err("MediaCodec chroma stride shorter than visible image".into());
+        }
         let planar = self.color_format == COLOR_YUV420_PLANAR;
         let semi_planar = matches!(
             self.color_format,
