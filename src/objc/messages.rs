@@ -283,8 +283,7 @@ Type mismatch when sending message {} to {:?}!
                     // We can't create a new stack frame, because that would
                     // interfere with pass-through of stack arguments.
                     IMP::Guest(guest_imp) => {
-                        // Temporary diagnostics for pointer-valued game callbacks.
-                        // Log the caller's registers without modifying dispatch.
+                        // Log suspicious callback arguments for diagnosis.
                         if selector.as_str(&env.mem) == "showLootItem:" {
                             let regs = env.cpu.regs();
                             log!(
