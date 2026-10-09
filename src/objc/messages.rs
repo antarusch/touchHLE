@@ -241,11 +241,12 @@ fn objc_msgSend_inner(
             if matches!(class, Some("OverlayMessage")) {
                 // Record visibility without calling a guest method mid-dispatch.
                 #[cfg(target_os = "android")]
-                crate::frameworks::media_player::set_hunters_message_visible(
-                    env,
-                    name == "show",
-                    receiver,
-                );
+                {
+                    let visible = name == "show";
+                    crate::frameworks::media_player::set_hunters_message_visible(
+                        env, visible, receiver,
+                    );
+                }
             }
             if matches!(class, Some("OverlayCreateSave")) {
                 log!("Hunters 2 create-save overlay: class={class:?}, selector={name}");
