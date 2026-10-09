@@ -214,6 +214,52 @@ fn objc_msgSend_inner(
                 env.objc.try_get_class_name(orig_class),
             );
         }
+        // Trace game-to-GL handoff without changing the guest's behavior.
+        // Limit this to lifecycle methods so frame-by-frame rendering is not
+        // flooded with diagnostics.
+        #[cfg(target_os = "android")]
+        {
+            let class = env.objc.try_get_class_name(orig_class);
+            if class == Some("GameController")
+                && matches!(
+                    name,
+                    "setStatus:"
+                        | "onGameControllerChangeDrop:"
+                        | "onGameControllerChangeDropFromLoad:"
+                        | "onGameControllerChangeEndDrop:"
+                        | "onCoreViewReadyToLoad"
+                        | "onCoreViewReadyToDisplay"
+                )
+            {
+                let arg = env.cpu.regs()[2];
+                log!("Hunters 2 game state: selector={name}, arg0={arg:#x}");
+            }
+            if class == Some("OpenGLView")
+                && matches!(
+                    name,
+                    "initWithFrame:"
+                        | "initWithCoder:"
+                        | "awakeFromNib"
+                        | "layoutSubviews"
+                        | "createFramebuffer"
+                        | "deleteFramebuffer"
+                        | "setFramebuffer"
+                        | "presentFramebuffer"
+                )
+            {
+                log!("Hunters 2 OpenGLView lifecycle: selector={name}, view={receiver:?}");
+            }
+            if class == Some("EAGLContext")
+                && matches!(
+                    name,
+                    "initWithAPI:"
+                        | "initWithAPI:sharegroup:"
+                        | "presentRenderbuffer:"
+                )
+            {
+                log!("Hunters 2 EAGL lifecycle: selector={name}, context={receiver:?}");
+            }
+        }
         // Only record the controller's transition inside objc_msgSend.
         // Changing layers here would corrupt guest argument registers.
         #[cfg(target_os = "android")]
