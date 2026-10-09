@@ -97,19 +97,30 @@ pub(crate) fn present_movie_pixels(
         for depth in 0..8 {
             let host = env.objc.borrow::<CALayerHostObject>(current);
             let parent = host.superlayer;
-            let sibling_position = if parent != nil {
+            let siblings = if parent != nil {
                 env.objc
                     .borrow::<CALayerHostObject>(parent)
                     .sublayers
-                    .iter()
-                    .position(|&sibling| sibling == current)
+                    .clone()
             } else {
-                None
+                Vec::new()
             };
+            let sibling_position = siblings.iter().position(|&sibling| sibling == current);
             log!(
-                "Android movie layer ancestry {depth}: layer={current:?}, parent={parent:?}, sibling_position={sibling_position:?}, bounds={:?}, position={:?}, hidden={}, opacity={:.2}, contents={:?}",
-                host.bounds, host.position, host.hidden, host.opacity, host.contents,
+                "Android movie layer ancestry {depth}: layer={current:?}, parent={parent:?}, sibling_position={sibling_position:?}/{}, bounds={:?}, position={:?}, hidden={}, opacity={:.2}, opaque={}, clipped={}, transform={:?}, contents={:?}",
+                siblings.len(), host.bounds, host.position, host.hidden, host.opacity,
+                host.opaque, host.masks_to_bounds, host.affine_transform, host.contents,
             );
+            if let Some(index) = sibling_position {
+                for &sibling in siblings.iter().skip(index + 1).take(6) {
+                    let other = env.objc.borrow::<CALayerHostObject>(sibling);
+                    log!(
+                        "Android movie possible cover at depth {depth}: layer={sibling:?}, bounds={:?}, hidden={}, opacity={:.2}, opaque={}, background={}, z={}",
+                        other.bounds, other.hidden, other.opacity, other.opaque,
+                        other.background_color.is_some(), other.z_position,
+                    );
+                }
+            }
             if parent == nil {
                 break;
             }
