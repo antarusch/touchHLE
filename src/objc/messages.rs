@@ -182,6 +182,17 @@ fn objc_msgSend_inner(
         selector.as_str(&env.mem),
         receiver
     );
+    let message_type_info = env.objc.message_type_info.take();
+
+    if receiver == nil {
+        // https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/ObjectiveC/Chapters/ocObjectsClasses.html#//apple_ref/doc/uid/TP30001163-CH11-SW7
+        log_dbg!("[nil {}]", selector.as_str(&env.mem));
+        env.cpu.regs_mut()[0..2].fill(0);
+        return;
+    }
+
+    let orig_class = super2.unwrap_or_else(|| ObjC::read_isa(receiver, &env.mem));
+    assert!(orig_class != nil);
     if env.bundle.bundle_identifier() == "uk.co.rodeogames.hunterstwo" {
         let name = selector.as_str(&env.mem);
         if matches!(
@@ -199,27 +210,16 @@ fn objc_msgSend_inner(
         ) {
             log!(
                 "Hunters 2 transition: class={:?}, selector={name}, receiver={receiver:?}",
-                env.objc.try_get_class_name(receiver),
+                env.objc.try_get_class_name(orig_class),
             );
         }
         if name == "show" || name == "hide" {
-            let class = env.objc.try_get_class_name(receiver);
+            let class = env.objc.try_get_class_name(orig_class);
             if matches!(class, Some("OverlayCreateSave")) {
                 log!("Hunters 2 create-save overlay: class={class:?}, selector={name}");
             }
         }
     }
-    let message_type_info = env.objc.message_type_info.take();
-
-    if receiver == nil {
-        // https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/ObjectiveC/Chapters/ocObjectsClasses.html#//apple_ref/doc/uid/TP30001163-CH11-SW7
-        log_dbg!("[nil {}]", selector.as_str(&env.mem));
-        env.cpu.regs_mut()[0..2].fill(0);
-        return;
-    }
-
-    let orig_class = super2.unwrap_or_else(|| ObjC::read_isa(receiver, &env.mem));
-    assert!(orig_class != nil);
     if !skip_initialize {
         maybe_initialize_class(env, receiver);
     }
