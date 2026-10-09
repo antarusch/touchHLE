@@ -239,7 +239,8 @@ fn objc_msgSend_inner(
         if name == "show" || name == "hide" {
             let class = env.objc.try_get_class_name(orig_class);
             if matches!(class, Some("OverlayMessage")) {
-                // Record visibility without calling a guest method mid-dispatch.
+                // Only record visibility during Objective-C dispatch.
+                // Do not invoke guest callbacks from this hook.
                 #[cfg(target_os = "android")]
                 {
                     let visible = name == "show";
