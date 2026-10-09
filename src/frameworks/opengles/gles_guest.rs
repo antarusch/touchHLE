@@ -74,6 +74,16 @@ const SUPPORTED_COMPRESSED_TEXTURE_FORMATS: &[GLenum] = &[
     gles11::PALETTE8_RGBA8_OES,
 ];
 
+fn is_es2_context(env: &mut Environment) -> bool {
+    let context = env.framework_state.opengles.current_ctx_for_thread(env.current_thread);
+    match *context {
+        Some(context) if context != nil => {
+            env.objc.borrow::<EAGLContextHostObject>(context).rendering_api == 2
+        }
+        _ => false,
+    }
+}
+
 /// Sync the current context and performs a function `f` within it.
 ///
 /// In case of missing EAGL context for a current thread,
@@ -735,10 +745,15 @@ fn glVertexPointer(
 fn glDrawArrays(env: &mut Environment, mode: GLenum, first: GLint, count: GLsizei) {
     DIAGNOSTIC_DRAW_ARRAYS.fetch_add(1, Ordering::Relaxed);
     log_once!("Guest glDrawArrays invoked");
+    let es2 = is_es2_context(env);
     with_ctx_and_mem(env, |gles, _mem| unsafe {
-        let fog_state_backup = clamp_fog_state_values(gles);
-        gles.DrawArrays(mode, first, count);
-        restore_fog_state_values(gles, fog_state_backup);
+        if es2 {
+            gles.DrawArrays(mode, first, count);
+        } else {
+            let fog_state_backup = clamp_fog_state_values(gles);
+            gles.DrawArrays(mode, first, count);
+            restore_fog_state_values(gles, fog_state_backup);
+        }
     })
 }
 fn glDrawElements(
@@ -750,16 +765,21 @@ fn glDrawElements(
 ) {
     DIAGNOSTIC_DRAW_ELEMENTS.fetch_add(1, Ordering::Relaxed);
     log_once!("Guest glDrawElements invoked");
+    let es2 = is_es2_context(env);
     with_ctx_and_mem(env, |gles, mem| unsafe {
-        let fog_state_backup = clamp_fog_state_values(gles);
         let indices = translate_pointer_or_offset_to_host(
             gles,
             mem,
             indices,
             gles11::ELEMENT_ARRAY_BUFFER_BINDING,
         );
-        gles.DrawElements(mode, count, type_, indices);
-        restore_fog_state_values(gles, fog_state_backup);
+        if es2 {
+            gles.DrawElements(mode, count, type_, indices);
+        } else {
+            let fog_state_backup = clamp_fog_state_values(gles);
+            gles.DrawElements(mode, count, type_, indices);
+            restore_fog_state_values(gles, fog_state_backup);
+        }
     })
 }
 
