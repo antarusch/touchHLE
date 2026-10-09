@@ -230,7 +230,9 @@ fn objc_msgSend_inner(
         if name == "show" || name == "hide" {
             let class = env.objc.try_get_class_name(orig_class);
             if class.is_some_and(|class| class.starts_with("Overlay")) {
-                log!("Hunters 2 overlay lifecycle: class={class:?}, selector={name}, receiver={receiver:?}");
+                log!(
+                    "Hunters 2 overlay lifecycle: class={class:?}, selector={name}, receiver={receiver:?}"
+                );
             }
         }
         if name == "show" || name == "hide" {
