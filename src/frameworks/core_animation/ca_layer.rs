@@ -80,6 +80,22 @@ pub(super) struct CALayerHostObject {
 }
 impl HostObject for CALayerHostObject {}
 
+pub(crate) fn present_movie_pixels(
+    env: &mut crate::Environment,
+    layer: id,
+    pixels: Vec<u8>,
+    width: u32,
+    height: u32,
+) {
+    // CA's compositor can texture any CALayer with RGBA8 pixel backing.
+    // This is shared with EAGL rendering, but is not restricted to CAEAGLLayer.
+    let host = env.objc.borrow_mut::<CALayerHostObject>(layer);
+    host.presented_pixels = Some((pixels, width, height));
+    host.gles_texture_is_up_to_date = false;
+}
+
+
+
 impl CALayerHostObject {
     pub(super) fn render_transform(&self) -> crate::matrix::Matrix<4> {
         use crate::matrix::Matrix;
