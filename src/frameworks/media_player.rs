@@ -12,6 +12,8 @@ mod media_picker_controller;
 mod media_playlist;
 mod media_query;
 mod movie_player;
+#[cfg(target_os = "android")]
+mod android_video;
 mod music_player;
 
 pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
