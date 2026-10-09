@@ -221,6 +221,26 @@ fn objc_msgSend_inner(
                 env.objc.try_get_class_name(orig_class),
             );
         }
+        // Trace the drop-game controller construction referenced by
+        // GameController.gameUpdate's screen-switch state.
+        if matches!(
+            name,
+            "initWithDropGameInit:delegate:"
+                | "initDropGameFromSave:"
+                | "setControllerType:"
+                | "setHasUpdate:"
+        ) {
+            let class = env.objc.try_get_class_name(orig_class);
+            if matches!(
+                class,
+                Some("DropGameController" | "CoreViewController" | "SaveMenuController")
+            ) {
+                log!(
+                    "Hunters 2 controller handoff: class={class:?}, selector={name}, receiver={receiver:?}, arg0={:#x}",
+                    env.cpu.regs()[2]
+                );
+            }
+        }
         // Track the save-menu unload and replacement-controller callbacks.
         // Hunters 2 enters status 3 during this handoff, before GLES starts.
         if matches!(
