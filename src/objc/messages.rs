@@ -206,11 +206,29 @@ fn objc_msgSend_inner(
                 | "onGamePostInitialisation"
                 | "onCoreViewReadyToLoad"
                 | "onCoreViewReadyToDisplay"
+                | "onCoreViewReadyToUnload"
+                | "onCoreViewReadyToFinish"
                 | "onGameControllerChange:"
+                | "onGameControllerChangeDrop:"
+                | "onGameControllerChangeDropFromLoad"
+                | "onGameControllerChangeEndDrop"
+                | "onComponentIsShowing:"
+                | "onComponentIsHidden:"
                 | "onComponentEvent:forComponent:tag:"
         ) {
             log!(
                 "Hunters 2 transition: class={:?}, selector={name}, receiver={receiver:?}",
+                env.objc.try_get_class_name(orig_class),
+            );
+        }
+        // Track the save-menu unload and replacement-controller callbacks.
+        // Hunters 2 enters status 3 during this handoff, before GLES starts.
+        if matches!(
+            name,
+            "onLoad" | "onLoadFinished" | "onUnload" | "onUnloadFinished"
+        ) {
+            log!(
+                "Hunters 2 core view lifecycle: class={:?}, selector={name}",
                 env.objc.try_get_class_name(orig_class),
             );
         }
@@ -225,10 +243,14 @@ fn objc_msgSend_inner(
                     name,
                     "setStatus:"
                         | "onGameControllerChangeDrop:"
-                        | "onGameControllerChangeDropFromLoad:"
-                        | "onGameControllerChangeEndDrop:"
+                        | "onGameControllerChangeDropFromLoad"
+                        | "onGameControllerChangeEndDrop"
                         | "onCoreViewReadyToLoad"
                         | "onCoreViewReadyToDisplay"
+                        | "onCoreViewReadyToUnload"
+                        | "onCoreViewReadyToFinish"
+                        | "onComponentIsShowing:"
+                        | "onComponentIsHidden:"
                 )
             {
                 let arg = env.cpu.regs()[2];
