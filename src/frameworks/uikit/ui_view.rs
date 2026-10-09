@@ -1058,7 +1058,18 @@ pub const CLASSES: ClassExports = objc_classes! {
         return nil;
     }
     // TODO: avoid copy somehow?
-    let subviews = env.objc.borrow::<UIViewHostObject>(this).subviews.clone();
+    let mut subviews = env.objc.borrow::<UIViewHostObject>(this).subviews.clone();
+    if env.bundle.bundle_identifier_opt() == Some("uk.co.rodeogames.hunterstwo") {
+        // This game's movie is composited above siblings with zPosition.
+        // Keep touch targeting aligned with the visible drawing order.
+        subviews.sort_by(|a, b| {
+            let a_layer: id = msg![env; *a layer];
+            let b_layer: id = msg![env; *b layer];
+            let a_z: CGFloat = msg![env; a_layer zPosition];
+            let b_z: CGFloat = msg![env; b_layer zPosition];
+            a_z.total_cmp(&b_z)
+        });
+    }
     for subview in subviews.into_iter().rev() { // later views are on top
         let hidden: bool = msg![env; subview isHidden];
         let alpha: CGFloat = msg![env; subview alpha];
