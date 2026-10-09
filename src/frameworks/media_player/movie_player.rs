@@ -247,8 +247,8 @@ fn movie_video_tick(env: &mut Environment) {
                 for top_row in 0..rows / 2 {
                     let bottom_row = rows - 1 - top_row;
                     let (top, bottom) = pixels.split_at_mut(bottom_row * stride);
-                    top[top_row * stride..(top_row + 1) * stride]
-                        .swap_with_slice(&mut bottom[..stride]);
+                    let start = top_row * stride;
+                    top[start..start + stride].swap_with_slice(&mut bottom[..stride]);
                 }
             }
             // Hunters 2 puts its movie container behind an opaque game view.
@@ -269,7 +269,7 @@ fn movie_video_tick(env: &mut Environment) {
                         let parent: id = msg![env; container superview];
                         if parent != nil {
                             () = msg![env; parent bringSubviewToFront:container];
-                            // Keep video visible without swallowing the menu's taps.
+                            // Let touches pass through to the menu underneath.
                             () = msg![env; container setUserInteractionEnabled:false];
                             log!(
                                 "Hunters 2 movie overlay: raised container {container:?} in {parent:?}; touch passthrough enabled"
