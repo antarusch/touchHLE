@@ -52,3 +52,8 @@ pub(crate) fn set_hunters_create_save_visible(
 ) {
     movie_player::set_hunters_create_save_visible(env, visible, controller);
 }
+
+#[cfg(target_os = "android")]
+pub(crate) fn set_hunters_gameplay_transition(env: &mut crate::Environment, started: bool) {
+    movie_player::set_hunters_gameplay_transition(env, started);
+}
