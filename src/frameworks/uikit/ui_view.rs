@@ -1063,8 +1063,10 @@ pub const CLASSES: ClassExports = objc_classes! {
         // This game's movie is composited above siblings with zPosition.
         // Keep touch targeting aligned with the visible drawing order.
         subviews.sort_by(|a, b| {
-            let a_layer: id = msg![env; *a layer];
-            let b_layer: id = msg![env; *b layer];
+            let a_view = *a;
+            let b_view = *b;
+            let a_layer: id = msg![env; a_view layer];
+            let b_layer: id = msg![env; b_view layer];
             let a_z: CGFloat = msg![env; a_layer zPosition];
             let b_z: CGFloat = msg![env; b_layer zPosition];
             a_z.total_cmp(&b_z)
