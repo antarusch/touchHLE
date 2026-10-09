@@ -213,6 +213,17 @@ fn objc_msgSend_inner(
                 env.objc.try_get_class_name(orig_class),
             );
         }
+        // Only record the controller's transition inside objc_msgSend.
+        // Changing layers here would corrupt guest argument registers.
+        #[cfg(target_os = "android")]
+        if env.objc.try_get_class_name(orig_class) == Some("GameController") {
+            let state = env.cpu.regs()[2];
+            if name == "onGameControllerChange:" && state == 6 {
+                crate::frameworks::media_player::set_hunters_gameplay_transition(env, true);
+            } else if name == "setStatus:" && state == 2 {
+                crate::frameworks::media_player::set_hunters_gameplay_transition(env, false);
+            }
+        }
         if name == "show" || name == "hide" {
             let class = env.objc.try_get_class_name(orig_class);
             if matches!(class, Some("OverlayCreateSave")) {
