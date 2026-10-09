@@ -237,8 +237,7 @@ fn movie_video_tick(env: &mut Environment) {
     }) = frame
     {
         if view != nil {
-            let is_hunters_2 =
-                env.bundle.bundle_identifier() == "uk.co.rodeogames.hunterstwo";
+            let is_hunters_2 = env.bundle.bundle_identifier() == "uk.co.rodeogames.hunterstwo";
             if is_hunters_2 {
                 // MediaCodec emits top-first RGBA, while this CALayer's
                 // texture coordinates treat the first row as the bottom.
