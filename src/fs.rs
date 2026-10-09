@@ -861,6 +861,34 @@ impl Fs {
         }
     }
 
+    /// Creation timestamp, in seconds since the Unix epoch.
+    /// ZIP entries have no portable birth timestamp, so use their stored
+    /// modification time. Some host filesystems only expose modification
+    /// time, which is also used as a fallback.
+    pub fn created(&self, path: &GuestPath) -> Result<i64, ()> {
+        let node = self.lookup_node(path).ok_or(())?;
+        match node {
+            FsNode::File { location, .. } => match location {
+                FileLocation::IpaFileRef(file_ref) => Ok(file_ref.get_last_modified().into()),
+                FileLocation::Path(path) => fs::metadata(path)
+                    .and_then(|metadata| {
+                        metadata.created().or_else(|_| metadata.modified())
+                    })
+                    .and_then(|time| {
+                        time.duration_since(UNIX_EPOCH)
+                            .map_err(std::io::Error::other)
+                    })
+                    .and_then(|elapsed| {
+                        i64::try_from(elapsed.as_secs())
+                            .map_err(std::io::Error::other)
+                    })
+                    .map_err(|_| ()),
+                _ => Err(()),
+            },
+            FsNode::Directory { .. } => Err(()),
+        }
+    }
+
     pub fn size(&self, path: &GuestPath) -> Result<u64, ()> {
         // TODO: error handling
         let node = self.lookup_node(path).ok_or(())?;

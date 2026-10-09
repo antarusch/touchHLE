@@ -26,6 +26,7 @@ const NSApplicationSupportDirectory: NSSearchPathDirectory = 14;
 type NSSearchPathDomainMask = NSUInteger;
 const NSUserDomainMask: NSSearchPathDomainMask = 1;
 
+pub const NSFileCreationDate: &str = "NSFileCreationDate";
 pub const NSFileModificationDate: &str = "NSFileModificationDate";
 pub const NSFileSize: &str = "NSFileSize";
 const NSFileSystemFreeSize: &str = "NSFileSystemFreeSize";
@@ -34,6 +35,7 @@ pub const NSFileTypeDirectory: &str = "NSFileTypeDirectory";
 pub const NSFileTypeRegular: &str = "NSFileTypeRegular";
 
 pub const CONSTANTS: ConstantExports = &[
+    ("_NSFileCreationDate", HostConstant::NSString(NSFileCreationDate)),
     (
         "_NSFileModificationDate",
         HostConstant::NSString(NSFileModificationDate),
@@ -389,7 +391,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (id)fileAttributesAtPath:(id)path // NSString *
               traverseLink:(bool)traverse {
     // TODO: other attributes
-    log_once!("Warning: NSFileManager fileAttributesAtPath:traverseLink: returns only NSFileType, NSFileModificationDate and NSFileSize attributes!");
+    log_once!("Warning: NSFileManager fileAttributesAtPath:traverseLink: returns NSFileType, NSFileCreationDate, NSFileModificationDate and NSFileSize attributes!");
 
     let path = ns_string::to_rust_string(env, path); // TODO: avoid copy
     // TODO: traverse link
@@ -402,7 +404,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (id)attributesOfItemAtPath:(id)path // NSString *
                        error:(MutPtr<id>)error { // NSError **
     // TODO: other attributes
-    log_once!("Warning: NSFileManager attributesOfItemAtPath:error: returns only NSFileType, NSFileModificationDate and NSFileSize attributes!");
+    log_once!("Warning: NSFileManager attributesOfItemAtPath:error: returns NSFileType, NSFileCreationDate, NSFileModificationDate and NSFileSize attributes!");
 
     if path == nil {
         write_file_not_found_error(env, error);
@@ -485,10 +487,18 @@ fn file_attributes_common(env: &mut Environment, guest_path: &GuestPath) -> id {
     let unix_date: id =
         msg_class![env; NSDate dateWithTimeInterval:unix_timestamp sinceDate:unix_ref_date];
 
+    let creation_timestamp = env.fs.created(guest_path).unwrap_or(unix_timestamp as i64);
+    let creation_date: id = msg_class![env; NSDate
+        dateWithTimeInterval:creation_timestamp as f64
+        sinceDate:unix_ref_date];
+
     let size = env.fs.size(guest_path).unwrap();
     let size_num: id = msg_class![env; NSNumber numberWithUnsignedLongLong:size];
 
     let dict = msg_class![env; NSMutableDictionary new];
+
+    let creation_date_key = get_static_str(env, NSFileCreationDate);
+    () = msg![env; dict setObject:creation_date forKey:creation_date_key];
 
     let modif_date_key = get_static_str(env, NSFileModificationDate);
     () = msg![env; dict setObject:unix_date forKey:modif_date_key];

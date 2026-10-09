@@ -17,7 +17,7 @@ use crate::frameworks::foundation::ns_enumerator::{
     fast_enumeration_helper, NSFastEnumerationState,
 };
 use crate::frameworks::foundation::ns_file_manager::{
-    NSFileModificationDate, NSFileSize, NSFileType,
+    NSFileCreationDate, NSFileModificationDate, NSFileSize, NSFileType,
 };
 use crate::frameworks::foundation::ns_keyed_archiver::{
     encode_object, get_value_to_encode_for_current_key,
@@ -585,6 +585,10 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 // NSDictionary(NSFileAttributes) category
 // TODO: implement categories properly
+- (id)fileCreationDate {
+    let creation_date_key = get_static_str(env, NSFileCreationDate);
+    msg![env; this objectForKey:creation_date_key]
+}
 - (id)fileModificationDate {
     let modif_date_key = get_static_str(env, NSFileModificationDate);
     msg![env; this objectForKey:modif_date_key]
