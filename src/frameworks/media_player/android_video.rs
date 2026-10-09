@@ -21,6 +21,8 @@ const OUTPUT_FORMAT_CHANGED: isize = -2;
 const BUFFER_FLAG_END_OF_STREAM: u32 = 4;
 const COLOR_YUV420_PLANAR: i32 = 19;
 const COLOR_YUV420_SEMIPLANAR: i32 = 21;
+const COLOR_YUV420_PACKED_SEMIPLANAR: i32 = 39;
+const COLOR_QCOM_NV12_ALT: i32 = 0x7fa30c02u32 as i32;
 const COLOR_YUV420_FLEXIBLE: i32 = 0x7f420888;
 const COLOR_QCOM_NV12: i32 = 0x7fa30c00u32 as i32;
 const COLOR_QCOM_NV12_VENUS: i32 = 0x7fa30c04u32 as i32;
@@ -29,11 +31,17 @@ const MAX_FRAME_PIXELS: usize = 4096 * 4096;
 static MOVIE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[repr(C)]
-struct AMediaExtractor(c_void);
+struct AMediaExtractor {
+    _private: [u8; 0],
+}
 #[repr(C)]
-struct AMediaCodec(c_void);
+struct AMediaCodec {
+    _private: [u8; 0],
+}
 #[repr(C)]
-struct AMediaFormat(c_void);
+struct AMediaFormat {
+    _private: [u8; 0],
+}
 
 #[repr(C)]
 #[derive(Default)]
@@ -208,6 +216,7 @@ impl MovieDecoder {
                 if started != 0 { return Err(format!("MediaCodec start failed: {started}")); }
                 self.stride = self.width as usize;
                 self.slice_height = self.height as usize;
+                self.refresh_output_format();
                 log!("Android MediaCodec started {name} {}x{} duration={}us",
                     self.width, self.height, self.duration_us);
                 return Ok(());
@@ -281,8 +290,9 @@ impl MovieDecoder {
         let planar = self.color_format == COLOR_YUV420_PLANAR;
         let semi_planar = matches!(
             self.color_format,
-            COLOR_YUV420_SEMIPLANAR | COLOR_YUV420_FLEXIBLE |
-            COLOR_QCOM_NV12 | COLOR_QCOM_NV12_VENUS
+            COLOR_YUV420_SEMIPLANAR | COLOR_YUV420_PACKED_SEMIPLANAR |
+            COLOR_YUV420_FLEXIBLE | COLOR_QCOM_NV12 |
+            COLOR_QCOM_NV12_ALT | COLOR_QCOM_NV12_VENUS
         );
         if !planar && !semi_planar {
             return Err(format!("Unsupported MediaCodec YUV color format {:#x}", self.color_format));
@@ -323,13 +333,13 @@ impl MovieDecoder {
     }
 
     pub fn frame_for_time(&mut self, target_us: i64) -> Result<Option<Frame>, String> {
-        if self.output_finished { return Ok(None); }
-        // Hold decoded future frames; never advance the picture faster than
-        // the emulated playback clock.
+        // Preserve the final pending frame even after the codec emits EOS.
+        // Its presentation timestamp can lie beyond the previous poll.
         if self.pending.as_ref().is_some_and(|f| f.time_us > target_us) {
             return Ok(None);
         }
         let mut display = self.pending.take();
+        if self.output_finished { return Ok(display); }
         for _ in 0..16 {
             // Keep codec input supplied without blocking the emulation loop.
             let _ = self.feed_sample()?;
@@ -345,15 +355,19 @@ impl MovieDecoder {
             let ptr = unsafe {
                 AMediaCodec_getOutputBuffer(self.codec, index as usize, &mut buffer_capacity)
             };
+            // Always release the dequeued buffer, even if YUV conversion fails.
             let frame = if info.size > 0 && !ptr.is_null() {
                 let offset = info.offset.max(0) as usize;
                 let size = info.size as usize;
                 if offset.checked_add(size).is_some_and(|end| end <= buffer_capacity) {
                     let bytes = unsafe { std::slice::from_raw_parts(ptr.add(offset), size) };
-                    Some(self.decode_frame(bytes, info.presentation_time_us)?)
-                } else { None }
-            } else { None };
+                    self.decode_frame(bytes, info.presentation_time_us).map(Some)
+                } else {
+                    Err("Invalid MediaCodec output buffer bounds".into())
+                }
+            } else { Ok(None) };
             unsafe { AMediaCodec_releaseOutputBuffer(self.codec, index as usize, false); }
+            let frame = frame?;
             if info.flags & BUFFER_FLAG_END_OF_STREAM != 0 {
                 self.output_finished = true;
             }
