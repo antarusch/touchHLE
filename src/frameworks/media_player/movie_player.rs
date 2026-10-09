@@ -340,7 +340,8 @@ fn movie_video_tick(env: &mut Environment) {
             let layer: id = msg![env; movie_container layer];
             let z: CGFloat = msg![env; layer zPosition];
             if z != -1000.0 {
-                () = msg![env; layer setZPosition:-1000.0f32];
+                let background_z: CGFloat = -1000.0;
+                () = msg![env; layer setZPosition:background_z];
                 log!("Hunters 2 gameplay video depth: layer={layer:?}, old_z={z}, new_z=-1000");
             }
         }
