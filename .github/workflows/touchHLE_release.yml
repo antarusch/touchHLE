@@ -2,7 +2,7 @@ name: Build touchHLE
 
 on:
   push:
-    branches: [ "trunk", "eustrath-foundation-android", "eustrath-freeze-diagnostic", "multi-game-compatibility", "tactical-soldier-compatibility", "hunters-2-compatibility" ]
+    branches: [ "trunk", "eustrath-foundation-android", "eustrath-freeze-diagnostic", "multi-game-compatibility", "tactical-soldier-compatibility" ]
   pull_request:
     branches: [ "trunk" ]
   create: # for tags
