@@ -98,6 +98,137 @@ fn parse_locale_identifier(identifier: &str) -> (String, Option<String>) {
     (language, country)
 }
 
+
+fn language_display_name(code: &str) -> Option<&'static str> {
+    match code.to_ascii_lowercase().as_str() {
+        "ar" => Some("Arabic"),
+        "bg" => Some("Bulgarian"),
+        "ca" => Some("Catalan"),
+        "cs" => Some("Czech"),
+        "da" => Some("Danish"),
+        "de" => Some("German"),
+        "el" => Some("Greek"),
+        "en" => Some("English"),
+        "es" => Some("Spanish"),
+        "et" => Some("Estonian"),
+        "fa" => Some("Persian"),
+        "fi" => Some("Finnish"),
+        "fr" => Some("French"),
+        "he" | "iw" => Some("Hebrew"),
+        "hi" => Some("Hindi"),
+        "hr" => Some("Croatian"),
+        "hu" => Some("Hungarian"),
+        "id" | "in" => Some("Indonesian"),
+        "it" => Some("Italian"),
+        "ja" => Some("Japanese"),
+        "ko" => Some("Korean"),
+        "lt" => Some("Lithuanian"),
+        "lv" => Some("Latvian"),
+        "ms" => Some("Malay"),
+        "nl" => Some("Dutch"),
+        "no" | "nb" | "nn" => Some("Norwegian"),
+        "pl" => Some("Polish"),
+        "pt" => Some("Portuguese"),
+        "ro" => Some("Romanian"),
+        "ru" => Some("Russian"),
+        "sk" => Some("Slovak"),
+        "sl" => Some("Slovenian"),
+        "sr" => Some("Serbian"),
+        "sv" => Some("Swedish"),
+        "th" => Some("Thai"),
+        "tr" => Some("Turkish"),
+        "uk" => Some("Ukrainian"),
+        "ur" => Some("Urdu"),
+        "vi" => Some("Vietnamese"),
+        "zh" => Some("Chinese"),
+        _ => None,
+    }
+}
+
+fn country_display_name(code: &str) -> Option<&'static str> {
+    match code.to_ascii_uppercase().as_str() {
+        "AR" => Some("Argentina"),
+        "AT" => Some("Austria"),
+        "AU" => Some("Australia"),
+        "BE" => Some("Belgium"),
+        "BR" => Some("Brazil"),
+        "CA" => Some("Canada"),
+        "CH" => Some("Switzerland"),
+        "CN" => Some("China"),
+        "CZ" => Some("Czechia"),
+        "DE" => Some("Germany"),
+        "DK" => Some("Denmark"),
+        "EG" => Some("Egypt"),
+        "ES" => Some("Spain"),
+        "FI" => Some("Finland"),
+        "FR" => Some("France"),
+        "GB" => Some("United Kingdom"),
+        "GR" => Some("Greece"),
+        "HK" => Some("Hong Kong"),
+        "HU" => Some("Hungary"),
+        "ID" => Some("Indonesia"),
+        "IE" => Some("Ireland"),
+        "IL" => Some("Israel"),
+        "IN" => Some("India"),
+        "IT" => Some("Italy"),
+        "JP" => Some("Japan"),
+        "KR" => Some("South Korea"),
+        "MX" => Some("Mexico"),
+        "MY" => Some("Malaysia"),
+        "NL" => Some("Netherlands"),
+        "NO" => Some("Norway"),
+        "NZ" => Some("New Zealand"),
+        "PH" => Some("Philippines"),
+        "PL" => Some("Poland"),
+        "PT" => Some("Portugal"),
+        "RO" => Some("Romania"),
+        "RU" => Some("Russia"),
+        "SA" => Some("Saudi Arabia"),
+        "SE" => Some("Sweden"),
+        "SG" => Some("Singapore"),
+        "TH" => Some("Thailand"),
+        "TR" => Some("Turkey"),
+        "TW" => Some("Taiwan"),
+        "UA" => Some("Ukraine"),
+        "US" => Some("United States"),
+        "VN" => Some("Vietnam"),
+        "ZA" => Some("South Africa"),
+        _ => None,
+    }
+}
+
+// This currently provides English display names. Unknown valid codes retain
+// their original spelling until a full locale database is implemented.
+fn locale_display_name(key: &str, value: &str) -> Option<String> {
+    match key {
+        NSLocaleLanguageCode | kCFLocaleLanguageCode => {
+            Some(language_display_name(value).unwrap_or(value).to_string())
+        }
+        NSLocaleCountryCode | kCFLocaleCountryCode => {
+            Some(country_display_name(value).unwrap_or(value).to_string())
+        }
+        NSLocaleIdentifier | kCFLocaleIdentifier => {
+            let (language, country) = parse_locale_identifier(value);
+            if language.is_empty() {
+                return None;
+            }
+            let language_name = language_display_name(&language).unwrap_or(&language);
+            match country {
+                Some(country) => {
+                    let country_name = country_display_name(&country).unwrap_or(&country);
+                    Some(format!("{language_name} ({country_name})"))
+                }
+                None => Some(language_name.to_string()),
+            }
+        }
+        "NSLocaleScriptCode" | "kCFLocaleScriptCodeKey"
+        | "NSLocaleCurrencyCode" | "kCFLocaleCurrencyCodeKey"
+        | "NSLocaleCurrencySymbol" | "kCFLocaleCurrencySymbolKey"
+        | "NSLocaleVariantCode" | "kCFLocaleVariantCodeKey" => Some(value.to_string()),
+        _ => None,
+    }
+}
+
 struct NSLocaleHostObject {
     /// `NSString *`
     country_code: id,
@@ -254,13 +385,54 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
 }
 
+// Localized names are available for common locale identifiers and their
+// language and country components. Other known values retain their codes.
+- (id)displayNameForKey:(id)key value:(id)value {
+    if key == nil || value == nil {
+        return nil;
+    }
+    let key_str = ns_string::to_rust_string(env, key).into_owned();
+    let value_str = ns_string::to_rust_string(env, value).into_owned();
+    let Some(name) = locale_display_name(&key_str, &value_str) else {
+        return nil;
+    };
+    let name = ns_string::from_rust_string(env, name);
+    autorelease(env, name)
+}
+
+
 @end
 
 };
 
 #[cfg(test)]
 mod tests {
-    use super::parse_locale_identifier;
+    use super::{locale_display_name, parse_locale_identifier};
+
+    #[test]
+    fn locale_display_names() {
+        assert_eq!(
+            locale_display_name("NSLocaleLanguageCode", "en"),
+            Some("English".to_string())
+        );
+        assert_eq!(
+            locale_display_name("NSLocaleCountryCode", "ES"),
+            Some("Spain".to_string())
+        );
+        assert_eq!(
+            locale_display_name("NSLocaleIdentifier", "es_ES"),
+            Some("Spanish (Spain)".to_string())
+        );
+        assert_eq!(
+            locale_display_name("kCFLocaleIdentifierKey", "en-US"),
+            Some("English (United States)".to_string())
+        );
+        assert_eq!(
+            locale_display_name("NSLocaleCountryCode", "ZZ"),
+            Some("ZZ".to_string())
+        );
+        assert_eq!(locale_display_name("NotALocaleKey", "en"), None);
+    }
 
     #[test]
     fn locale_identifier_parsing() {

@@ -79,6 +79,20 @@ fn CFLocaleGetValue(env: &mut Environment, locale: CFLocaleRef, key: CFLocaleKey
     msg![env; locale objectForKey:key]
 }
 
+fn CFLocaleCopyDisplayNameForPropertyValue(
+    env: &mut Environment,
+    locale: CFLocaleRef,
+    key: CFLocaleKey,
+    value: CFStringRef,
+) -> CFStringRef {
+    let display: id = msg![env; locale displayNameForKey:key value:value];
+    if display.is_null() {
+        display
+    } else {
+        msg![env; display retain]
+    }
+}
+
 pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CFLocaleCopyCurrent()),
     export_c_func!(CFLocaleCopyPreferredLanguages()),
@@ -86,4 +100,5 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CFLocaleCreateCanonicalLocaleIdentifierFromString(_, _)),
     export_c_func!(CFLocaleGetSystem()),
     export_c_func!(CFLocaleGetValue(_, _)),
+    export_c_func!(CFLocaleCopyDisplayNameForPropertyValue(_, _, _)),
 ];
