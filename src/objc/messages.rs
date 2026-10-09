@@ -237,8 +237,8 @@ fn objc_msgSend_inner(
             }
         }
         if name == "show" || name == "hide" {
-            let class = env.objc.try_get_class_name(orig_class);
-            if matches!(class, Some("OverlayMessage")) {
+            let class = env.objc.try_get_class_name(orig_class).map(str::to_owned);
+            if matches!(class.as_deref(), Some("OverlayMessage")) {
                 // Only record visibility during Objective-C dispatch.
                 // Do not invoke guest callbacks from this hook.
                 #[cfg(target_os = "android")]
@@ -249,7 +249,7 @@ fn objc_msgSend_inner(
                     );
                 }
             }
-            if matches!(class, Some("OverlayCreateSave")) {
+            if matches!(class.as_deref(), Some("OverlayCreateSave")) {
                 log!("Hunters 2 create-save overlay: class={class:?}, selector={name}");
                 #[cfg(target_os = "android")]
                 {
