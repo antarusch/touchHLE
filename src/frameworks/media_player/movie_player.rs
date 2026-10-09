@@ -202,15 +202,16 @@ fn movie_video_tick(env: &mut Environment) {
     if let Some(err) = error {
         log!("Android movie decoding stopped: {err}");
     }
-    if let Some(Frame { pixels, width, height, time_us }) = frame {
+    if let Some(Frame { pixels, width, height, time_us: _ }) = frame {
         if view != nil {
             let layer: id = msg![env; view layer];
+            let frame: CGRect = msg![env; view frame];
+            log_once!("Android movie compositing: UIKit view {:?}, frame {:?}, frame dimensions {}x{}",
+                view, frame, width, height);
             present_movie_pixels(env, layer, pixels, width, height);
-            log_once!("Android H.264 video frames are being composited into MPMoviePlayerController view");
         } else {
             log_once!("Android movie frame decoded but player has no view");
         }
-        let _ = time_us;
     }
     if ending && !looping {
         let pending = &mut State::get(env).pending_notifications;
@@ -491,12 +492,20 @@ pub const CLASSES: ClassExports = objc_classes! {
     assert!(env.framework_state.media_player.movie_player.active_player.is_none());
     {
         let host = env.objc.borrow_mut::<MPMoviePlayerControllerHostObject>(this);
-        host.playback_state = MPMoviePlaybackStatePlaying;
         #[cfg(target_os = "android")]
         if video_available {
+            if host.playback_state == MPMoviePlaybackStateStopped {
+                host.current_playback_time = 0.0;
+                if let Some(decoder) = host.decoder.as_mut() {
+                    if let Err(err) = decoder.restart(0) {
+                        log!("Android movie replay seek failed: {err}");
+                    }
+                }
+            }
             host.playback_start_position = host.current_playback_time;
             host.playback_started_at = Some(Instant::now());
         }
+        host.playback_state = MPMoviePlaybackStatePlaying;
     }
     State::get(env).pending_notifications.push_back((
         MPMoviePlayerPlaybackStateDidChangeNotification,
