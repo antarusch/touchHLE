@@ -835,7 +835,8 @@ unsafe fn composite_layer_recursive(
             let count = VIDEO_DRAWS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
             if matches!(count, 1 | 30 | 120) {
                 let width = MOVIE_PROBE_FB_WIDTH.load(std::sync::atomic::Ordering::Relaxed) as u32;
-                let height = MOVIE_PROBE_FB_HEIGHT.load(std::sync::atomic::Ordering::Relaxed) as u32;
+                let height =
+                    MOVIE_PROBE_FB_HEIGHT.load(std::sync::atomic::Ordering::Relaxed) as u32;
                 let lit = lit_framebuffer_samples(gles.as_mut(), 0, 0, width, height);
                 log!(
                     "Core Animation movie post-draw probe {count}: {lit}/9 lit before later sibling layers, framebuffer={width}x{height}",
