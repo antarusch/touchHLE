@@ -694,6 +694,20 @@ impl Fs {
             )
             .with_child("usr", FsNode::dir().with_child("lib", usr_lib));
 
+        // Make the platform's read-only entropy device available to guest
+        // libraries such as SQLite. Do not expose it on non-Unix hosts.
+        #[cfg(unix)]
+        let root = root.with_child(
+            "dev",
+            FsNode::dir().with_child(
+                "urandom",
+                FsNode::File {
+                    location: FileLocation::Path(PathBuf::from("/dev/urandom")),
+                    writeable: false,
+                },
+            ),
+        );
+
         log_dbg!("Initial filesystem layout: {:#?}", root);
 
         let fs = Fs {
