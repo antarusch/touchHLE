@@ -75,6 +75,7 @@ pub fn recomposite_if_necessary(env: &mut Environment, force: bool) -> Option<In
 
     if find_fullscreen_eagl_layer(env) != nil {
         // No composition done, EAGLContext will present directly.
+        log_once!("Core Animation is bypassing the layer compositor via fullscreen CAEAGLLayer");
         log_dbg!("Using CAEAGLLayer fast path, skipping composition");
         return None;
     }
@@ -642,6 +643,20 @@ unsafe fn composite_layer_recursive(
             .gles_texture_is_up_to_date = true;
     }
 
+    // Confirm that a submitted RGBA frame actually reaches the compositor.
+    if host_obj.presented_pixels.is_some() {
+        static PRESENTED_LAYER_COMPOSITES: std::sync::atomic::AtomicUsize =
+            std::sync::atomic::AtomicUsize::new(0);
+        let number = PRESENTED_LAYER_COMPOSITES
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            + 1;
+        if matches!(number, 1 | 30 | 120) {
+            log!(
+                "Core Animation compositing presented RGBA layer {number}: layer={layer:?}, bounds={:?}, opacity={opacity:.2}, texture_updated={need_update}",
+                host_obj.bounds,
+            );
+        }
+    }
     // Draw texture, if any
     if need_texture {
         if host_obj.contents_gravity != "resize" && host_obj.contents != nil {
