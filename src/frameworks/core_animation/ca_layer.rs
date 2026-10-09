@@ -89,6 +89,33 @@ pub(crate) fn present_movie_pixels(
 ) {
     // CA's compositor can texture any CALayer with RGBA8 pixel backing.
     // This is shared with EAGL rendering, but is not restricted to CAEAGLLayer.
+    // Diagnose missing movie frames without changing the guest's layer ordering.
+    static MOVIE_LAYER_TREE_LOGGED: std::sync::atomic::AtomicBool =
+        std::sync::atomic::AtomicBool::new(false);
+    if !MOVIE_LAYER_TREE_LOGGED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+        let mut current = layer;
+        for depth in 0..8 {
+            let host = env.objc.borrow::<CALayerHostObject>(current);
+            let parent = host.superlayer;
+            let sibling_position = if parent != nil {
+                env.objc
+                    .borrow::<CALayerHostObject>(parent)
+                    .sublayers
+                    .iter()
+                    .position(|&sibling| sibling == current)
+            } else {
+                None
+            };
+            log!(
+                "Android movie layer ancestry {depth}: layer={current:?}, parent={parent:?}, sibling_position={sibling_position:?}, bounds={:?}, position={:?}, hidden={}, opacity={:.2}, contents={:?}",
+                host.bounds, host.position, host.hidden, host.opacity, host.contents,
+            );
+            if parent == nil {
+                break;
+            }
+            current = parent;
+        }
+    }
     let host = env.objc.borrow_mut::<CALayerHostObject>(layer);
     host.presented_pixels = Some((pixels, width, height));
     host.gles_texture_is_up_to_date = false;
