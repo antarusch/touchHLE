@@ -242,7 +242,9 @@ fn movie_video_tick(env: &mut Environment) {
             // the latter would still be covered by the game's full-screen view.
             if env.bundle.bundle_identifier() == "uk.co.rodeogames.hunterstwo" {
                 let needs_raise = {
-                    let host = env.objc.borrow_mut::<MPMoviePlayerControllerHostObject>(player);
+                    let host = env
+                        .objc
+                        .borrow_mut::<MPMoviePlayerControllerHostObject>(player);
                     let needs_raise = !host.raised_movie_container;
                     host.raised_movie_container = true;
                     needs_raise
