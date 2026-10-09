@@ -1,0 +1,38 @@
+name: One-time Android video Rust formatting
+on:
+  push:
+    branches:
+      - hunters-2-compatibility
+    paths:
+      - .github/workflows/video_format_once.yml
+
+permissions:
+  contents: write
+
+jobs:
+  format-only:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: hunters-2-compatibility
+          persist-credentials: true
+      - name: Install Rust formatter
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Format all Rust source
+        run: cargo fmt --all
+      - name: Commit hardware movie playback formatting
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/frameworks/media_player/android_video.rs
+          git add src/frameworks/media_player/movie_player.rs
+          git add src/frameworks/media_player.rs
+          git add src/frameworks/core_animation/ca_layer.rs
+          if ! git diff --cached --quiet; then
+            git commit -m "style: rustfmt hardware movie playback milestone"
+            git push origin HEAD:hunters-2-compatibility
+          fi
