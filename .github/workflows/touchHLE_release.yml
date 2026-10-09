@@ -2,10 +2,16 @@ name: Build touchHLE
 
 on:
   push:
-    branches: [ "trunk", "eustrath-foundation-android", "eustrath-freeze-diagnostic", "multi-game-compatibility", "tactical-soldier-compatibility", "hunters-2-compatibility" ]
+    branches: [ "trunk", "eustrath-foundation-android", "eustrath-freeze-diagnostic", "multi-game-compatibility", "tactical-soldier-compatibility" ]
   pull_request:
     branches: [ "trunk" ]
   create: # for tags
+  workflow_dispatch:
+
+# Keep only the newest run per branch; unrelated branches never cancel each other.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
@@ -144,7 +150,7 @@ jobs:
       run: git submodule update --init
     - name: Try to get cached copy of Boost
       id: cache-boost
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: vendor/boost
         key: boost_1_81_0
@@ -156,7 +162,7 @@ jobs:
       run: 7z -ovendor x boost_1_81_0.7z && mv vendor/boost_1_81_0 vendor/boost
     - name: Try to get cached copy of cmake
       id: cache-cmake
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: vendor/cmake
         key: cmake_3_31_6_linux
@@ -166,14 +172,29 @@ jobs:
     - if: ${{ steps.cache-cmake.outputs.cache-hit != 'true' }}
       name: Extract Cmake
       run: tar xzvf "cmake-3.31.6-linux-x86_64.tar.gz" -C vendor && mv vendor/cmake-3.31.6-linux-x86_64 vendor/cmake
+    - name: Cache Rust dependencies and compiler outputs
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: android-arm64-rust-v1-${{ runner.os }}-${{ hashFiles('Cargo.lock', '.cargo/config.toml', 'src/**/Cargo.toml') }}
     - name: Install AArch64 Android Rust toolchain
       run: rustup target add aarch64-linux-android
+    - name: Cache cargo-ndk executable
+      id: cache-cargo-ndk
+      uses: actions/cache@v4
+      with:
+        path: ~/.cargo/bin/cargo-ndk
+        key: android-cargo-ndk-3.5.4-v1-${{ runner.os }}
     - name: Install cargo-ndk
+      if: ${{ steps.cache-cargo-ndk.outputs.cache-hit != 'true' }}
       run: cargo install cargo-ndk@3.5.4
     # Gradle version compatibility is a nightmare and we refuse to use gradlew.
     - name: Try to get a cached copy of Gradle
       id: cache-gradle
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: gradle
         key: gradle-8.11.1
@@ -183,10 +204,15 @@ jobs:
     - if: ${{ steps.cache-gradle.outputs.cache-hit != 'true' }}
       name: Extract Gradle
       run: 7z -ogradle x gradle-8.11.1-bin.zip
+    - name: Cache Gradle dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.gradle/caches/modules-2
+        key: android-gradle-deps-v1-${{ runner.os }}-${{ hashFiles('android/**/*.gradle.kts', 'android/gradle.properties') }}
     # We need to install the correct version of Android NDK manually
     - name: Try to get a cached copy of Android NDK
       id: cache-android-ndk
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: android-ndk
         key: android-ndk-r25c
@@ -237,6 +263,9 @@ jobs:
       with:
         name: touchHLE_Android_AArch64
         path: touchHLE.apk
+        if-no-files-found: error
+        retention-days: 30
+        compression-level: 0
 
   build-win:
     if: ${{ github.ref != 'refs/heads/tactical-soldier-compatibility' && github.ref != 'refs/heads/hunters-2-compatibility' }}
