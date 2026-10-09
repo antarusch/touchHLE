@@ -34,6 +34,12 @@ pub struct State {
     hunters_create_save_controller: Option<id>,
     #[cfg(target_os = "android")]
     hunters_raised_create_save_layer: Option<(id, CGFloat)>,
+    #[cfg(target_os = "android")]
+    hunters_message_visible: bool,
+    #[cfg(target_os = "android")]
+    hunters_message_controller: Option<id>,
+    #[cfg(target_os = "android")]
+    hunters_raised_message_layer: Option<(id, CGFloat)>,
     /// Various apps (e.g. Crash Bandicoot Nitro Kart 3D and Spore Origins)
     /// create or start a player and await some kind of notification, but can't
     /// handle it if that notification happens immediately. This queue lets us
@@ -211,6 +217,18 @@ pub(super) fn set_hunters_create_save_visible(
     log!("Hunters 2 Create Save overlay visible={visible}; depth change deferred");
 }
 
+// This is recorded during Objective-C dispatch. Do not send any Objective-C
+// messages here: earlier nested sends corrupted the guest register state.
+#[cfg(target_os = "android")]
+pub(super) fn set_hunters_message_visible(env: &mut Environment, visible: bool, controller: id) {
+    let state = State::get(env);
+    state.hunters_message_visible = visible;
+    if visible {
+        state.hunters_message_controller = Some(controller);
+    }
+    log!("Hunters 2 confirmation overlay visible={visible}; depth change deferred");
+}
+
 // Called from the guest message-dispatch path: only record state here.
 // All Core Animation mutations happen later during the host video tick.
 #[cfg(target_os = "android")]
@@ -319,6 +337,81 @@ fn update_hunters_create_save_depth(env: &mut Environment, movie_view: id) {
     );
 }
 
+// Confirmation dialogs use OverlayMessage, not OverlayCreateSave. Restore
+// their original layer depth once dismissed and raise only their own branch
+// while visible, leaving the actual UIKit view ordering and input unchanged.
+#[cfg(target_os = "android")]
+fn update_hunters_message_depth(env: &mut Environment, movie_view: id) {
+    if env.bundle.bundle_identifier() != "uk.co.rodeogames.hunterstwo" {
+        return;
+    }
+    if !State::get(env).hunters_message_visible {
+        if let Some((layer, old_z)) = State::get(env).hunters_raised_message_layer.take() {
+            () = msg![env; layer setZPosition:old_z];
+            log!("Hunters 2 message layer restored: layer={layer:?}, z={old_z}");
+        }
+        return;
+    }
+    if State::get(env).hunters_raised_message_layer.is_some() {
+        return;
+    }
+    let Some(controller) = State::get(env).hunters_message_controller else {
+        return;
+    };
+    let overlay_view: id = msg![env; controller view];
+    let movie_container_view: id = msg![env; movie_view superview];
+    if overlay_view == nil || movie_container_view == nil {
+        return;
+    }
+    let movie_container: id = msg![env; movie_container_view layer];
+    let shared_parent: id = msg![env; movie_container superlayer];
+    if shared_parent == nil {
+        return;
+    }
+    let overlay_layer: id = msg![env; overlay_view layer];
+    let mut branch = overlay_layer;
+    let mut found = false;
+    for _ in 0..32 {
+        let parent: id = msg![env; branch superlayer];
+        if parent == shared_parent {
+            found = true;
+            break;
+        }
+        if parent == nil {
+            break;
+        }
+        branch = parent;
+    }
+    if !found {
+        log_once!("Hunters 2 message layer has no shared movie parent");
+        return;
+    }
+    // Avoid bringing the movie container itself forward. The dialog might
+    // be nested inside that container; in that case raise its direct child.
+    let layer = if branch == movie_container {
+        let mut child = overlay_layer;
+        for _ in 0..32 {
+            let parent: id = msg![env; child superlayer];
+            if parent == movie_container || parent == nil {
+                break;
+            }
+            child = parent;
+        }
+        child
+    } else {
+        branch
+    };
+    if layer == movie_container {
+        return;
+    }
+    let old_z: CGFloat = msg![env; layer zPosition];
+    () = msg![env; layer setZPosition:2000.0f32];
+    State::get(env).hunters_raised_message_layer = Some((layer, old_z));
+    log!(
+        "Hunters 2 message layer raised: controller={controller:?}, layer={layer:?}, old_z={old_z}, new_z=2000"
+    );
+}
+
 #[cfg(target_os = "android")]
 fn movie_video_tick(env: &mut Environment) {
     let Some(player) = State::get(env).active_player else {
@@ -331,6 +424,7 @@ fn movie_video_tick(env: &mut Environment) {
         .borrow::<MPMoviePlayerControllerHostObject>(player)
         .view;
     update_hunters_create_save_depth(env, movie_view);
+    update_hunters_message_depth(env, movie_view);
     // Hunters 2 can leave the title video looping after a successful
     // Create Save callback. Keep decoding it for game notifications, but
     // render behind the game instead of covering the next scene.
