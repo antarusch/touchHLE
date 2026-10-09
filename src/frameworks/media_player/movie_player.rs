@@ -220,11 +220,7 @@ pub(super) fn set_hunters_create_save_visible(
 // This is recorded during Objective-C dispatch. Do not send any Objective-C
 // messages here: earlier nested sends corrupted the guest register state.
 #[cfg(target_os = "android")]
-pub(super) fn set_hunters_message_visible(
-    env: &mut Environment,
-    visible: bool,
-    controller: id,
-) {
+pub(super) fn set_hunters_message_visible(env: &mut Environment, visible: bool, controller: id) {
     let state = State::get(env);
     state.hunters_message_visible = visible;
     if visible {
