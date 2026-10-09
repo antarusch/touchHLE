@@ -26,6 +26,10 @@ pub struct State {
     active_player: Option<id>,
     #[cfg(target_os = "android")]
     hunters_create_save_visible: bool,
+    #[cfg(target_os = "android")]
+    hunters_create_save_controller: Option<id>,
+    #[cfg(target_os = "android")]
+    hunters_raised_create_save_layer: Option<(id, CGFloat)>,
     /// Various apps (e.g. Crash Bandicoot Nitro Kart 3D and Spore Origins)
     /// create or start a player and await some kind of notification, but can't
     /// handle it if that notification happens immediately. This queue lets us
@@ -188,11 +192,18 @@ fn load_android_movie(env: &mut Environment, player: id) -> bool {
 
 // Keep the Create Save dialog above the title movie in Hunters 2.
 #[cfg(target_os = "android")]
-pub(super) fn set_hunters_create_save_visible(env: &mut Environment, visible: bool) {
-    // This runs inside objc_msgSend. Sending another Objective-C message
-    // here corrupts the guest argument registers for OverlayCreateSave.show.
-    // The video tick applies the layer change outside guest message dispatch.
-    State::get(env).hunters_create_save_visible = visible;
+pub(super) fn set_hunters_create_save_visible(
+    env: &mut Environment,
+    visible: bool,
+    controller: id,
+) {
+    // Only record state inside objc_msgSend. Sending a new Objective-C
+    // message here corrupted the guest registers in earlier builds.
+    let state = State::get(env);
+    state.hunters_create_save_visible = visible;
+    if visible {
+        state.hunters_create_save_controller = Some(controller);
+    }
     log!("Hunters 2 Create Save overlay visible={visible}; depth change deferred");
 }
 
@@ -210,27 +221,99 @@ fn restore_hunters_movie_overlay(env: &mut Environment, view: id, original_z: CG
     }
 }
 
+// Raise the Create Save overlay's rendering branch above the title movie.
+// Keep UIKit's view hierarchy untouched, and run this outside guest dispatch.
+#[cfg(target_os = "android")]
+fn update_hunters_create_save_depth(env: &mut Environment, movie_view: id) {
+    if env.bundle.bundle_identifier() != "uk.co.rodeogames.hunterstwo" {
+        return;
+    }
+    if !State::get(env).hunters_create_save_visible {
+        let raised = State::get(env).hunters_raised_create_save_layer.take();
+        if let Some((layer, old_z)) = raised {
+            () = msg![env; layer setZPosition:old_z];
+            log!("Hunters 2 Create Save layer restored: layer={layer:?}, z={old_z}");
+        }
+        return;
+    }
+    if State::get(env).hunters_raised_create_save_layer.is_some() {
+        return;
+    }
+    let Some(controller) = State::get(env).hunters_create_save_controller else {
+        return;
+    };
+    let overlay_view: id = msg![env; controller view];
+    let movie_parent: id = msg![env; movie_view superview];
+    if overlay_view == nil || movie_parent == nil {
+        log_once!("Hunters 2 Create Save: overlay view or movie parent missing");
+        return;
+    }
+    let movie_container: id = msg![env; movie_parent layer];
+    let movie_parent_layer: id = msg![env; movie_container superlayer];
+    if movie_parent_layer == nil {
+        return;
+    }
+    let overlay_layer: id = msg![env; overlay_view layer];
+    // Find the overlay branch sharing the movie container's parent.
+    let mut branch = overlay_layer;
+    let mut found = false;
+    for _ in 0..32 {
+        let parent: id = msg![env; branch superlayer];
+        if parent == movie_parent_layer {
+            found = true;
+            break;
+        }
+        if parent == nil {
+            break;
+        }
+        branch = parent;
+    }
+    if !found {
+        log_once!("Hunters 2 Create Save: overlay layer has no shared movie parent");
+        return;
+    }
+    // If the overlay lives inside the movie container, raise the direct child
+    // containing the overlay, rather than the entire movie container.
+    let layer = if branch == movie_container {
+        let mut child = overlay_layer;
+        for _ in 0..32 {
+            let parent: id = msg![env; child superlayer];
+            if parent == movie_container || parent == nil {
+                break;
+            }
+            child = parent;
+        }
+        child
+    } else {
+        branch
+    };
+    if layer == movie_container {
+        return;
+    }
+    let old_z: CGFloat = msg![env; layer zPosition];
+    () = msg![env; layer setZPosition:2000.0f32];
+    State::get(env).hunters_raised_create_save_layer = Some((layer, old_z));
+    let window: id = msg![env; overlay_view window];
+    let hidden: bool = msg![env; overlay_view isHidden];
+    let alpha: CGFloat = msg![env; overlay_view alpha];
+    let frame: CGRect = msg![env; overlay_view frame];
+    log!(
+        "Hunters 2 Create Save raised: view={overlay_view:?}, window={window:?}, hidden={hidden}, alpha={alpha}, frame={frame:?}, layer={layer:?}, old_z={old_z}, new_z=2000"
+    );
+}
+
 #[cfg(target_os = "android")]
 fn movie_video_tick(env: &mut Environment) {
     let Some(player) = State::get(env).active_player else {
         return;
     };
-    // Apply the change from the host tick, never from objc_msgSend.
-    if State::get(env).hunters_create_save_visible {
-        let restore = {
-            let host = env
-                .objc
-                .borrow_mut::<MPMoviePlayerControllerHostObject>(player);
-            if std::mem::take(&mut host.raised_movie_container) {
-                Some((host.view, host.original_movie_z.take().unwrap_or(0.0)))
-            } else {
-                None
-            }
-        };
-        if let Some((view, original_z)) = restore {
-            restore_hunters_movie_overlay(env, view, original_z);
-        }
-    }
+    // Apply the overlay depth adjustment from the host tick, never from
+    // objc_msgSend. Keep the movie raised until playback is actually stopped.
+    let movie_view = env
+        .objc
+        .borrow::<MPMoviePlayerControllerHostObject>(player)
+        .view;
+    update_hunters_create_save_depth(env, movie_view);
     let (frame, view, ending, looping, error) = {
         let host = env
             .objc
