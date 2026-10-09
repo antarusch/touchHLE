@@ -451,8 +451,7 @@ pub fn recomposite_if_necessary(env: &mut Environment, force: bool) -> Option<In
         );
         if probe {
             let (x, y, width, height) = present_frame_args.0;
-            let displayed_lit =
-                lit_framebuffer_samples(gles.as_mut(), x, y, width, height);
+            let displayed_lit = lit_framebuffer_samples(gles.as_mut(), x, y, width, height);
             log!(
                 "Core Animation framebuffer probe {probe_number}: composed={composed_lit}/9 lit, presented={displayed_lit}/9 lit, source={fb_width}x{fb_height}, output={width}x{height}",
             );
