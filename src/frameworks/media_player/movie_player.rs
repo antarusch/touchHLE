@@ -24,6 +24,8 @@ use std::time::{Duration, Instant};
 #[derive(Default)]
 pub struct State {
     active_player: Option<id>,
+    #[cfg(target_os = "android")]
+    hunters_create_save_visible: bool,
     /// Various apps (e.g. Crash Bandicoot Nitro Kart 3D and Spore Origins)
     /// create or start a player and await some kind of notification, but can't
     /// handle it if that notification happens immediately. This queue lets us
@@ -182,6 +184,26 @@ fn load_android_movie(env: &mut Environment, player: id) -> bool {
     true
 }
 
+// Keep the Create Save dialog above the title movie in Hunters 2.
+#[cfg(target_os = "android")]
+pub(super) fn set_hunters_create_save_visible(env: &mut Environment, visible: bool) {
+    let state = State::get(env);
+    state.hunters_create_save_visible = visible;
+    let Some(player) = state.active_player else {
+        return;
+    };
+    if visible {
+        let host = env
+            .objc
+            .borrow_mut::<MPMoviePlayerControllerHostObject>(player);
+        if std::mem::take(&mut host.raised_movie_container) {
+            let view = host.view;
+            restore_hunters_movie_overlay(env, view);
+        }
+    }
+    log!("Hunters 2 Create Save overlay visible={visible}");
+}
+
 // Restore the stacking order after Hunters 2's title movie ends or stops.
 #[cfg(target_os = "android")]
 fn restore_hunters_movie_overlay(env: &mut Environment, view: id) {
@@ -271,7 +293,7 @@ fn movie_video_tick(env: &mut Environment) {
             // Hunters 2 puts its movie container behind an opaque game view.
             // Raise that container during playback, not the movie's subview:
             // the latter would still be covered by the game's full-screen view.
-            if is_hunters_2 {
+            if is_hunters_2 && !State::get(env).hunters_create_save_visible {
                 let needs_raise = {
                     let host = env
                         .objc
