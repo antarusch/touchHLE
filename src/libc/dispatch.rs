@@ -57,24 +57,30 @@ fn dispatch_get_global_queue(env: &mut Environment, _identifier: i32, _flags: u3
     global_queue(env)
 }
 
-fn invoke_block(env: &mut Environment, block: MutPtr<u8>) {
+// 32-bit Apple Blocks ABI:
+// isa, flags, reserved, invoke, descriptor.
+fn block_invoke_function(env: &mut Environment, block: MutPtr<u8>) -> Option<GuestFunction> {
     if block.is_null() {
-        return;
+        return None;
     }
-
-    // 32-bit Apple Blocks ABI:
-    // isa, flags, reserved, invoke, descriptor.
     let invoke_addr: u32 = env.mem.read((block + 12).cast());
     if invoke_addr == 0 {
-        log!(
-            "Warning: dispatch block {:?} has a null invoke function",
-            block
-        );
-        return;
+        log!("Warning: block {:?} has a null invoke function", block);
+        return None;
     }
+    Some(GuestFunction::from_addr_with_thumb_bit(invoke_addr))
+}
 
-    let invoke = GuestFunction::from_addr_with_thumb_bit(invoke_addr);
-    let _: () = invoke.call_from_host(env, (block,));
+pub(crate) fn invoke_block(env: &mut Environment, block: MutPtr<u8>) {
+    if let Some(invoke) = block_invoke_function(env, block) {
+        let _: () = invoke.call_from_host(env, (block,));
+    }
+}
+
+pub(crate) fn invoke_block_with_bool(env: &mut Environment, block: MutPtr<u8>, value: bool) {
+    if let Some(invoke) = block_invoke_function(env, block) {
+        let _: () = invoke.call_from_host(env, (block, value));
+    }
 }
 
 /// A completed 32-bit libdispatch predicate is all-one bits.

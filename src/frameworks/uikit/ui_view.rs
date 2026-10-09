@@ -40,6 +40,7 @@ use crate::frameworks::core_graphics::cg_context::{CGContextClearRect, CGContext
 use crate::frameworks::core_graphics::{CGFloat, CGPoint, CGRect, CGSize};
 use crate::frameworks::foundation::ns_string::{from_rust_string, get_static_str, to_rust_string};
 use crate::frameworks::foundation::{ns_array, NSInteger, NSTimeInterval, NSUInteger};
+use crate::libc::dispatch;
 use crate::mem::{ConstVoidPtr, GuestUSize};
 use crate::objc::{
     autorelease, id, msg, msg_class, msg_send, nil, objc_classes, release, retain,
@@ -67,6 +68,39 @@ const touchHLE_kCATransactionTransitionView: &str = "_touchHLE_kCATransactionTra
 
 // Timing-only fallback until the compositor supports flip/curl snapshots.
 pub(crate) const TRANSITION_TIMING_KEY_PATH: &str = "_touchHLE_transitionTiming";
+
+// UIKit's block-based animation option flags. The curve occupies bits 16..17.
+type UIViewAnimationOptions = NSUInteger;
+
+fn animation_curve_from_options(options: UIViewAnimationOptions) -> UIViewAnimationCurve {
+    ((options >> 16) & 0x3) as UIViewAnimationCurve
+}
+
+fn animate_with_blocks(
+    env: &mut Environment,
+    duration: NSTimeInterval,
+    delay: NSTimeInterval,
+    options: UIViewAnimationOptions,
+    animations: crate::mem::MutPtr<u8>,
+    completion: crate::mem::MutPtr<u8>,
+) {
+    // Apply state mutations inside a normal UIView animation transaction, so
+    // layer properties and implicit animations still use UIKit's existing path.
+    () = msg_class![env; UIView beginAnimations:nil context:(ConstVoidPtr::null())];
+    () = msg_class![env; UIView setAnimationDuration:duration];
+    () = msg_class![env; UIView setAnimationDelay:delay];
+    let curve = animation_curve_from_options(options);
+    () = msg_class![env; UIView setAnimationCurve:curve];
+    dispatch::invoke_block(env, animations);
+    () = msg_class![env; UIView commitAnimations];
+
+    // The Blocks ABI currently runs callbacks synchronously. Keeping a stack
+    // block alive for a future frame needs proper block-copy support.
+    if !completion.is_null() {
+        log_once!("UIView block animation completion uses synchronous timing fallback");
+        dispatch::invoke_block_with_bool(env, completion, true);
+    }
+}
 
 type UIViewAnimationTransition = NSInteger;
 
@@ -228,6 +262,25 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 + (Class)layerClass {
     env.objc.get_known_class("CALayer", &mut env.mem)
+}
+
++ (())animateWithDuration:(NSTimeInterval)duration
+               animations:(crate::mem::MutPtr<u8>)animations {
+    animate_with_blocks(env, duration, 0.0, 0, animations, crate::mem::MutPtr::null());
+}
+
++ (())animateWithDuration:(NSTimeInterval)duration
+               animations:(crate::mem::MutPtr<u8>)animations
+               completion:(crate::mem::MutPtr<u8>)completion {
+    animate_with_blocks(env, duration, 0.0, 0, animations, completion);
+}
+
++ (())animateWithDuration:(NSTimeInterval)duration
+                    delay:(NSTimeInterval)delay
+                  options:(UIViewAnimationOptions)options
+               animations:(crate::mem::MutPtr<u8>)animations
+               completion:(crate::mem::MutPtr<u8>)completion {
+    animate_with_blocks(env, duration, delay, options, animations, completion);
 }
 
 + (())setAnimationDuration:(NSTimeInterval)duration {
