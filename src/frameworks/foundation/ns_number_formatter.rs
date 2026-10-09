@@ -7,7 +7,8 @@
 
 use super::{ns_string, NSInteger, NSUInteger};
 use crate::objc::{
-    autorelease, id, msg, msg_class, nil, objc_classes, release, ClassExports, HostObject, NSZonePtr,
+    autorelease, id, msg, msg_class, nil, objc_classes, release, ClassExports, HostObject,
+    NSZonePtr,
 };
 
 struct NSNumberFormatterHostObject {
@@ -105,8 +106,7 @@ fn parse_number(
                 || groups[0].len() > grouping_size
                 || !groups[0].bytes().all(|c| c.is_ascii_digit())
                 || groups[1..].iter().any(|group| {
-                    group.len() != grouping_size
-                        || !group.bytes().all(|c| c.is_ascii_digit())
+                    group.len() != grouping_size || !group.bytes().all(|c| c.is_ascii_digit())
                 })
             {
                 return None;
