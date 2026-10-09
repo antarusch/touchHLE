@@ -283,20 +283,34 @@ Type mismatch when sending message {} to {:?}!
                     // We can't create a new stack frame, because that would
                     // interfere with pass-through of stack arguments.
                     IMP::Guest(guest_imp) => {
-                        // Log suspicious callback arguments for diagnosis.
-                        if selector.as_str(&env.mem) == "showLootItem:" {
+                        // Small integer arguments may be legitimate, but a nonzero
+                        // address in the unmapped null page may also indicate
+                        // an invalid pointer. Record the declared ObjC signature
+                        // before treating either interpretation as proven.
+                        if selector.as_str(&env.mem).contains(':') {
                             let regs = env.cpu.regs();
-                            log!(
-                                "Diagnostic: showLootItem: receiver={receiver:?}, \
-                                 arg={:#x}, r3={:#x}, lr={:#x}, sp={:#x}, \
-                                 pc={:#x}, thread={}",
-                                regs[2],
-                                regs[3],
-                                regs[14],
-                                regs[13],
-                                regs[15],
-                                env.current_thread
-                            );
+                            if (1..crate::mem::PAGE_SIZE).contains(&regs[2]) {
+                                let signature = env
+                                    .objc
+                                    .class_get_method_signature(class, selector)
+                                    .map(|types| {
+                                        String::from_utf8_lossy(env.mem.cstr_at(*types)).into_owned()
+                                    });
+                                log!(
+                                    "Diagnostic: low Objective-C argument: class={name}, \
+                                     selector={}, signature={signature:?}, \
+                                     receiver={receiver:?}, arg0={:#x}, arg1={:#x}, \
+                                     caller_lr={:#x}, guest_imp={:#x}, pc={:#x}, \
+                                     thread={}",
+                                    selector.as_str(&env.mem),
+                                    regs[2],
+                                    regs[3],
+                                    regs[14],
+                                    guest_imp.addr_with_thumb_bit(),
+                                    regs[15],
+                                    env.current_thread
+                                );
+                            }
                         }
                         guest_imp.call_without_pushing_stack_frame(env)
                     }
