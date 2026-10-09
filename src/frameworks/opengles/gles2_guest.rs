@@ -470,7 +470,7 @@ fn glGenerateMipmap(env: &mut Environment, target: GLenum) {
 fn glUniform1fv(env: &mut Environment, location: GLint, count: GLsizei, values: ConstPtr<GLfloat>) {
     with_es2(env, |mem| {
         if count > 0 {
-            let len = count as GuestUSize * 1;
+            let len = count as GuestUSize;
             unsafe {
                 gl::Uniform1fv(location, count, mem.ptr_at(values, len));
             }
@@ -514,7 +514,7 @@ fn glUniform4fv(env: &mut Environment, location: GLint, count: GLsizei, values: 
 fn glUniform1iv(env: &mut Environment, location: GLint, count: GLsizei, values: ConstPtr<GLint>) {
     with_es2(env, |mem| {
         if count > 0 {
-            let len = count as GuestUSize * 1;
+            let len = count as GuestUSize;
             unsafe {
                 gl::Uniform1iv(location, count, mem.ptr_at(values, len));
             }
