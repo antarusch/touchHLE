@@ -182,6 +182,26 @@ fn load_android_movie(env: &mut Environment, player: id) -> bool {
     true
 }
 
+// Restore the stacking order after Hunters 2's title movie ends or stops.
+#[cfg(target_os = "android")]
+fn restore_hunters_movie_overlay(env: &mut Environment, view: id) {
+    if view == nil || env.bundle.bundle_identifier() != "uk.co.rodeogames.hunterstwo" {
+        return;
+    }
+    let container: id = msg![env; view superview];
+    if container == nil {
+        return;
+    }
+    let parent: id = msg![env; container superview];
+    if parent == nil {
+        return;
+    }
+    () = msg![env; parent sendSubviewToBack:container];
+    log!(
+        "Hunters 2 movie overlay: restored container {container:?} behind gameplay in {parent:?}"
+    );
+}
+
 #[cfg(target_os = "android")]
 fn movie_video_tick(env: &mut Environment) {
     let Some(player) = State::get(env).active_player else {
@@ -657,12 +677,22 @@ pub const CLASSES: ClassExports = objc_classes! {
         host.playback_started_at = None;
         host.playback_start_position = 0.0;
         host.current_playback_time = 0.0;
-        host.raised_movie_container = false;
         if let Some(decoder) = host.decoder.as_mut() {
             if let Err(err) = decoder.restart(0) {
                 log!("Android movie rewind failed: {err}");
             }
         }
+    }
+    #[cfg(target_os = "android")]
+    let restore_view = if std::mem::take(&mut host.raised_movie_container) {
+        Some(host.view)
+    } else {
+        None
+    };
+    drop(host);
+    #[cfg(target_os = "android")]
+    if let Some(view) = restore_view {
+        restore_hunters_movie_overlay(env, view);
     }
     State::get(env).pending_notifications.push_back((
         MPMoviePlayerPlaybackStateDidChangeNotification,
@@ -773,9 +803,21 @@ pub(super) fn handle_players(env: &mut Environment) {
             && State::get(env).active_player == Some(object);
         if release_active_player {
             State::get(env).active_player = None;
-            env.objc
-                .borrow_mut::<MPMoviePlayerControllerHostObject>(object)
-                .playback_state = MPMoviePlaybackStateStopped;
+            let host = env
+                .objc
+                .borrow_mut::<MPMoviePlayerControllerHostObject>(object);
+            host.playback_state = MPMoviePlaybackStateStopped;
+            #[cfg(target_os = "android")]
+            let restore_view = if std::mem::take(&mut host.raised_movie_container) {
+                Some(host.view)
+            } else {
+                None
+            };
+            drop(host);
+            #[cfg(target_os = "android")]
+            if let Some(view) = restore_view {
+                restore_hunters_movie_overlay(env, view);
+            }
         }
 
         let name = ns_string::get_static_str(env, name_str);
