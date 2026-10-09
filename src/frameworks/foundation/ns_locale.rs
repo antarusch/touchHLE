@@ -98,7 +98,6 @@ fn parse_locale_identifier(identifier: &str) -> (String, Option<String>) {
     (language, country)
 }
 
-
 fn language_display_name(code: &str) -> Option<&'static str> {
     match code.to_ascii_lowercase().as_str() {
         "ar" => Some("Arabic"),
@@ -221,10 +220,14 @@ fn locale_display_name(key: &str, value: &str) -> Option<String> {
                 None => Some(language_name.to_string()),
             }
         }
-        "NSLocaleScriptCode" | "kCFLocaleScriptCodeKey"
-        | "NSLocaleCurrencyCode" | "kCFLocaleCurrencyCodeKey"
-        | "NSLocaleCurrencySymbol" | "kCFLocaleCurrencySymbolKey"
-        | "NSLocaleVariantCode" | "kCFLocaleVariantCodeKey" => Some(value.to_string()),
+        "NSLocaleScriptCode"
+        | "kCFLocaleScriptCodeKey"
+        | "NSLocaleCurrencyCode"
+        | "kCFLocaleCurrencyCodeKey"
+        | "NSLocaleCurrencySymbol"
+        | "kCFLocaleCurrencySymbolKey"
+        | "NSLocaleVariantCode"
+        | "kCFLocaleVariantCodeKey" => Some(value.to_string()),
         _ => None,
     }
 }
