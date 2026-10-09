@@ -9,6 +9,9 @@
 //! - [View Controller Programming Guide for iOS (Legacy)](https://developer.apple.com/library/archive/documentation/WindowsViews/Conceptual/ViewControllerPGforiOSLegacy/BasicViewControllers/BasicViewControllers.html)
 
 use crate::frameworks::core_graphics::CGRect;
+use crate::frameworks::foundation::ns_object::{
+    invoke_cxx_constructors, invoke_cxx_destructors,
+};
 use crate::frameworks::foundation::ns_objc_runtime::NSStringFromClass;
 use crate::frameworks::foundation::ns_string::{from_rust_string, get_static_str, to_rust_string};
 use crate::frameworks::foundation::NSInteger;
@@ -53,7 +56,11 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 + (id)allocWithZone:(NSZonePtr)_zone {
     let host_object = Box::<UIViewControllerHostObject>::default();
-    env.objc.alloc_object(this, host_object, &mut env.mem)
+    let object = env.objc.alloc_object(this, host_object, &mut env.mem);
+    // UIKit overrides NSObject allocation to attach a host object.
+    // Guest Objective-C++ ivars still require their C++ constructors.
+    invoke_cxx_constructors(env, object, this);
+    object
 }
 
 // TODO: this should be a designated initializer
@@ -106,6 +113,8 @@ pub const CLASSES: ClassExports = objc_classes! {
     release(env, nib_name);
     release(env, bundle);
 
+    // Match NSObject's native Objective-C++ teardown before freeing memory.
+    invoke_cxx_destructors(env, this);
     env.objc.dealloc_object(this, &mut env.mem);
 }
 

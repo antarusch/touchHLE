@@ -46,7 +46,7 @@ fn method_for_selector(env: &mut Environment, receiver: id, selector: SEL) -> Mu
         .cast_mut()
 }
 
-fn invoke_cxx_constructors(env: &mut Environment, object: id, class: Class) {
+pub(crate) fn invoke_cxx_constructors(env: &mut Environment, object: id, class: Class) {
     let Some(selector) = env.objc.lookup_selector(".cxx_construct") else {
         return;
     };
@@ -68,7 +68,7 @@ fn invoke_cxx_constructors(env: &mut Environment, object: id, class: Class) {
         else {
             continue;
         };
-        log_dbg!(
+        log!(
             "Invoking .cxx_construct for class {:?} on object {:?}",
             env.objc.try_get_class_name(current),
             object
@@ -84,7 +84,7 @@ fn invoke_cxx_constructors(env: &mut Environment, object: id, class: Class) {
     }
 }
 
-fn invoke_cxx_destructors(env: &mut Environment, object: id) {
+pub(crate) fn invoke_cxx_destructors(env: &mut Environment, object: id) {
     let Some(selector) = env.objc.lookup_selector(".cxx_destruct") else {
         return;
     };
