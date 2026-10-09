@@ -236,14 +236,7 @@ fn movie_video_tick(env: &mut Environment) {
     {
         if view != nil {
             let layer: id = msg![env; view layer];
-            let frame: CGRect = msg![env; view frame];
-            log_once!(
-                "Android movie compositing: UIKit view {:?}, frame {:?}, frame dimensions {}x{}",
-                view,
-                frame,
-                width,
-                height
-            );
+            log_once!("Android H.264 movie frames composited in UIKit view");
             present_movie_pixels(env, layer, pixels, width, height);
         } else {
             log_once!("Android movie frame decoded but player has no view");
