@@ -15,14 +15,20 @@ use crate::objc::nil;
 use crate::Environment;
 use std::ffi::CString;
 
-fn with_es2<T: Default>(
-    env: &mut Environment,
-    callback: impl FnOnce(&mut Mem) -> T,
-) -> T {
-    let context = env.framework_state.opengles.current_ctx_for_thread(env.current_thread);
-    let Some(context) = *context else { return T::default() };
-    if context == nil ||
-        env.objc.borrow::<EAGLContextHostObject>(context).rendering_api != 2
+fn with_es2<T: Default>(env: &mut Environment, callback: impl FnOnce(&mut Mem) -> T) -> T {
+    let context = env
+        .framework_state
+        .opengles
+        .current_ctx_for_thread(env.current_thread);
+    let Some(context) = *context else {
+        return T::default();
+    };
+    if context == nil
+        || env
+            .objc
+            .borrow::<EAGLContextHostObject>(context)
+            .rendering_api
+            != 2
     {
         log_once!("OpenGL ES 2 entry point invoked without an ES 2.0 context");
         return T::default();
@@ -52,12 +58,15 @@ fn glCompileShader(env: &mut Environment, shader: GLuint) {
             gl::GetShaderiv(shader, gl::INFO_LOG_LENGTH, &mut log_length);
             let mut buffer = vec![0u8; log_length.max(1) as usize];
             gl::GetShaderInfoLog(
-                shader, buffer.len() as GLsizei,
-                std::ptr::null_mut(), buffer.as_mut_ptr().cast(),
+                shader,
+                buffer.len() as GLsizei,
+                std::ptr::null_mut(),
+                buffer.as_mut_ptr().cast(),
             );
             log!(
                 "GLES2 shader {} failed compilation: {}",
-                shader, String::from_utf8_lossy(&buffer)
+                shader,
+                String::from_utf8_lossy(&buffer)
             );
         } else {
             log_once!("GLES2 vertex/fragment shader compilation succeeded");
@@ -75,7 +84,9 @@ fn glShaderSource(
     lengths: ConstPtr<GLint>,
 ) {
     with_es2(env, |mem| {
-        if count <= 0 { return; }
+        if count <= 0 {
+            return;
+        }
         let count: usize = count.try_into().unwrap();
         let mut sources: Vec<Vec<u8>> = Vec::with_capacity(count);
         for i in 0..count {
@@ -98,26 +109,38 @@ fn glShaderSource(
             };
             sources.push(bytes);
         }
-        let pointers: Vec<*const GLchar> = sources.iter()
-            .map(|s| s.as_ptr() as *const GLchar).collect();
+        let pointers: Vec<*const GLchar> = sources
+            .iter()
+            .map(|s| s.as_ptr() as *const GLchar)
+            .collect();
         let counts: Vec<GLint> = sources.iter().map(|s| s.len() as GLint).collect();
         log_once!("OpenGL ES 2 glShaderSource invoked");
         unsafe { gl::ShaderSource(shader, count as GLsizei, pointers.as_ptr(), counts.as_ptr()) };
     });
 }
 fn glGetShaderiv(env: &mut Environment, shader: GLuint, pname: GLenum, params: MutPtr<GLint>) {
-    with_es2(env, |mem| unsafe { gl::GetShaderiv(shader, pname, mem.ptr_at_mut(params, 1)) });
+    with_es2(env, |mem| unsafe {
+        gl::GetShaderiv(shader, pname, mem.ptr_at_mut(params, 1))
+    });
 }
 fn glGetShaderInfoLog(
-    env: &mut Environment, shader: GLuint, max_len: GLsizei,
-    length: MutPtr<GLsizei>, info_log: MutPtr<GLchar>,
+    env: &mut Environment,
+    shader: GLuint,
+    max_len: GLsizei,
+    length: MutPtr<GLsizei>,
+    info_log: MutPtr<GLchar>,
 ) {
     with_es2(env, |mem| unsafe {
-        let len = if length.is_null() { std::ptr::null_mut() }
-                  else { mem.ptr_at_mut(length, 1) };
+        let len = if length.is_null() {
+            std::ptr::null_mut()
+        } else {
+            mem.ptr_at_mut(length, 1)
+        };
         let out = if max_len <= 0 || info_log.is_null() {
             std::ptr::null_mut()
-        } else { mem.ptr_at_mut(info_log, max_len as GuestUSize) };
+        } else {
+            mem.ptr_at_mut(info_log, max_len as GuestUSize)
+        };
         gl::GetShaderInfoLog(shader, max_len, len, out);
     });
 }
@@ -146,12 +169,15 @@ fn glLinkProgram(env: &mut Environment, program: GLuint) {
             gl::GetProgramiv(program, gl::INFO_LOG_LENGTH, &mut log_length);
             let mut buffer = vec![0u8; log_length.max(1) as usize];
             gl::GetProgramInfoLog(
-                program, buffer.len() as GLsizei,
-                std::ptr::null_mut(), buffer.as_mut_ptr().cast(),
+                program,
+                buffer.len() as GLsizei,
+                std::ptr::null_mut(),
+                buffer.as_mut_ptr().cast(),
             );
             log!(
                 "GLES2 program {} failed linking: {}",
-                program, String::from_utf8_lossy(&buffer)
+                program,
+                String::from_utf8_lossy(&buffer)
             );
         } else {
             log_once!("GLES2 shader program linking succeeded");
@@ -166,24 +192,32 @@ fn glUseProgram(env: &mut Environment, program: GLuint) {
     with_es2(env, |_| unsafe { gl::UseProgram(program) });
 }
 fn glGetProgramiv(env: &mut Environment, program: GLuint, pname: GLenum, params: MutPtr<GLint>) {
-    with_es2(env, |mem| unsafe { gl::GetProgramiv(program, pname, mem.ptr_at_mut(params, 1)) });
+    with_es2(env, |mem| unsafe {
+        gl::GetProgramiv(program, pname, mem.ptr_at_mut(params, 1))
+    });
 }
 fn glGetProgramInfoLog(
-    env: &mut Environment, program: GLuint, max_len: GLsizei,
-    length: MutPtr<GLsizei>, info_log: MutPtr<GLchar>,
+    env: &mut Environment,
+    program: GLuint,
+    max_len: GLsizei,
+    length: MutPtr<GLsizei>,
+    info_log: MutPtr<GLchar>,
 ) {
     with_es2(env, |mem| unsafe {
-        let len = if length.is_null() { std::ptr::null_mut() }
-                  else { mem.ptr_at_mut(length, 1) };
+        let len = if length.is_null() {
+            std::ptr::null_mut()
+        } else {
+            mem.ptr_at_mut(length, 1)
+        };
         let out = if max_len <= 0 || info_log.is_null() {
             std::ptr::null_mut()
-        } else { mem.ptr_at_mut(info_log, max_len as GuestUSize) };
+        } else {
+            mem.ptr_at_mut(info_log, max_len as GuestUSize)
+        };
         gl::GetProgramInfoLog(program, max_len, len, out);
     });
 }
-fn glBindAttribLocation(
-    env: &mut Environment, program: GLuint, index: GLuint, name: ConstPtr<u8>,
-) {
+fn glBindAttribLocation(env: &mut Environment, program: GLuint, index: GLuint, name: ConstPtr<u8>) {
     with_es2(env, |mem| {
         let name = CString::new(mem.cstr_at_utf8(name).unwrap().as_bytes()).unwrap();
         unsafe { gl::BindAttribLocation(program, index, name.as_ptr() as *const GLchar) };
@@ -208,8 +242,13 @@ fn glDisableVertexAttribArray(env: &mut Environment, index: GLuint) {
     with_es2(env, |_| unsafe { gl::DisableVertexAttribArray(index) });
 }
 fn glVertexAttribPointer(
-    env: &mut Environment, index: GLuint, size: GLint, type_: GLenum,
-    normalized: GLboolean, stride: GLsizei, pointer: ConstVoidPtr,
+    env: &mut Environment,
+    index: GLuint,
+    size: GLint,
+    type_: GLenum,
+    normalized: GLboolean,
+    stride: GLsizei,
+    pointer: ConstVoidPtr,
 ) {
     with_es2(env, |mem| unsafe {
         let mut buffer_binding: GLint = 0;
@@ -239,7 +278,14 @@ fn glVertexAttrib2f(env: &mut Environment, index: GLuint, x: GLfloat, y: GLfloat
 fn glVertexAttrib3f(env: &mut Environment, index: GLuint, x: GLfloat, y: GLfloat, z: GLfloat) {
     with_es2(env, |_| unsafe { gl::VertexAttrib3f(index, x, y, z) });
 }
-fn glVertexAttrib4f(env: &mut Environment, index: GLuint, x: GLfloat, y: GLfloat, z: GLfloat, w: GLfloat) {
+fn glVertexAttrib4f(
+    env: &mut Environment,
+    index: GLuint,
+    x: GLfloat,
+    y: GLfloat,
+    z: GLfloat,
+    w: GLfloat,
+) {
     with_es2(env, |_| unsafe { gl::VertexAttrib4f(index, x, y, z, w) });
 }
 fn glUniform1i(env: &mut Environment, location: GLint, x: GLint) {
@@ -254,34 +300,71 @@ fn glUniform2f(env: &mut Environment, location: GLint, x: GLfloat, y: GLfloat) {
 fn glUniform3f(env: &mut Environment, location: GLint, x: GLfloat, y: GLfloat, z: GLfloat) {
     with_es2(env, |_| unsafe { gl::Uniform3f(location, x, y, z) });
 }
-fn glUniform4f(env: &mut Environment, location: GLint, x: GLfloat, y: GLfloat, z: GLfloat, w: GLfloat) {
+fn glUniform4f(
+    env: &mut Environment,
+    location: GLint,
+    x: GLfloat,
+    y: GLfloat,
+    z: GLfloat,
+    w: GLfloat,
+) {
     with_es2(env, |_| unsafe { gl::Uniform4f(location, x, y, z, w) });
 }
 fn glUniformMatrix2fv(
-    env: &mut Environment, location: GLint, count: GLsizei,
-    transpose: GLboolean, values: ConstPtr<GLfloat>,
+    env: &mut Environment,
+    location: GLint,
+    count: GLsizei,
+    transpose: GLboolean,
+    values: ConstPtr<GLfloat>,
 ) {
     with_es2(env, |mem| unsafe {
-        if count <= 0 { return; }
-        gl::UniformMatrix2fv(location, count, transpose, mem.ptr_at(values, count as GuestUSize * 4));
+        if count <= 0 {
+            return;
+        }
+        gl::UniformMatrix2fv(
+            location,
+            count,
+            transpose,
+            mem.ptr_at(values, count as GuestUSize * 4),
+        );
     });
 }
 fn glUniformMatrix3fv(
-    env: &mut Environment, location: GLint, count: GLsizei,
-    transpose: GLboolean, values: ConstPtr<GLfloat>,
+    env: &mut Environment,
+    location: GLint,
+    count: GLsizei,
+    transpose: GLboolean,
+    values: ConstPtr<GLfloat>,
 ) {
     with_es2(env, |mem| unsafe {
-        if count <= 0 { return; }
-        gl::UniformMatrix3fv(location, count, transpose, mem.ptr_at(values, count as GuestUSize * 9));
+        if count <= 0 {
+            return;
+        }
+        gl::UniformMatrix3fv(
+            location,
+            count,
+            transpose,
+            mem.ptr_at(values, count as GuestUSize * 9),
+        );
     });
 }
 fn glUniformMatrix4fv(
-    env: &mut Environment, location: GLint, count: GLsizei,
-    transpose: GLboolean, values: ConstPtr<GLfloat>,
+    env: &mut Environment,
+    location: GLint,
+    count: GLsizei,
+    transpose: GLboolean,
+    values: ConstPtr<GLfloat>,
 ) {
     with_es2(env, |mem| unsafe {
-        if count <= 0 { return; }
-        gl::UniformMatrix4fv(location, count, transpose, mem.ptr_at(values, count as GuestUSize * 16));
+        if count <= 0 {
+            return;
+        }
+        gl::UniformMatrix4fv(
+            location,
+            count,
+            transpose,
+            mem.ptr_at(values, count as GuestUSize * 16),
+        );
     });
 }
 // ES 2.0 core framebuffer and renderbuffer API. The GLES 1.1 guest exports
@@ -297,22 +380,38 @@ fn glCheckFramebufferStatus(env: &mut Environment, target: GLenum) -> GLenum {
 }
 fn glGenFramebuffers(env: &mut Environment, count: GLsizei, names: MutPtr<GLuint>) {
     with_es2(env, |mem| {
-        if count > 0 { unsafe { gl::GenFramebuffers(count, mem.ptr_at_mut(names, count as GuestUSize)); } }
+        if count > 0 {
+            unsafe {
+                gl::GenFramebuffers(count, mem.ptr_at_mut(names, count as GuestUSize));
+            }
+        }
     });
 }
 fn glGenRenderbuffers(env: &mut Environment, count: GLsizei, names: MutPtr<GLuint>) {
     with_es2(env, |mem| {
-        if count > 0 { unsafe { gl::GenRenderbuffers(count, mem.ptr_at_mut(names, count as GuestUSize)); } }
+        if count > 0 {
+            unsafe {
+                gl::GenRenderbuffers(count, mem.ptr_at_mut(names, count as GuestUSize));
+            }
+        }
     });
 }
 fn glDeleteFramebuffers(env: &mut Environment, count: GLsizei, names: ConstPtr<GLuint>) {
     with_es2(env, |mem| {
-        if count > 0 { unsafe { gl::DeleteFramebuffers(count, mem.ptr_at(names, count as GuestUSize)); } }
+        if count > 0 {
+            unsafe {
+                gl::DeleteFramebuffers(count, mem.ptr_at(names, count as GuestUSize));
+            }
+        }
     });
 }
 fn glDeleteRenderbuffers(env: &mut Environment, count: GLsizei, names: ConstPtr<GLuint>) {
     with_es2(env, |mem| {
-        if count > 0 { unsafe { gl::DeleteRenderbuffers(count, mem.ptr_at(names, count as GuestUSize)); } }
+        if count > 0 {
+            unsafe {
+                gl::DeleteRenderbuffers(count, mem.ptr_at(names, count as GuestUSize));
+            }
+        }
     });
 }
 fn glIsFramebuffer(env: &mut Environment, framebuffer: GLuint) -> GLboolean {
@@ -322,27 +421,48 @@ fn glIsRenderbuffer(env: &mut Environment, renderbuffer: GLuint) -> GLboolean {
     with_es2(env, |_| unsafe { gl::IsRenderbuffer(renderbuffer) })
 }
 fn glFramebufferTexture2D(
-    env: &mut Environment, target: GLenum, attachment: GLenum,
-    textarget: GLenum, texture: GLuint, level: GLint,
+    env: &mut Environment,
+    target: GLenum,
+    attachment: GLenum,
+    textarget: GLenum,
+    texture: GLuint,
+    level: GLint,
 ) {
-    with_es2(env, |_| unsafe { gl::FramebufferTexture2D(target, attachment, textarget, texture, level) });
+    with_es2(env, |_| unsafe {
+        gl::FramebufferTexture2D(target, attachment, textarget, texture, level)
+    });
 }
 fn glFramebufferRenderbuffer(
-    env: &mut Environment, target: GLenum, attachment: GLenum,
-    renderbuffertarget: GLenum, renderbuffer: GLuint,
+    env: &mut Environment,
+    target: GLenum,
+    attachment: GLenum,
+    renderbuffertarget: GLenum,
+    renderbuffer: GLuint,
 ) {
-    with_es2(env, |_| unsafe { gl::FramebufferRenderbuffer(target, attachment, renderbuffertarget, renderbuffer) });
+    with_es2(env, |_| unsafe {
+        gl::FramebufferRenderbuffer(target, attachment, renderbuffertarget, renderbuffer)
+    });
 }
 fn glRenderbufferStorage(
-    env: &mut Environment, target: GLenum, internal_format: GLenum,
-    width: GLsizei, height: GLsizei,
+    env: &mut Environment,
+    target: GLenum,
+    internal_format: GLenum,
+    width: GLsizei,
+    height: GLsizei,
 ) {
-    with_es2(env, |_| unsafe { gl::RenderbufferStorage(target, internal_format, width, height) });
+    with_es2(env, |_| unsafe {
+        gl::RenderbufferStorage(target, internal_format, width, height)
+    });
 }
 fn glGetRenderbufferParameteriv(
-    env: &mut Environment, target: GLenum, pname: GLenum, params: MutPtr<GLint>,
+    env: &mut Environment,
+    target: GLenum,
+    pname: GLenum,
+    params: MutPtr<GLint>,
 ) {
-    with_es2(env, |mem| unsafe { gl::GetRenderbufferParameteriv(target, pname, mem.ptr_at_mut(params, 1)) });
+    with_es2(env, |mem| unsafe {
+        gl::GetRenderbufferParameteriv(target, pname, mem.ptr_at_mut(params, 1))
+    });
 }
 fn glGenerateMipmap(env: &mut Environment, target: GLenum) {
     with_es2(env, |_| unsafe { gl::GenerateMipmap(target) });
@@ -351,7 +471,9 @@ fn glUniform1fv(env: &mut Environment, location: GLint, count: GLsizei, values: 
     with_es2(env, |mem| {
         if count > 0 {
             let len = count as GuestUSize * 1;
-            unsafe { gl::Uniform1fv(location, count, mem.ptr_at(values, len)); }
+            unsafe {
+                gl::Uniform1fv(location, count, mem.ptr_at(values, len));
+            }
         }
     });
 }
@@ -360,7 +482,9 @@ fn glUniform2fv(env: &mut Environment, location: GLint, count: GLsizei, values: 
     with_es2(env, |mem| {
         if count > 0 {
             let len = count as GuestUSize * 2;
-            unsafe { gl::Uniform2fv(location, count, mem.ptr_at(values, len)); }
+            unsafe {
+                gl::Uniform2fv(location, count, mem.ptr_at(values, len));
+            }
         }
     });
 }
@@ -369,7 +493,9 @@ fn glUniform3fv(env: &mut Environment, location: GLint, count: GLsizei, values: 
     with_es2(env, |mem| {
         if count > 0 {
             let len = count as GuestUSize * 3;
-            unsafe { gl::Uniform3fv(location, count, mem.ptr_at(values, len)); }
+            unsafe {
+                gl::Uniform3fv(location, count, mem.ptr_at(values, len));
+            }
         }
     });
 }
@@ -378,7 +504,9 @@ fn glUniform4fv(env: &mut Environment, location: GLint, count: GLsizei, values: 
     with_es2(env, |mem| {
         if count > 0 {
             let len = count as GuestUSize * 4;
-            unsafe { gl::Uniform4fv(location, count, mem.ptr_at(values, len)); }
+            unsafe {
+                gl::Uniform4fv(location, count, mem.ptr_at(values, len));
+            }
         }
     });
 }
@@ -387,7 +515,9 @@ fn glUniform1iv(env: &mut Environment, location: GLint, count: GLsizei, values: 
     with_es2(env, |mem| {
         if count > 0 {
             let len = count as GuestUSize * 1;
-            unsafe { gl::Uniform1iv(location, count, mem.ptr_at(values, len)); }
+            unsafe {
+                gl::Uniform1iv(location, count, mem.ptr_at(values, len));
+            }
         }
     });
 }
@@ -396,7 +526,9 @@ fn glUniform2iv(env: &mut Environment, location: GLint, count: GLsizei, values: 
     with_es2(env, |mem| {
         if count > 0 {
             let len = count as GuestUSize * 2;
-            unsafe { gl::Uniform2iv(location, count, mem.ptr_at(values, len)); }
+            unsafe {
+                gl::Uniform2iv(location, count, mem.ptr_at(values, len));
+            }
         }
     });
 }
@@ -405,7 +537,9 @@ fn glUniform3iv(env: &mut Environment, location: GLint, count: GLsizei, values: 
     with_es2(env, |mem| {
         if count > 0 {
             let len = count as GuestUSize * 3;
-            unsafe { gl::Uniform3iv(location, count, mem.ptr_at(values, len)); }
+            unsafe {
+                gl::Uniform3iv(location, count, mem.ptr_at(values, len));
+            }
         }
     });
 }
@@ -414,7 +548,9 @@ fn glUniform4iv(env: &mut Environment, location: GLint, count: GLsizei, values: 
     with_es2(env, |mem| {
         if count > 0 {
             let len = count as GuestUSize * 4;
-            unsafe { gl::Uniform4iv(location, count, mem.ptr_at(values, len)); }
+            unsafe {
+                gl::Uniform4iv(location, count, mem.ptr_at(values, len));
+            }
         }
     });
 }
@@ -431,90 +567,161 @@ fn glUniform4i(env: &mut Environment, location: GLint, v0: GLint, v1: GLint, v2:
     with_es2(env, |_| unsafe { gl::Uniform4i(location, v0, v1, v2, v3) });
 }
 
-fn glGetUniformfv(env: &mut Environment, program: GLuint, location: GLint, params: MutPtr<GLfloat>) {
-    with_es2(env, |mem| unsafe { gl::GetUniformfv(program, location, mem.ptr_at_mut(params, 16)) });
-}
-fn glGetUniformiv(env: &mut Environment, program: GLuint, location: GLint, params: MutPtr<GLint>) {
-    with_es2(env, |mem| unsafe { gl::GetUniformiv(program, location, mem.ptr_at_mut(params, 16)) });
-}
-fn glGetShaderSource(
-    env: &mut Environment, shader: GLuint, max_length: GLsizei,
-    length: MutPtr<GLsizei>, source: MutPtr<GLchar>,
+fn glGetUniformfv(
+    env: &mut Environment,
+    program: GLuint,
+    location: GLint,
+    params: MutPtr<GLfloat>,
 ) {
     with_es2(env, |mem| unsafe {
-        let length = if length.is_null() { std::ptr::null_mut() }
-                     else { mem.ptr_at_mut(length, 1) };
-        let source = if max_length <= 0 || source.is_null() { std::ptr::null_mut() }
-                     else { mem.ptr_at_mut(source, max_length as GuestUSize) };
+        gl::GetUniformfv(program, location, mem.ptr_at_mut(params, 16))
+    });
+}
+fn glGetUniformiv(env: &mut Environment, program: GLuint, location: GLint, params: MutPtr<GLint>) {
+    with_es2(env, |mem| unsafe {
+        gl::GetUniformiv(program, location, mem.ptr_at_mut(params, 16))
+    });
+}
+fn glGetShaderSource(
+    env: &mut Environment,
+    shader: GLuint,
+    max_length: GLsizei,
+    length: MutPtr<GLsizei>,
+    source: MutPtr<GLchar>,
+) {
+    with_es2(env, |mem| unsafe {
+        let length = if length.is_null() {
+            std::ptr::null_mut()
+        } else {
+            mem.ptr_at_mut(length, 1)
+        };
+        let source = if max_length <= 0 || source.is_null() {
+            std::ptr::null_mut()
+        } else {
+            mem.ptr_at_mut(source, max_length as GuestUSize)
+        };
         gl::GetShaderSource(shader, max_length, length, source);
     });
 }
 fn glGetAttachedShaders(
-    env: &mut Environment, program: GLuint, max_count: GLsizei,
-    count: MutPtr<GLsizei>, shaders: MutPtr<GLuint>,
+    env: &mut Environment,
+    program: GLuint,
+    max_count: GLsizei,
+    count: MutPtr<GLsizei>,
+    shaders: MutPtr<GLuint>,
 ) {
     with_es2(env, |mem| unsafe {
-        let count = if count.is_null() { std::ptr::null_mut() }
-                    else { mem.ptr_at_mut(count, 1) };
+        let count = if count.is_null() {
+            std::ptr::null_mut()
+        } else {
+            mem.ptr_at_mut(count, 1)
+        };
         let shaders = if max_count <= 0 || shaders.is_null() {
             std::ptr::null_mut()
-        } else { mem.ptr_at_mut(shaders, max_count as GuestUSize) };
+        } else {
+            mem.ptr_at_mut(shaders, max_count as GuestUSize)
+        };
         gl::GetAttachedShaders(program, max_count, count, shaders);
     });
 }
 fn glGetFramebufferAttachmentParameteriv(
-    env: &mut Environment, target: GLenum, attachment: GLenum, pname: GLenum,
+    env: &mut Environment,
+    target: GLenum,
+    attachment: GLenum,
+    pname: GLenum,
     params: MutPtr<GLint>,
 ) {
     with_es2(env, |mem| unsafe {
         gl::GetFramebufferAttachmentParameteriv(
-            target, attachment, pname, mem.ptr_at_mut(params, 1),
+            target,
+            attachment,
+            pname,
+            mem.ptr_at_mut(params, 1),
         );
     });
 }
 fn glGetActiveUniform(
-    env: &mut Environment, program: GLuint, index: GLuint,
-    max_length: GLsizei, length: MutPtr<GLsizei>, size: MutPtr<GLint>,
-    uniform_type: MutPtr<GLenum>, name: MutPtr<GLchar>,
+    env: &mut Environment,
+    program: GLuint,
+    index: GLuint,
+    max_length: GLsizei,
+    length: MutPtr<GLsizei>,
+    size: MutPtr<GLint>,
+    uniform_type: MutPtr<GLenum>,
+    name: MutPtr<GLchar>,
 ) {
     with_es2(env, |mem| unsafe {
-        let length = if length.is_null() { std::ptr::null_mut() }
-                     else { mem.ptr_at_mut(length, 1) };
-        let size = if size.is_null() { std::ptr::null_mut() }
-                   else { mem.ptr_at_mut(size, 1) };
-        let uniform_type = if uniform_type.is_null() { std::ptr::null_mut() }
-                           else { mem.ptr_at_mut(uniform_type, 1) };
-        let name = if max_length <= 0 || name.is_null() { std::ptr::null_mut() }
-                   else { mem.ptr_at_mut(name, max_length as GuestUSize) };
+        let length = if length.is_null() {
+            std::ptr::null_mut()
+        } else {
+            mem.ptr_at_mut(length, 1)
+        };
+        let size = if size.is_null() {
+            std::ptr::null_mut()
+        } else {
+            mem.ptr_at_mut(size, 1)
+        };
+        let uniform_type = if uniform_type.is_null() {
+            std::ptr::null_mut()
+        } else {
+            mem.ptr_at_mut(uniform_type, 1)
+        };
+        let name = if max_length <= 0 || name.is_null() {
+            std::ptr::null_mut()
+        } else {
+            mem.ptr_at_mut(name, max_length as GuestUSize)
+        };
         gl::GetActiveUniform(program, index, max_length, length, size, uniform_type, name);
     });
 }
 fn glGetActiveAttrib(
-    env: &mut Environment, program: GLuint, index: GLuint,
-    max_length: GLsizei, length: MutPtr<GLsizei>, size: MutPtr<GLint>,
-    attrib_type: MutPtr<GLenum>, name: MutPtr<GLchar>,
+    env: &mut Environment,
+    program: GLuint,
+    index: GLuint,
+    max_length: GLsizei,
+    length: MutPtr<GLsizei>,
+    size: MutPtr<GLint>,
+    attrib_type: MutPtr<GLenum>,
+    name: MutPtr<GLchar>,
 ) {
     with_es2(env, |mem| unsafe {
-        let length = if length.is_null() { std::ptr::null_mut() }
-                     else { mem.ptr_at_mut(length, 1) };
-        let size = if size.is_null() { std::ptr::null_mut() }
-                   else { mem.ptr_at_mut(size, 1) };
-        let attrib_type = if attrib_type.is_null() { std::ptr::null_mut() }
-                          else { mem.ptr_at_mut(attrib_type, 1) };
-        let name = if max_length <= 0 || name.is_null() { std::ptr::null_mut() }
-                   else { mem.ptr_at_mut(name, max_length as GuestUSize) };
+        let length = if length.is_null() {
+            std::ptr::null_mut()
+        } else {
+            mem.ptr_at_mut(length, 1)
+        };
+        let size = if size.is_null() {
+            std::ptr::null_mut()
+        } else {
+            mem.ptr_at_mut(size, 1)
+        };
+        let attrib_type = if attrib_type.is_null() {
+            std::ptr::null_mut()
+        } else {
+            mem.ptr_at_mut(attrib_type, 1)
+        };
+        let name = if max_length <= 0 || name.is_null() {
+            std::ptr::null_mut()
+        } else {
+            mem.ptr_at_mut(name, max_length as GuestUSize)
+        };
         gl::GetActiveAttrib(program, index, max_length, length, size, attrib_type, name);
     });
 }
-fn glGetVertexAttribiv(
-    env: &mut Environment, index: GLuint, pname: GLenum, params: MutPtr<GLint>,
-) {
-    with_es2(env, |mem| unsafe { gl::GetVertexAttribiv(index, pname, mem.ptr_at_mut(params, 4)) });
+fn glGetVertexAttribiv(env: &mut Environment, index: GLuint, pname: GLenum, params: MutPtr<GLint>) {
+    with_es2(env, |mem| unsafe {
+        gl::GetVertexAttribiv(index, pname, mem.ptr_at_mut(params, 4))
+    });
 }
 fn glGetVertexAttribfv(
-    env: &mut Environment, index: GLuint, pname: GLenum, params: MutPtr<GLfloat>,
+    env: &mut Environment,
+    index: GLuint,
+    pname: GLenum,
+    params: MutPtr<GLfloat>,
 ) {
-    with_es2(env, |mem| unsafe { gl::GetVertexAttribfv(index, pname, mem.ptr_at_mut(params, 4)) });
+    with_es2(env, |mem| unsafe {
+        gl::GetVertexAttribfv(index, pname, mem.ptr_at_mut(params, 4))
+    });
 }
 
 pub const FUNCTIONS: FunctionExports = &[

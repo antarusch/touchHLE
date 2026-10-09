@@ -64,8 +64,8 @@
 //!   - [EXT_texture_lod_bias](https://registry.khronos.org/OpenGL/extensions/EXT/EXT_texture_lod_bias.txt)
 
 pub mod gles1_native;
-pub mod gles2_native;
 pub mod gles1_on_gl2;
+pub mod gles2_native;
 mod gles_generic;
 pub mod present;
 mod util;
@@ -75,8 +75,8 @@ pub use touchHLE_gl_bindings::gles11 as gles11_raw;
 pub use touchHLE_gl_bindings::gles20 as gles20_raw;
 
 use gles1_native::GLES1NativeContext;
-use gles2_native::GLES2NativeContext;
 use gles1_on_gl2::GLES1OnGL2Context;
+use gles2_native::GLES2NativeContext;
 pub use gles_generic::GLESContext;
 pub use gles_generic::GLES;
 
@@ -166,7 +166,6 @@ pub fn create_gles1_ctx_no_parent_stack(
     }
     gles1_ctx.expect("Couldn't create OpenGL ES 1.1 context!")
 }
-
 
 /// Create a separate native OpenGL ES 2.0 context for shader-based games.
 pub fn create_gles2_ctx(env: &mut Environment) -> Result<Box<dyn GLESContext>, String> {

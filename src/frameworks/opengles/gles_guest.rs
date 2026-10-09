@@ -75,10 +75,16 @@ const SUPPORTED_COMPRESSED_TEXTURE_FORMATS: &[GLenum] = &[
 ];
 
 fn is_es2_context(env: &mut Environment) -> bool {
-    let context = env.framework_state.opengles.current_ctx_for_thread(env.current_thread);
+    let context = env
+        .framework_state
+        .opengles
+        .current_ctx_for_thread(env.current_thread);
     match *context {
         Some(context) if context != nil => {
-            env.objc.borrow::<EAGLContextHostObject>(context).rendering_api == 2
+            env.objc
+                .borrow::<EAGLContextHostObject>(context)
+                .rendering_api
+                == 2
         }
         _ => false,
     }
