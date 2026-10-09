@@ -283,10 +283,9 @@ Type mismatch when sending message {} to {:?}!
                     // We can't create a new stack frame, because that would
                     // interfere with pass-through of stack arguments.
                     IMP::Guest(guest_imp) => {
-                        // Small integer arguments may be legitimate, but a nonzero
-                        // address in the unmapped null page may also indicate
-                        // an invalid pointer. Record the declared ObjC signature
-                        // before treating either interpretation as proven.
+                        // A small argument may be a valid integer.
+                        // If used as a pointer, it could fault.
+                        // Record its Objective-C type encoding.
                         if selector.as_str(&env.mem).contains(':') {
                             let regs = env.cpu.regs();
                             if (1..crate::mem::PAGE_SIZE).contains(&regs[2]) {
