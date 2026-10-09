@@ -111,6 +111,9 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (id)initWithAPI:(EAGLRenderingAPI)api sharegroup:(id)group {
+    if env.bundle.bundle_identifier() == "uk.co.rodeogames.hunterstwo" {
+        log!("Hunters 2 EAGL initWithAPI:sharegroup: api={api}, group={group:?}");
+    }
     if api != kEAGLRenderingAPIOpenGLES1 && api != kEAGLRenderingAPIOpenGLES2 {
         log!("Unsupported EAGL rendering API {api}");
         return nil;
@@ -161,6 +164,9 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (id)initWithAPI:(EAGLRenderingAPI)api {
+    if env.bundle.bundle_identifier() == "uk.co.rodeogames.hunterstwo" {
+        log!("Hunters 2 EAGL initWithAPI: api={api}");
+    }
     if api != kEAGLRenderingAPIOpenGLES1 && api != kEAGLRenderingAPIOpenGLES2 {
         log!("Unsupported EAGL rendering API {api}");
         return nil;
