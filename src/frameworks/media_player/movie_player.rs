@@ -189,22 +189,11 @@ fn load_android_movie(env: &mut Environment, player: id) -> bool {
 // Keep the Create Save dialog above the title movie in Hunters 2.
 #[cfg(target_os = "android")]
 pub(super) fn set_hunters_create_save_visible(env: &mut Environment, visible: bool) {
-    let state = State::get(env);
-    state.hunters_create_save_visible = visible;
-    let Some(player) = state.active_player else {
-        return;
-    };
-    if visible {
-        let host = env
-            .objc
-            .borrow_mut::<MPMoviePlayerControllerHostObject>(player);
-        if std::mem::take(&mut host.raised_movie_container) {
-            let view = host.view;
-            let original_z = host.original_movie_z.take().unwrap_or(0.0);
-            restore_hunters_movie_overlay(env, view, original_z);
-        }
-    }
-    log!("Hunters 2 Create Save overlay visible={visible}");
+    // This runs inside objc_msgSend. Sending another Objective-C message
+    // here corrupts the guest argument registers for OverlayCreateSave.show.
+    // The video tick applies the layer change outside guest message dispatch.
+    State::get(env).hunters_create_save_visible = visible;
+    log!("Hunters 2 Create Save overlay visible={visible}; depth change deferred");
 }
 
 // Change drawing depth without modifying the game's logical subview order.
@@ -226,6 +215,22 @@ fn movie_video_tick(env: &mut Environment) {
     let Some(player) = State::get(env).active_player else {
         return;
     };
+    // Apply the change from the host tick, never from objc_msgSend.
+    if State::get(env).hunters_create_save_visible {
+        let restore = {
+            let host = env
+                .objc
+                .borrow_mut::<MPMoviePlayerControllerHostObject>(player);
+            if std::mem::take(&mut host.raised_movie_container) {
+                Some((host.view, host.original_movie_z.take().unwrap_or(0.0)))
+            } else {
+                None
+            }
+        };
+        if let Some((view, original_z)) = restore {
+            restore_hunters_movie_overlay(env, view, original_z);
+        }
+    }
     let (frame, view, ending, looping, error) = {
         let host = env
             .objc
