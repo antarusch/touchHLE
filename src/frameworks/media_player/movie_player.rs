@@ -324,10 +324,14 @@ fn movie_video_tick(env: &mut Environment) {
         }
     }
     if ending && !looping {
+        let is_hunters_2 = env.bundle.bundle_identifier() == "uk.co.rodeogames.hunterstwo";
         let pending = &mut State::get(env).pending_notifications;
         if !pending.iter().any(|(name, obj, _)| {
             *name == MPMoviePlayerPlaybackDidFinishNotification && *obj == player
         }) {
+            if is_hunters_2 {
+                log!("Hunters 2 movie playback reached end: player={player:?}");
+            }
             pending.push_back((
                 MPMoviePlayerPlaybackDidFinishNotification,
                 player,
@@ -589,6 +593,9 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 // MPMediaPlayback implementation
 - (())play {
+    if env.bundle.bundle_identifier() == "uk.co.rodeogames.hunterstwo" {
+        log!("Hunters 2 movie playback play requested: player={this:?}");
+    }
     #[cfg(target_os = "android")]
     let video_available = load_android_movie(env, this);
     #[cfg(not(target_os = "android"))]
@@ -668,6 +675,9 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())stop {
+    if env.bundle.bundle_identifier() == "uk.co.rodeogames.hunterstwo" {
+        log!("Hunters 2 movie playback stop requested: player={this:?}");
+    }
     let host = env.objc.borrow_mut::<MPMoviePlayerControllerHostObject>(this);
     host.playback_state = MPMoviePlaybackStateStopped;
     #[cfg(target_os = "android")]
@@ -816,6 +826,13 @@ pub(super) fn handle_players(env: &mut Environment) {
             }
         }
 
+        if name_str == MPMoviePlayerPlaybackDidFinishNotification
+            && env.bundle.bundle_identifier() == "uk.co.rodeogames.hunterstwo"
+        {
+            log!(
+                "Hunters 2 movie completion notification: player={object:?}, active_was_released={release_active_player}"
+            );
+        }
         let name = ns_string::get_static_str(env, name_str);
         let center: id = msg_class![env; NSNotificationCenter defaultCenter];
         // TODO: should there be some user info attached?
