@@ -197,9 +197,7 @@ fn restore_hunters_movie_overlay(env: &mut Environment, view: id) {
         return;
     }
     () = msg![env; parent sendSubviewToBack:container];
-    log!(
-        "Hunters 2 movie overlay: restored container {container:?} behind gameplay in {parent:?}"
-    );
+    log!("Hunters 2 movie overlay: restored container {container:?} behind gameplay in {parent:?}");
 }
 
 #[cfg(target_os = "android")]
