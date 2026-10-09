@@ -252,9 +252,7 @@ fn objc_msgSend_inner(
             if class == Some("EAGLContext")
                 && matches!(
                     name,
-                    "initWithAPI:"
-                        | "initWithAPI:sharegroup:"
-                        | "presentRenderbuffer:"
+                    "initWithAPI:" | "initWithAPI:sharegroup:" | "presentRenderbuffer:"
                 )
             {
                 log!("Hunters 2 EAGL lifecycle: selector={name}, context={receiver:?}");
