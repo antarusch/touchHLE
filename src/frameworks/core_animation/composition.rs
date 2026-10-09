@@ -59,6 +59,45 @@ unsafe fn load_matrix(gles: &mut dyn GLES, matrix: Matrix<4>) {
     gles.LoadMatrixf(matrix.columns().as_ptr() as *const _);
 }
 
+static PRESENTED_LAYER_SEEN: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+static PRESENTED_FRAME_COUNT: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
+// Read nine points to distinguish black composition from failed presentation.
+unsafe fn lit_framebuffer_samples(
+    gles: &mut dyn GLES,
+    left: u32,
+    bottom: u32,
+    width: u32,
+    height: u32,
+) -> usize {
+    if width == 0 || height == 0 {
+        return 0;
+    }
+    let mut lit = 0;
+    for row in 0_u32..3 {
+        for col in 0_u32..3 {
+            let x = left + (2 * col + 1) * width / 6;
+            let y = bottom + (2 * row + 1) * height / 6;
+            let mut pixel = [0_u8; 4];
+            gles.ReadPixels(
+                x as _,
+                y as _,
+                1,
+                1,
+                gles11::RGBA,
+                gles11::UNSIGNED_BYTE,
+                pixel.as_mut_ptr().cast(),
+            );
+            if pixel[..3].iter().any(|&channel| channel > 24) {
+                lit += 1;
+            }
+        }
+    }
+    lit
+}
+
 /// For use by `NSRunLoop`: call this 60 times per second. Composites the app's
 /// visible layers (i.e. UI) and presents it to the screen. Does nothing if
 /// composition isn't in use or it's too soon (the latter check is skipped if
@@ -348,6 +387,9 @@ pub fn recomposite_if_necessary(env: &mut Environment, force: bool) -> Option<In
     }
     std::mem::drop(gles);
 
+    // Report frames that contained a presented RGBA layer.
+    PRESENTED_LAYER_SEEN.store(false, std::sync::atomic::Ordering::Relaxed);
+
     // Assumes the windows in the list are ordered back-to-front.
     // TODO: this may not be correct once we support windowLevel.
     for root_layer in window_layers {
@@ -364,6 +406,13 @@ pub fn recomposite_if_necessary(env: &mut Environment, force: bool) -> Option<In
             );
         }
     }
+
+    let probe_number = if PRESENTED_LAYER_SEEN.load(std::sync::atomic::Ordering::Relaxed) {
+        PRESENTED_FRAME_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1
+    } else {
+        0
+    };
+    let probe = matches!(probe_number, 1 | 30 | 120 | 300 | 600 | 1200);
 
     // Re-borrow
     let window = env.window.as_mut().unwrap();
@@ -383,6 +432,12 @@ pub fn recomposite_if_necessary(env: &mut Environment, force: bool) -> Option<In
         assert_eq!(gles.GetError(), 0);
     }
 
+    let composed_lit = if probe {
+        unsafe { lit_framebuffer_samples(gles.as_mut(), 0, 0, fb_width, fb_height) }
+    } else {
+        0
+    };
+
     // Present our rendered frame (bound to TEXTURE_2D). This copies it to the
     // default framebuffer (0) so we need to unbind our internal framebuffer.
     unsafe {
@@ -394,6 +449,14 @@ pub fn recomposite_if_necessary(env: &mut Environment, force: bool) -> Option<In
             present_frame_args.1,
             present_frame_args.2,
         );
+        if probe {
+            let (x, y, width, height) = present_frame_args.0;
+            let displayed_lit =
+                lit_framebuffer_samples(gles.as_mut(), x, y, width, height);
+            log!(
+                "Core Animation framebuffer probe {probe_number}: composed={composed_lit}/9 lit, presented={displayed_lit}/9 lit, source={fb_width}x{fb_height}, output={width}x{height}",
+            );
+        }
     }
     std::mem::drop(gles);
     window.swap_window();
@@ -645,6 +708,7 @@ unsafe fn composite_layer_recursive(
 
     // Confirm that a submitted RGBA frame actually reaches the compositor.
     if host_obj.presented_pixels.is_some() {
+        PRESENTED_LAYER_SEEN.store(true, std::sync::atomic::Ordering::Relaxed);
         static PRESENTED_LAYER_COMPOSITES: std::sync::atomic::AtomicUsize =
             std::sync::atomic::AtomicUsize::new(0);
         let number =
