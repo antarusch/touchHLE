@@ -5,6 +5,10 @@
  */
 //! `MPMoviePlayerController` etc.
 
+#[cfg(target_os = "android")]
+use super::android_video::{Frame, MovieDecoder};
+#[cfg(target_os = "android")]
+use crate::frameworks::core_animation::ca_layer::present_movie_pixels;
 use crate::dyld::{ConstantExports, HostConstant};
 use crate::frameworks::core_graphics::{CGPoint, CGRect, CGSize};
 use crate::frameworks::foundation::{ns_string, ns_url, NSInteger, NSTimeInterval};
@@ -114,8 +118,109 @@ struct MPMoviePlayerControllerHostObject {
     current_playback_time: NSTimeInterval,
     duration: NSTimeInterval,
     prepared: bool,
+    #[cfg(target_os = "android")]
+    decoder: Option<MovieDecoder>,
+    #[cfg(target_os = "android")]
+    playback_started_at: Option<Instant>,
+    #[cfg(target_os = "android")]
+    playback_start_position: NSTimeInterval,
 }
 impl HostObject for MPMoviePlayerControllerHostObject {}
+
+
+#[cfg(target_os = "android")]
+fn load_android_movie(env: &mut Environment, player: id) -> bool {
+    let (url, loaded) = {
+        let host = env.objc.borrow::<MPMoviePlayerControllerHostObject>(player);
+        (host.content_url, host.decoder.is_some())
+    };
+    if loaded { return true; }
+    if url == nil { return false; }
+    let path = ns_url::to_rust_path(env, url);
+    let movie = match env.fs.read(path.as_ref()) {
+        Ok(movie) => movie,
+        Err(()) => {
+            log!("Android movie file not found in guest filesystem: {:?}", path);
+            return false;
+        }
+    };
+    let decoder = match MovieDecoder::open(&movie) {
+        Ok(decoder) => decoder,
+        Err(err) => {
+            log!("Android MediaCodec movie preparation failed: {err}");
+            return false;
+        }
+    };
+    let size = CGSize { width: decoder.width as f32, height: decoder.height as f32 };
+    let duration = decoder.duration_us as f64 / 1_000_000.0;
+    log!("Android video prepared: {:?}, {}x{}, duration {:.3}s",
+        path, decoder.width, decoder.height, duration);
+    let host = env.objc.borrow_mut::<MPMoviePlayerControllerHostObject>(player);
+    host.natural_size = size;
+    if duration > 0.0 { host.duration = duration; }
+    host.decoder = Some(decoder);
+    true
+}
+
+#[cfg(target_os = "android")]
+fn movie_video_tick(env: &mut Environment) {
+    let Some(player) = State::get(env).active_player else { return };
+    let (frame, view, ending, looping, error) = {
+        let host = env.objc.borrow_mut::<MPMoviePlayerControllerHostObject>(player);
+        if host.playback_state != MPMoviePlaybackStatePlaying {
+            return;
+        }
+        let Some(decoder) = host.decoder.as_mut() else { return };
+        let now = Instant::now();
+        let elapsed = host.playback_started_at
+            .map(|since| now.saturating_duration_since(since).as_secs_f64())
+            .unwrap_or(0.0);
+        let time = host.playback_start_position + elapsed;
+        host.current_playback_time = time;
+        let frame = decoder.frame_for_time((time.max(0.0) * 1_000_000.0) as i64);
+        let finished = decoder.is_finished() || (host.duration > 0.0 && time >= host.duration);
+        let looping = finished && host.repeat_mode == 1;
+        let ending = finished && !looping;
+        if looping {
+            match decoder.restart(0) {
+                Ok(()) => {
+                    host.playback_started_at = Some(now);
+                    host.playback_start_position = 0.0;
+                    host.current_playback_time = 0.0;
+                }
+                Err(err) => {
+                    log!("Android movie loop seek failed: {err}");
+                    return;
+                }
+            }
+        }
+        match frame {
+            Ok(frame) => (frame, host.view, ending, looping, None),
+            Err(err) => (None, host.view, true, looping, Some(err)),
+        }
+    };
+    if let Some(err) = error {
+        log!("Android movie decoding stopped: {err}");
+    }
+    if let Some(Frame { pixels, width, height, time_us }) = frame {
+        if view != nil {
+            let layer: id = msg![env; view layer];
+            present_movie_pixels(env, layer, pixels, width, height);
+            log_once!("Android H.264 video frames are being composited into MPMoviePlayerController view");
+        } else {
+            log_once!("Android movie frame decoded but player has no view");
+        }
+        let _ = time_us;
+    }
+    if ending && !looping {
+        let pending = &mut State::get(env).pending_notifications;
+        if !pending.iter().any(|(name, obj, _)| {
+            *name == MPMoviePlayerPlaybackDidFinishNotification && *obj == player
+        }) {
+            pending.push_back((MPMoviePlayerPlaybackDidFinishNotification, player, Instant::now()));
+        }
+    }
+}
 
 pub const CLASSES: ClassExports = objc_classes! {
 
@@ -137,6 +242,12 @@ pub const CLASSES: ClassExports = objc_classes! {
         current_playback_time: 0.0,
         duration: 1.0,
         prepared: false,
+        #[cfg(target_os = "android")]
+        decoder: None,
+        #[cfg(target_os = "android")]
+        playback_started_at: None,
+        #[cfg(target_os = "android")]
+        playback_start_position: 0.0,
     });
     env.objc.alloc_object(this, host_object, &mut env.mem)
 }
@@ -221,6 +332,12 @@ pub const CLASSES: ClassExports = objc_classes! {
         host.current_playback_time = 0.0;
         host.playback_state = MPMoviePlaybackStateStopped;
         host.prepared = false;
+        #[cfg(target_os = "android")]
+        {
+            host.decoder = None;
+            host.playback_started_at = None;
+            host.playback_start_position = 0.0;
+        }
         old_url
     };
     if old_url != nil {
@@ -277,6 +394,17 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc
         .borrow_mut::<MPMoviePlayerControllerHostObject>(this)
         .current_playback_time = time;
+    #[cfg(target_os = "android")]
+    {
+        let host = env.objc.borrow_mut::<MPMoviePlayerControllerHostObject>(this);
+        if let Some(decoder) = host.decoder.as_mut() {
+            if let Err(err) = decoder.restart((time.max(0.0) * 1_000_000.0) as i64) {
+                log!("Android movie seek failed: {err}");
+            }
+        }
+        host.playback_start_position = time;
+        host.playback_started_at = Some(Instant::now());
+    }
 }
 - (NSTimeInterval)duration {
     env.objc
@@ -306,6 +434,8 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())prepareToPlay {
+    #[cfg(target_os = "android")]
+    load_android_movie(env, this);
     env.objc
         .borrow_mut::<MPMoviePlayerControllerHostObject>(this)
         .prepared = true;
@@ -342,22 +472,47 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 // MPMediaPlayback implementation
 - (())play {
-    log!("TODO: [(MPMoviePlayerController*){:?} play]", this);
+    #[cfg(target_os = "android")]
+    let video_available = load_android_movie(env, this);
+    #[cfg(not(target_os = "android"))]
+    let video_available = false;
+    if !video_available {
+        log!("TODO: [(MPMoviePlayerController*){:?} play] - using simulated playback", this);
+    }
     if let Some(old) = env.framework_state.media_player.movie_player.active_player {
-        let _: () = msg![env; old stop];
+        if old == this {
+            let host = env.objc.borrow::<MPMoviePlayerControllerHostObject>(this);
+            if host.playback_state == MPMoviePlaybackStatePlaying { return; }
+            // Resuming a paused movie does not take an additional runtime retain.
+        } else {
+            let _: () = msg![env; old stop];
+        }
     }
     assert!(env.framework_state.media_player.movie_player.active_player.is_none());
-    env.objc
-        .borrow_mut::<MPMoviePlayerControllerHostObject>(this)
-        .playback_state = MPMoviePlaybackStatePlaying;
+    {
+        let host = env.objc.borrow_mut::<MPMoviePlayerControllerHostObject>(this);
+        host.playback_state = MPMoviePlaybackStatePlaying;
+        #[cfg(target_os = "android")]
+        if video_available {
+            host.playback_start_position = host.current_playback_time;
+            host.playback_started_at = Some(Instant::now());
+        }
+    }
     State::get(env).pending_notifications.push_back((
         MPMoviePlayerPlaybackStateDidChangeNotification,
         this,
         Instant::now(),
     ));
-    // Movie player is retained by the runtime until it is stopped
-    retain(env, this);
+    // Movie player is retained by the runtime until it is stopped.
+    if env.framework_state.media_player.movie_player.active_player != Some(this) {
+        retain(env, this);
+    }
     env.framework_state.media_player.movie_player.active_player = Some(this);
+
+    if video_available {
+        // Decode real frames; completion is posted by movie_video_tick().
+        return;
+    }
 
     // Act as if playback immediately completed after 1 second
     // (various apps wait for this, such as BIA and Hero of Sparta).
@@ -373,10 +528,13 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())pause {
-    log!("TODO: [(MPMoviePlayerController*){:?} pause]", this);
-    env.objc
-        .borrow_mut::<MPMoviePlayerControllerHostObject>(this)
-        .playback_state = MPMoviePlaybackStatePaused;
+    let host = env.objc.borrow_mut::<MPMoviePlayerControllerHostObject>(this);
+    #[cfg(target_os = "android")]
+    if let Some(started) = host.playback_started_at.take() {
+        host.current_playback_time = host.playback_start_position
+            + Instant::now().saturating_duration_since(started).as_secs_f64();
+    }
+    host.playback_state = MPMoviePlaybackStatePaused;
     State::get(env).pending_notifications.push_back((
         MPMoviePlayerPlaybackStateDidChangeNotification,
         this,
@@ -385,10 +543,19 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())stop {
-    log!("TODO: [(MPMoviePlayerController*){:?} stop]", this);
-    env.objc
-        .borrow_mut::<MPMoviePlayerControllerHostObject>(this)
-        .playback_state = MPMoviePlaybackStateStopped;
+    let host = env.objc.borrow_mut::<MPMoviePlayerControllerHostObject>(this);
+    host.playback_state = MPMoviePlaybackStateStopped;
+    #[cfg(target_os = "android")]
+    {
+        host.playback_started_at = None;
+        host.playback_start_position = 0.0;
+        host.current_playback_time = 0.0;
+        if let Some(decoder) = host.decoder.as_mut() {
+            if let Err(err) = decoder.restart(0) {
+                log!("Android movie rewind failed: {err}");
+            }
+        }
+    }
     State::get(env).pending_notifications.push_back((
         MPMoviePlayerPlaybackStateDidChangeNotification,
         this,
@@ -475,6 +642,8 @@ pub const CLASSES: ClassExports = objc_classes! {
 /// For use by `NSRunLoop` via [super::handle_players]: check movie players'
 /// status, send notifications if necessary.
 pub(super) fn handle_players(env: &mut Environment) {
+    #[cfg(target_os = "android")]
+    movie_video_tick(env);
     let mut notifs_to_run = Vec::new();
     let pending_notifs = &mut State::get(env).pending_notifications;
     let mut i = 0;
