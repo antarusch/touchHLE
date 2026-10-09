@@ -294,7 +294,8 @@ Type mismatch when sending message {} to {:?}!
                                     .objc
                                     .class_get_method_signature(class, selector)
                                     .map(|types| {
-                                        String::from_utf8_lossy(env.mem.cstr_at(*types)).into_owned()
+                                        String::from_utf8_lossy(env.mem.cstr_at(*types))
+                                            .into_owned()
                                     });
                                 log!(
                                     "Diagnostic: low Objective-C argument: class={name}, \
