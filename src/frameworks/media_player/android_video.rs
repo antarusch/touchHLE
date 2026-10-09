@@ -52,6 +52,12 @@ struct BufferInfo {
     flags: u32,
 }
 
+// The touchHLE SDL2 build exports this Android API, but rust-sdl2-sys does
+// not declare it in the generated bindings.
+unsafe extern "C" {
+    fn SDL_AndroidGetInternalStoragePath() -> *const c_char;
+}
+
 #[link(name = "mediandk")]
 #[allow(non_snake_case)]
 unsafe extern "C" {
@@ -197,7 +203,7 @@ impl MovieDecoder {
             return Err("Empty or oversized movie".into());
         }
         let id = MOVIE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-        let storage_path = unsafe { sdl2_sys::SDL_AndroidGetInternalStoragePath() };
+        let storage_path = unsafe { SDL_AndroidGetInternalStoragePath() };
         if storage_path.is_null() {
             return Err("Android application storage path unavailable".into());
         }
