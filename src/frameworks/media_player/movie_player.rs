@@ -524,7 +524,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         if old == this {
             let host = env.objc.borrow::<MPMoviePlayerControllerHostObject>(this);
             if host.playback_state == MPMoviePlaybackStatePlaying { return; }
-            // Resuming a paused movie does not take an additional runtime retain.
+            // Resuming a paused movie needs no additional runtime retain.
         } else {
             let _: () = msg![env; old stop];
         }
