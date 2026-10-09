@@ -219,10 +219,18 @@ fn objc_msgSend_inner(
         #[cfg(target_os = "android")]
         if env.objc.try_get_class_name(orig_class) == Some("GameController") {
             let state = env.cpu.regs()[2];
-            if name == "onGameControllerChange:" && state == 6 {
+            if name == "onGameControllerChange:" && matches!(state, 4 | 6) {
                 crate::frameworks::media_player::set_hunters_gameplay_transition(env, true);
             } else if name == "setStatus:" && state == 2 {
                 crate::frameworks::media_player::set_hunters_gameplay_transition(env, false);
+            }
+        }
+        // Observe overlay visibility in Hunters 2 without invoking nested guest
+        // methods during Objective-C dispatch (which previously caused crashes).
+        if name == "show" || name == "hide" {
+            let class = env.objc.try_get_class_name(orig_class);
+            if class.is_some_and(|class| class.starts_with("Overlay")) {
+                log!("Hunters 2 overlay lifecycle: class={class:?}, selector={name}, receiver={receiver:?}");
             }
         }
         if name == "show" || name == "hide" {
