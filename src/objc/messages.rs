@@ -220,9 +220,7 @@ fn objc_msgSend_inner(
                 #[cfg(target_os = "android")]
                 {
                     let visible = name == "show";
-                    crate::frameworks::media_player::set_hunters_create_save_visible(
-                        env, visible,
-                    );
+                    crate::frameworks::media_player::set_hunters_create_save_visible(env, visible);
                 }
             }
         }
