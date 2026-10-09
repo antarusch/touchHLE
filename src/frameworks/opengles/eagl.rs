@@ -335,8 +335,12 @@ pub const CLASSES: ClassExports = objc_classes! {
         ) + 1;
         if matches!(frame, 1 | 30 | 120) {
             let pixel_count = pixels.len() / 4;
-            let non_black = pixels.chunks_exact(4)
-                .filter(|p| p[0] != 0 || p[1] != 0 || p[2] != 0).count();
+            let non_black = pixels
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .filter(|p| p[0] != 0 || p[1] != 0 || p[2] != 0)
+                .count();
             log!(
                 "GLES2 present frame {frame}: renderbuffer {renderbuffer}, size {width}x{height}, non-black {non_black}/{pixel_count}",
             );
