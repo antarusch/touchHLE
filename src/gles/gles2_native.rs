@@ -264,7 +264,24 @@ impl GLES for GLES2Native<'_> {
 
     unsafe fn TexSubImage2D(&mut self, target: GLenum, level: GLint, xoffset: GLint, yoffset: GLint, width: GLsizei, height: GLsizei, format: GLenum, type_: GLenum, pixels: *const GLvoid,) { gles20::TexSubImage2D(target, level, xoffset, yoffset, width, height, format, type_, pixels, ) }
 
-    unsafe fn CompressedTexImage2D(&mut self, target: GLenum, level: GLint, internalformat: GLenum, width: GLsizei, height: GLsizei, border: GLint, image_size: GLsizei, data: *const GLvoid,) { gles20::CompressedTexImage2D(target, level, internalformat, width, height, border, image_size, data, ) }
+    unsafe fn CompressedTexImage2D(
+        &mut self, target: GLenum, level: GLint, internalformat: GLenum,
+        width: GLsizei, height: GLsizei, border: GLint, image_size: GLsizei,
+        data: *const GLvoid,
+    ) {
+        if image_size > 0 && !data.is_null() {
+            let bytes = std::slice::from_raw_parts(data.cast::<u8>(), image_size as usize);
+            if super::util::try_decode_pvrtc(
+                self, target, level, internalformat, width, height, border, bytes,
+            ) {
+                log_once!("Decompressing PVRTC textures for OpenGL ES 2.0");
+                return;
+            }
+        }
+        gles20::CompressedTexImage2D(
+            target, level, internalformat, width, height, border, image_size, data,
+        )
+    }
 
     unsafe fn CopyTexImage2D(&mut self, target: GLenum, level: GLint, internalformat: GLenum, x: GLint, y: GLint, width: GLsizei, height: GLsizei, border: GLint,) { gles20::CopyTexImage2D(target, level, internalformat, x, y, width, height, border, ) }
 
