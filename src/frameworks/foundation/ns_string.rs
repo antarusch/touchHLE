@@ -1218,6 +1218,10 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (NSInteger)integerValue {
     msg![env; this intValue]
 }
+- (i64)longLongValue {
+    let string = to_rust_string(env, this);
+    parse_decimal_long_long(&string)
+}
 - (i32)intValue {
     let st = to_rust_string(env, this);
     let st = st.trim_start();
@@ -1873,6 +1877,46 @@ fn is_match_at_position<F: Fn(u16, u16) -> bool>(
             false
         }
     })
+}
+
+/// Parse the decimal prefix used by NSString's signed 64-bit conversion.
+fn parse_decimal_long_long(string: &str) -> i64 {
+    let string = string.trim_start();
+    let prefix = string
+        .strip_prefix(['-', '+'])
+        .map_or(0, |_| 1);
+    let digits = string[prefix..]
+        .bytes()
+        .take_while(u8::is_ascii_digit)
+        .count();
+    if digits == 0 {
+        return 0;
+    }
+    let value = &string[..prefix + digits];
+    value.parse().unwrap_or_else(|_| {
+        if value.starts_with('-') {
+            i64::MIN
+        } else {
+            i64::MAX
+        }
+    })
+}
+
+#[cfg(test)]
+mod long_long_tests {
+    use super::parse_decimal_long_long;
+
+    #[test]
+    fn parses_decimal_prefix_and_bounds() {
+        assert_eq!(parse_decimal_long_long("  -123tail"), -123);
+        assert_eq!(parse_decimal_long_long("+42.5"), 42);
+        assert_eq!(parse_decimal_long_long("none"), 0);
+        assert_eq!(parse_decimal_long_long("-"), 0);
+        assert_eq!(parse_decimal_long_long("9223372036854775807"), i64::MAX);
+        assert_eq!(parse_decimal_long_long("-9223372036854775808"), i64::MIN);
+        assert_eq!(parse_decimal_long_long("9223372036854775808"), i64::MAX);
+        assert_eq!(parse_decimal_long_long("-9223372036854775809"), i64::MIN);
+    }
 }
 
 /// Helper function for shared `doubleValue` and `floatValue` implementations.
