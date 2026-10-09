@@ -1882,9 +1882,7 @@ fn is_match_at_position<F: Fn(u16, u16) -> bool>(
 /// Parse the decimal prefix used by NSString's signed 64-bit conversion.
 fn parse_decimal_long_long(string: &str) -> i64 {
     let string = string.trim_start();
-    let prefix = string
-        .strip_prefix(['-', '+'])
-        .map_or(0, |_| 1);
+    let prefix = usize::from(string.starts_with('-') || string.starts_with('+'));
     let digits = string[prefix..]
         .bytes()
         .take_while(u8::is_ascii_digit)
