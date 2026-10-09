@@ -182,6 +182,33 @@ fn objc_msgSend_inner(
         selector.as_str(&env.mem),
         receiver
     );
+    if env.bundle.bundle_identifier() == "uk.co.rodeogames.hunterstwo" {
+        let name = selector.as_str(&env.mem);
+        if matches!(
+            name,
+            "onSaveSlotPressed:"
+                | "onScreenPressed"
+                | "onCreateSaveCancelled"
+                | "onCreateSaveSucceeded:teamColour:difficulty:hardcore:"
+                | "onGameInitialisation"
+                | "onGamePostInitialisation"
+                | "onCoreViewReadyToLoad"
+                | "onCoreViewReadyToDisplay"
+                | "onGameControllerChange:"
+                | "onComponentEvent:forComponent:tag:"
+        ) {
+            log!(
+                "Hunters 2 transition: class={:?}, selector={name}, receiver={receiver:?}",
+                env.objc.try_get_class_name(receiver),
+            );
+        }
+        if name == "show" || name == "hide" {
+            let class = env.objc.try_get_class_name(receiver);
+            if matches!(class, Some("OverlayCreateSave")) {
+                log!("Hunters 2 create-save overlay: class={class:?}, selector={name}");
+            }
+        }
+    }
     let message_type_info = env.objc.message_type_info.take();
 
     if receiver == nil {
