@@ -238,11 +238,11 @@ fn movie_video_tick(env: &mut Environment) {
             let layer: id = msg![env; view layer];
             static VIDEO_FRAME_COUNT: std::sync::atomic::AtomicUsize =
                 std::sync::atomic::AtomicUsize::new(0);
-            let frame_number = VIDEO_FRAME_COUNT.fetch_add(
-                1, std::sync::atomic::Ordering::Relaxed,
-            ) + 1;
+            let frame_number =
+                VIDEO_FRAME_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
             if matches!(frame_number, 1 | 15 | 30 | 90 | 180) {
-                let bright = pixels.chunks_exact(4)
+                let bright = pixels
+                    .chunks_exact(4)
                     .filter(|rgba| rgba[0] > 32 || rgba[1] > 32 || rgba[2] > 32)
                     .count();
                 let rect: CGRect = msg![env; view frame];
