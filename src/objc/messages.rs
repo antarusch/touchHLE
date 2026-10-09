@@ -225,8 +225,7 @@ fn objc_msgSend_inner(
         // These offsets come from Hunters 2's ARMv7 Objective-C accessors.
         // Read guest fields directly to avoid nested Objective-C dispatch.
         #[cfg(target_os = "android")]
-        if name == "gameUpdate"
-            && env.objc.try_get_class_name(orig_class) == Some("GameController")
+        if name == "gameUpdate" && env.objc.try_get_class_name(orig_class) == Some("GameController")
         {
             use crate::mem::ConstPtr;
             use std::sync::atomic::{AtomicUsize, Ordering};
@@ -241,8 +240,7 @@ fn objc_msgSend_inner(
                     if core != 0 {
                         let has_update: u8 = env.mem.read(ConstPtr::from_bits(core + 0xa0));
                         let loaded: u8 = env.mem.read(ConstPtr::from_bits(core + 0xa1));
-                        let updates_singletons: u8 =
-                            env.mem.read(ConstPtr::from_bits(core + 0xa2));
+                        let updates_singletons: u8 = env.mem.read(ConstPtr::from_bits(core + 0xa2));
                         log!(
                             "Hunters 2 status-3 update gate: frame={frame}, core={core:#x}, has_update={has_update}, loaded={loaded}, updates_singletons={updates_singletons}"
                         );
