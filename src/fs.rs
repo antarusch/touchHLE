@@ -871,16 +871,13 @@ impl Fs {
             FsNode::File { location, .. } => match location {
                 FileLocation::IpaFileRef(file_ref) => Ok(file_ref.get_last_modified().into()),
                 FileLocation::Path(path) => fs::metadata(path)
-                    .and_then(|metadata| {
-                        metadata.created().or_else(|_| metadata.modified())
-                    })
+                    .and_then(|metadata| metadata.created().or_else(|_| metadata.modified()))
                     .and_then(|time| {
                         time.duration_since(UNIX_EPOCH)
                             .map_err(std::io::Error::other)
                     })
                     .and_then(|elapsed| {
-                        i64::try_from(elapsed.as_secs())
-                            .map_err(std::io::Error::other)
+                        i64::try_from(elapsed.as_secs()).map_err(std::io::Error::other)
                     })
                     .map_err(|_| ()),
                 _ => Err(()),
