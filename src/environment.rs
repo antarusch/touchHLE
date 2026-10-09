@@ -1932,6 +1932,15 @@ impl Environment {
             .mem
             .alloc_and_write_cstr(self.fs.home_directory().as_str().as_bytes());
         self.env_vars.insert(b"HOME".to_vec(), home_value_cstr);
+
+        // iOS apps use TMPDIR to locate writable temporary storage.
+        // The app picker does not have a sandbox, so omit it there.
+        let tmp_directory = self.fs.home_directory().join("tmp");
+        if self.fs.is_dir(&tmp_directory) {
+            let tmp_directory = format!("{}/", tmp_directory.as_str());
+            let tmp_value_cstr = self.mem.alloc_and_write_cstr(tmp_directory.as_bytes());
+            self.env_vars.insert(b"TMPDIR".to_vec(), tmp_value_cstr);
+        }
     }
 
     fn get_sorted_bin_indices(&self) -> Result<Vec<usize>, String> {
