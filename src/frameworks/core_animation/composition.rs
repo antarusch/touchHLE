@@ -63,6 +63,10 @@ static PRESENTED_LAYER_SEEN: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 static PRESENTED_FRAME_COUNT: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
+static MOVIE_PROBE_FB_WIDTH: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+static MOVIE_PROBE_FB_HEIGHT: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
 
 // Read nine points to distinguish black composition from failed presentation.
 unsafe fn lit_framebuffer_samples(
@@ -180,6 +184,8 @@ pub fn recomposite_if_necessary(env: &mut Environment, force: bool) -> Option<In
     let scale_hack: u32 = env.options.scale_hack.get();
     let fb_width = screen_bounds.size.width as u32 * scale_hack;
     let fb_height = screen_bounds.size.height as u32 * scale_hack;
+    MOVIE_PROBE_FB_WIDTH.store(fb_width as usize, std::sync::atomic::Ordering::Relaxed);
+    MOVIE_PROBE_FB_HEIGHT.store(fb_height as usize, std::sync::atomic::Ordering::Relaxed);
     let present_frame_args = (
         env.window().viewport(),
         env.window().rotation_matrix(),
@@ -823,6 +829,19 @@ unsafe fn composite_layer_recursive(
             gles11::UNSIGNED_BYTE,
             0 as *const GLvoid,
         );
+        if host_obj.presented_pixels.is_some() {
+            static VIDEO_DRAWS: std::sync::atomic::AtomicUsize =
+                std::sync::atomic::AtomicUsize::new(0);
+            let count = VIDEO_DRAWS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+            if matches!(count, 1 | 30 | 120) {
+                let width = MOVIE_PROBE_FB_WIDTH.load(std::sync::atomic::Ordering::Relaxed) as u32;
+                let height = MOVIE_PROBE_FB_HEIGHT.load(std::sync::atomic::Ordering::Relaxed) as u32;
+                let lit = lit_framebuffer_samples(gles.as_mut(), 0, 0, width, height);
+                log!(
+                    "Core Animation movie post-draw probe {count}: {lit}/9 lit before later sibling layers, framebuffer={width}x{height}",
+                );
+            }
+        }
     }
     if let Some(color) = host_obj.border_color {
         let width = host_obj
