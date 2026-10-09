@@ -1,0 +1,43 @@
+name: One-time GLES2 Rust formatting
+on:
+  push:
+    branches:
+      - hunters-2-compatibility
+    paths:
+      - .github/workflows/es2_format_once.yml
+
+permissions:
+  contents: write
+
+jobs:
+  format-only:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: hunters-2-compatibility
+          persist-credentials: true
+      - name: Install Rust formatter
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Format workspace sources
+        run: cargo fmt --all
+      - name: Save formatted GLES2 sources
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/gles/gl_bindings/build.rs
+          git add src/gles/gl_bindings/lib.rs
+          git add src/gles.rs
+          git add src/gles/gles2_native.rs
+          git add src/window.rs
+          git add src/frameworks/opengles.rs
+          git add src/frameworks/opengles/eagl.rs
+          git add src/frameworks/opengles/gles2_guest.rs
+          git add src/frameworks/opengles/gles_guest.rs
+          if ! git diff --cached --quiet; then
+            git commit -m "style: rustfmt OpenGL ES 2.0 implementation"
+            git push origin HEAD:hunters-2-compatibility
+          fi
