@@ -114,10 +114,13 @@ pub(crate) fn present_movie_pixels(
             if let Some(index) = sibling_position {
                 for &sibling in siblings.iter().skip(index + 1).take(6) {
                     let other = env.objc.borrow::<CALayerHostObject>(sibling);
+                    let color = other
+                        .background_color
+                        .map(|value| (value.r, value.g, value.b, value.a));
                     log!(
-                        "Android movie possible cover at depth {depth}: layer={sibling:?}, bounds={:?}, hidden={}, opacity={:.2}, opaque={}, background={}, z={}",
+                        "Android movie possible cover at depth {depth}: layer={sibling:?}, bounds={:?}, hidden={}, opacity={:.2}, opaque={}, background={color:?}, z={}",
                         other.bounds, other.hidden, other.opacity, other.opaque,
-                        other.background_color.is_some(), other.z_position,
+                        other.z_position,
                     );
                 }
             }
