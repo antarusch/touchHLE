@@ -193,7 +193,7 @@ fn objc_msgSend_inner(
 
     let orig_class = super2.unwrap_or_else(|| ObjC::read_isa(receiver, &env.mem));
     assert!(orig_class != nil);
-    if env.bundle.bundle_identifier() == "uk.co.rodeogames.hunterstwo" {
+    if env.bundle.bundle_identifier_opt() == Some("uk.co.rodeogames.hunterstwo") {
         let name = selector.as_str(&env.mem);
         if matches!(
             name,
