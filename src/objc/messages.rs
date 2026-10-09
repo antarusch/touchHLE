@@ -226,7 +226,8 @@ fn objc_msgSend_inner(
             }
         }
         // Observe overlay visibility in Hunters 2 without invoking nested guest
-        // methods during Objective-C dispatch (which previously caused crashes).
+        // methods during Objective-C dispatch.
+        // Earlier nested dispatch caused guest CPU crashes.
         if name == "show" || name == "hide" {
             let class = env.objc.try_get_class_name(orig_class);
             if class.is_some_and(|class| class.starts_with("Overlay")) {
