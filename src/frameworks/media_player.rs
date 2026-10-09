@@ -43,3 +43,8 @@ pub struct State {
 pub fn handle_players(env: &mut crate::Environment) {
     movie_player::handle_players(env);
 }
+
+#[cfg(target_os = "android")]
+pub(crate) fn set_hunters_create_save_visible(env: &mut crate::Environment, visible: bool) {
+    movie_player::set_hunters_create_save_visible(env, visible);
+}
