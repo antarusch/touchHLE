@@ -43,7 +43,26 @@ fn glDeleteShader(env: &mut Environment, shader: GLuint) {
     with_es2(env, |_| unsafe { gl::DeleteShader(shader) });
 }
 fn glCompileShader(env: &mut Environment, shader: GLuint) {
-    with_es2(env, |_| unsafe { gl::CompileShader(shader) });
+    with_es2(env, |_| unsafe {
+        gl::CompileShader(shader);
+        let mut compiled: GLint = 0;
+        gl::GetShaderiv(shader, gl::COMPILE_STATUS, &mut compiled);
+        if compiled == 0 {
+            let mut log_length: GLint = 0;
+            gl::GetShaderiv(shader, gl::INFO_LOG_LENGTH, &mut log_length);
+            let mut buffer = vec![0u8; log_length.max(1) as usize];
+            gl::GetShaderInfoLog(
+                shader, buffer.len() as GLsizei,
+                std::ptr::null_mut(), buffer.as_mut_ptr().cast(),
+            );
+            log!(
+                "GLES2 shader {} failed compilation: {}",
+                shader, String::from_utf8_lossy(&buffer)
+            );
+        } else {
+            log_once!("GLES2 vertex/fragment shader compilation succeeded");
+        }
+    });
 }
 fn glIsShader(env: &mut Environment, shader: GLuint) -> GLboolean {
     with_es2(env, |_| unsafe { gl::IsShader(shader) })
@@ -118,7 +137,26 @@ fn glDetachShader(env: &mut Environment, program: GLuint, shader: GLuint) {
     with_es2(env, |_| unsafe { gl::DetachShader(program, shader) });
 }
 fn glLinkProgram(env: &mut Environment, program: GLuint) {
-    with_es2(env, |_| unsafe { gl::LinkProgram(program) });
+    with_es2(env, |_| unsafe {
+        gl::LinkProgram(program);
+        let mut linked: GLint = 0;
+        gl::GetProgramiv(program, gl::LINK_STATUS, &mut linked);
+        if linked == 0 {
+            let mut log_length: GLint = 0;
+            gl::GetProgramiv(program, gl::INFO_LOG_LENGTH, &mut log_length);
+            let mut buffer = vec![0u8; log_length.max(1) as usize];
+            gl::GetProgramInfoLog(
+                program, buffer.len() as GLsizei,
+                std::ptr::null_mut(), buffer.as_mut_ptr().cast(),
+            );
+            log!(
+                "GLES2 program {} failed linking: {}",
+                program, String::from_utf8_lossy(&buffer)
+            );
+        } else {
+            log_once!("GLES2 shader program linking succeeded");
+        }
+    });
 }
 fn glValidateProgram(env: &mut Environment, program: GLuint) {
     with_es2(env, |_| unsafe { gl::ValidateProgram(program) });
