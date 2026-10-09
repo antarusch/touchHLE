@@ -490,9 +490,9 @@ fn file_attributes_common(env: &mut Environment, guest_path: &GuestPath) -> id {
     let unix_date: id =
         msg_class![env; NSDate dateWithTimeInterval:unix_timestamp sinceDate:unix_ref_date];
 
-    let creation_timestamp = env.fs.created(guest_path).unwrap_or(unix_timestamp as i64);
+    let creation_timestamp: f64 = env.fs.created(guest_path).unwrap_or(unix_timestamp as i64) as f64;
     let creation_date: id = msg_class![env; NSDate
-        dateWithTimeInterval:creation_timestamp as f64
+        dateWithTimeInterval:creation_timestamp
         sinceDate:unix_ref_date];
 
     let size = env.fs.size(guest_path).unwrap();
