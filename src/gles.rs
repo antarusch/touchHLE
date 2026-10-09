@@ -64,6 +64,7 @@
 //!   - [EXT_texture_lod_bias](https://registry.khronos.org/OpenGL/extensions/EXT/EXT_texture_lod_bias.txt)
 
 pub mod gles1_native;
+pub mod gles2_native;
 pub mod gles1_on_gl2;
 mod gles_generic;
 pub mod present;
@@ -71,8 +72,10 @@ mod util;
 
 use touchHLE_gl_bindings::gl21compat as gl21compat_raw;
 pub use touchHLE_gl_bindings::gles11 as gles11_raw;
+pub use touchHLE_gl_bindings::gles20 as gles20_raw;
 
 use gles1_native::GLES1NativeContext;
+use gles2_native::GLES2NativeContext;
 use gles1_on_gl2::GLES1OnGL2Context;
 pub use gles_generic::GLESContext;
 pub use gles_generic::GLES;
@@ -84,6 +87,7 @@ use crate::environment::Environment;
 pub enum GLESImplementation {
     /// [gles1_native::GLES1Native].
     GLES1Native,
+    GLES2Native,
     /// [gles1_on_gl2::GLES1OnGL2].
     GLES1OnGL2,
 }
@@ -96,6 +100,7 @@ impl GLESImplementation {
         match name {
             "gles1_on_gl2" => Ok(Self::GLES1OnGL2),
             "gles1_native" => Ok(Self::GLES1Native),
+            "gles2_native" => Ok(Self::GLES2Native),
             _ => Err(()),
         }
     }
@@ -103,6 +108,7 @@ impl GLESImplementation {
     pub fn description(self) -> &'static str {
         match self {
             Self::GLES1Native => GLES1NativeContext::description(),
+            Self::GLES2Native => GLES2NativeContext::description(),
             Self::GLES1OnGL2 => GLES1OnGL2Context::description(),
         }
     }
@@ -116,6 +122,7 @@ impl GLESImplementation {
         }
         match self {
             Self::GLES1Native => GLES1NativeContext::new(window).map(boxer),
+            Self::GLES2Native => GLES2NativeContext::new(window).map(boxer),
             Self::GLES1OnGL2 => GLES1OnGL2Context::new(window).map(boxer),
         }
     }
@@ -158,4 +165,12 @@ pub fn create_gles1_ctx_no_parent_stack(
         }
     }
     gles1_ctx.expect("Couldn't create OpenGL ES 1.1 context!")
+}
+
+
+/// Create a separate native OpenGL ES 2.0 context for shader-based games.
+pub fn create_gles2_ctx(env: &mut Environment) -> Result<Box<dyn GLESContext>, String> {
+    env.on_parent_stack_in_coroutine(|window, _options| {
+        GLES2NativeContext::new(window).map(|ctx| Box::new(ctx) as Box<dyn GLESContext>)
+    })
 }

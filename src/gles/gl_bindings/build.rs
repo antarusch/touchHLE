@@ -28,6 +28,22 @@ fn main() {
     .write_bindings(GlobalGenerator, &mut file)
     .unwrap();
 
+    let mut file = File::create(out_dir.join("gles20.rs")).unwrap();
+    Registry::new(
+        Api::Gles2,
+        (2, 0),
+        Profile::Core,
+        Fallbacks::None,
+        [
+            "GL_OES_mapbuffer",
+            "GL_EXT_texture_filter_anisotropic",
+            "GL_IMG_texture_compression_pvrtc",
+            "GL_EXT_texture_format_BGRA8888",
+        ],
+    )
+    .write_bindings(GlobalGenerator, &mut file)
+    .unwrap();
+
     let mut file = File::create(out_dir.join("gles11.rs")).unwrap();
     Registry::new(
         Api::Gles1,
