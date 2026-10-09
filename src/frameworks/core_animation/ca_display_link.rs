@@ -104,8 +104,8 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
     let selector = selector.unwrap();
     log_once!("CADisplayLink callback fired");
-    log_once!(
-        "Diagnostic: first CADisplayLink callback target={target:?}, selector={}",
+    log!(
+        "Diagnostic: CADisplayLink callback target={target:?}, selector={}",
         selector.as_str(&env.mem)
     );
 
