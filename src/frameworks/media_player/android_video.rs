@@ -141,7 +141,12 @@ impl MovieDecoder {
             return Err("Empty or oversized movie".into());
         }
         let id = MOVIE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-        let path = std::env::temp_dir().join(format!(
+        let storage_path = unsafe { sdl2_sys::SDL_AndroidGetInternalStoragePath() };
+        if storage_path.is_null() {
+            return Err("Android application storage path unavailable".into());
+        }
+        let storage_dir = unsafe { CStr::from_ptr(storage_path) }.to_string_lossy();
+        let path = PathBuf::from(storage_dir.as_ref()).join(format!(
             "touchhle_movie_{}_{}.mp4", std::process::id(), id
         ));
         let mut source = OpenOptions::new().write(true).read(true).create_new(true)
