@@ -230,17 +230,31 @@ fn movie_video_tick(env: &mut Environment) {
         log!("Android movie decoding stopped: {err}");
     }
     if let Some(Frame {
-        pixels,
+        mut pixels,
         width,
         height,
         time_us: _,
     }) = frame
     {
         if view != nil {
+            let is_hunters_2 =
+                env.bundle.bundle_identifier() == "uk.co.rodeogames.hunterstwo";
+            if is_hunters_2 {
+                // MediaCodec emits top-first RGBA, while this CALayer's
+                // texture coordinates treat the first row as the bottom.
+                let stride = width as usize * 4;
+                let rows = height as usize;
+                for top_row in 0..rows / 2 {
+                    let bottom_row = rows - 1 - top_row;
+                    let (top, bottom) = pixels.split_at_mut(bottom_row * stride);
+                    top[top_row * stride..(top_row + 1) * stride]
+                        .swap_with_slice(&mut bottom[..stride]);
+                }
+            }
             // Hunters 2 puts its movie container behind an opaque game view.
             // Raise that container during playback, not the movie's subview:
             // the latter would still be covered by the game's full-screen view.
-            if env.bundle.bundle_identifier() == "uk.co.rodeogames.hunterstwo" {
+            if is_hunters_2 {
                 let needs_raise = {
                     let host = env
                         .objc
@@ -255,8 +269,10 @@ fn movie_video_tick(env: &mut Environment) {
                         let parent: id = msg![env; container superview];
                         if parent != nil {
                             () = msg![env; parent bringSubviewToFront:container];
+                            // Keep video visible without swallowing the menu's taps.
+                            () = msg![env; container setUserInteractionEnabled:false];
                             log!(
-                                "Hunters 2 movie overlay: raised container {container:?} in {parent:?}"
+                                "Hunters 2 movie overlay: raised container {container:?} in {parent:?}; touch passthrough enabled"
                             );
                         }
                     }
