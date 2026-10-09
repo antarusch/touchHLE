@@ -223,7 +223,10 @@ fn objc_msgSend_inner(
         }
         // Track the save-menu unload and replacement-controller callbacks.
         // Hunters 2 enters status 3 during this handoff, before GLES starts.
-        if matches!(name, "onLoad" | "onLoadFinished" | "onUnload" | "onUnloadFinished") {
+        if matches!(
+            name,
+            "onLoad" | "onLoadFinished" | "onUnload" | "onUnloadFinished"
+        ) {
             log!(
                 "Hunters 2 core view lifecycle: class={:?}, selector={name}",
                 env.objc.try_get_class_name(orig_class),
