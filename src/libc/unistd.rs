@@ -72,49 +72,41 @@ fn isatty(env: &mut Environment, fd: FileDescriptor) -> i32 {
     }
 }
 
+// POSIX access() modes are bit masks and can be combined.
+fn access_errno(mode: i32, permissions: (bool, bool, bool, bool)) -> Option<i32> {
+    let (exists, read, write, execute) = permissions;
+    if mode & !(R_OK | W_OK | X_OK) != 0 {
+        return Some(EINVAL);
+    }
+    if !exists {
+        return Some(ENOENT);
+    }
+    if mode == F_OK {
+        return None;
+    }
+    if mode & R_OK != 0 && !read {
+        return Some(EACCES);
+    }
+    if mode & W_OK != 0 && !write {
+        return Some(EROFS);
+    }
+    if mode & X_OK != 0 && !execute {
+        return Some(EACCES);
+    }
+    None
+}
+
 fn access(env: &mut Environment, path: ConstPtr<u8>, mode: i32) -> i32 {
-    // TODO: handle errno properly
     set_errno(env, 0);
 
     let binding = env.mem.cstr_at_utf8(path).unwrap();
     let guest_path = GuestPath::new(&binding);
-    let (exists, read, write, execute) = env.fs.access(guest_path);
-    // TODO: support ORing
-    match mode {
-        F_OK => {
-            if exists {
-                0
-            } else {
-                set_errno(env, ENOENT);
-                -1
-            }
+    match access_errno(mode, env.fs.access(guest_path)) {
+        None => 0,
+        Some(errno) => {
+            set_errno(env, errno);
+            -1
         }
-        X_OK => {
-            if execute {
-                0
-            } else {
-                set_errno(env, EACCES);
-                -1
-            }
-        }
-        W_OK => {
-            if write {
-                0
-            } else {
-                set_errno(env, EROFS);
-                -1
-            }
-        }
-        R_OK => {
-            if read {
-                0
-            } else {
-                // TODO: is it the correct error?
-                set_errno(env, EACCES);
-                -1
-            }
-        }
-        _ => unimplemented!("{}", mode),
     }
 }
 
@@ -186,6 +178,25 @@ fn sysconf(_env: &mut Environment, name: i32) -> i32 {
         _SC_PAGESIZE => PAGE_SIZE.try_into().unwrap(),
         _SC_NPROCESSORS_ONLN => 1,
         _ => unimplemented!("TODO: sysconf(name: {})", name),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn access_checks_combined_modes() {
+        let all = (true, true, true, true);
+        for mode in 0..=7 {
+            assert_eq!(access_errno(mode, all), None);
+        }
+        assert_eq!(access_errno(7, (true, true, true, false)), Some(EACCES));
+        assert_eq!(access_errno(7, (true, true, false, true)), Some(EROFS));
+        assert_eq!(access_errno(7, (true, false, true, true)), Some(EACCES));
+        assert_eq!(access_errno(7, (false, false, false, false)), Some(ENOENT));
+        assert_eq!(access_errno(8, all), Some(EINVAL));
+        assert_eq!(access_errno(-1, all), Some(EINVAL));
     }
 }
 
