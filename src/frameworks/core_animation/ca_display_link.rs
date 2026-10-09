@@ -104,6 +104,10 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
     let selector = selector.unwrap();
     log_once!("CADisplayLink callback fired");
+    log_once!(
+        "Diagnostic: first CADisplayLink callback target={target:?}, selector={}",
+        selector.as_str(&env.mem)
+    );
 
     // Apple's documented callback takes the display link as an argument, but
     // some older apps use a zero-argument selector. Objective-C tolerates that,

@@ -282,7 +282,25 @@ Type mismatch when sending message {} to {:?}!
                     }
                     // We can't create a new stack frame, because that would
                     // interfere with pass-through of stack arguments.
-                    IMP::Guest(guest_imp) => guest_imp.call_without_pushing_stack_frame(env),
+                    IMP::Guest(guest_imp) => {
+                        // Temporary diagnostics for pointer-valued game callbacks.
+                        // Log the caller's registers without modifying dispatch.
+                        if selector.as_str(&env.mem) == "showLootItem:" {
+                            let regs = env.cpu.regs();
+                            log!(
+                                "Diagnostic: showLootItem: receiver={receiver:?}, \
+                                 arg={:#x}, r3={:#x}, lr={:#x}, sp={:#x}, \
+                                 pc={:#x}, thread={}",
+                                regs[2],
+                                regs[3],
+                                regs[14],
+                                regs[13],
+                                regs[15],
+                                env.current_thread
+                            );
+                        }
+                        guest_imp.call_without_pushing_stack_frame(env)
+                    },
                 }
                 return;
             } else {
