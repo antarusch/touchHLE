@@ -687,7 +687,6 @@ pub const CLASSES: ClassExports = objc_classes! {
     } else {
         None
     };
-    drop(host);
     #[cfg(target_os = "android")]
     if let Some(view) = restore_view {
         restore_hunters_movie_overlay(env, view);
@@ -811,7 +810,6 @@ pub(super) fn handle_players(env: &mut Environment) {
             } else {
                 None
             };
-            drop(host);
             #[cfg(target_os = "android")]
             if let Some(view) = restore_view {
                 restore_hunters_movie_overlay(env, view);
