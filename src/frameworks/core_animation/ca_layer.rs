@@ -89,7 +89,7 @@ pub(crate) fn present_movie_pixels(
 ) {
     // CA's compositor can texture any CALayer with RGBA8 pixel backing.
     // This is shared with EAGL rendering, but is not restricted to CAEAGLLayer.
-    // Diagnose missing movie frames without changing the guest's layer ordering.
+    // Trace video layer ancestors without changing layer order.
     static MOVIE_LAYER_TREE_LOGGED: std::sync::atomic::AtomicBool =
         std::sync::atomic::AtomicBool::new(false);
     if !MOVIE_LAYER_TREE_LOGGED.swap(true, std::sync::atomic::Ordering::Relaxed) {
