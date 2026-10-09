@@ -10,7 +10,7 @@ use super::android_video::{Frame, MovieDecoder};
 use crate::dyld::{ConstantExports, HostConstant};
 #[cfg(target_os = "android")]
 use crate::frameworks::core_animation::ca_layer::present_movie_pixels;
-use crate::frameworks::core_graphics::{CGPoint, CGRect, CGSize};
+use crate::frameworks::core_graphics::{CGFloat, CGPoint, CGRect, CGSize};
 use crate::frameworks::foundation::{ns_string, ns_url, NSInteger, NSTimeInterval};
 use crate::frameworks::uikit::ui_device::UIDeviceOrientation;
 use crate::objc::{
@@ -128,6 +128,8 @@ struct MPMoviePlayerControllerHostObject {
     playback_start_position: NSTimeInterval,
     #[cfg(target_os = "android")]
     raised_movie_container: bool,
+    #[cfg(target_os = "android")]
+    original_movie_z: Option<CGFloat>,
 }
 impl HostObject for MPMoviePlayerControllerHostObject {}
 
@@ -198,28 +200,25 @@ pub(super) fn set_hunters_create_save_visible(env: &mut Environment, visible: bo
             .borrow_mut::<MPMoviePlayerControllerHostObject>(player);
         if std::mem::take(&mut host.raised_movie_container) {
             let view = host.view;
-            restore_hunters_movie_overlay(env, view);
+            let original_z = host.original_movie_z.take().unwrap_or(0.0);
+            restore_hunters_movie_overlay(env, view, original_z);
         }
     }
     log!("Hunters 2 Create Save overlay visible={visible}");
 }
 
-// Restore the stacking order after Hunters 2's title movie ends or stops.
+// Change drawing depth without modifying the game's logical subview order.
 #[cfg(target_os = "android")]
-fn restore_hunters_movie_overlay(env: &mut Environment, view: id) {
+fn restore_hunters_movie_overlay(env: &mut Environment, view: id, original_z: CGFloat) {
     if view == nil || env.bundle.bundle_identifier() != "uk.co.rodeogames.hunterstwo" {
         return;
     }
     let container: id = msg![env; view superview];
-    if container == nil {
-        return;
+    if container != nil {
+        let layer: id = msg![env; container layer];
+        () = msg![env; layer setZPosition:original_z];
+        log!("Hunters 2 movie overlay: restored layer {layer:?} z={original_z}");
     }
-    let parent: id = msg![env; container superview];
-    if parent == nil {
-        return;
-    }
-    () = msg![env; parent sendSubviewToBack:container];
-    log!("Hunters 2 movie overlay: restored container {container:?} behind gameplay in {parent:?}");
 }
 
 #[cfg(target_os = "android")]
@@ -290,9 +289,8 @@ fn movie_video_tick(env: &mut Environment) {
                     top[start..start + stride].swap_with_slice(&mut bottom[..stride]);
                 }
             }
-            // Hunters 2 puts its movie container behind an opaque game view.
-            // Raise that container during playback, not the movie's subview:
-            // the latter would still be covered by the game's full-screen view.
+            // Adjust drawing depth only; reordering UIKit subviews breaks
+            // Hunters 2's overlay manager during Create Save.
             if is_hunters_2 && !State::get(env).hunters_create_save_visible {
                 let needs_raise = {
                     let host = env
@@ -305,16 +303,17 @@ fn movie_video_tick(env: &mut Environment) {
                 if needs_raise {
                     let container: id = msg![env; view superview];
                     if container != nil {
-                        let parent: id = msg![env; container superview];
-                        if parent != nil {
-                            () = msg![env; parent bringSubviewToFront:container];
-                            // Only the movie surface is noninteractive.
-                            // Keep its container's save-slot controls enabled.
-                            () = msg![env; view setUserInteractionEnabled:false];
-                            log!(
-                                "Hunters 2 movie overlay: raised container {container:?} in {parent:?}; video view {view:?} ignores touches"
-                            );
-                        }
+                        let layer: id = msg![env; container layer];
+                        let old_z: CGFloat = msg![env; layer zPosition];
+                        () = msg![env; layer setZPosition:1000.0f32];
+                        let host = env
+                            .objc
+                            .borrow_mut::<MPMoviePlayerControllerHostObject>(player);
+                        host.original_movie_z = Some(old_z);
+                        () = msg![env; view setUserInteractionEnabled:false];
+                        log!(
+                            "Hunters 2 video render depth: layer={layer:?}, old_z={old_z}, new_z=1000"
+                        );
                     }
                 }
             }
@@ -391,6 +390,8 @@ pub const CLASSES: ClassExports = objc_classes! {
         playback_start_position: 0.0,
         #[cfg(target_os = "android")]
         raised_movie_container: false,
+        #[cfg(target_os = "android")]
+        original_movie_z: None,
     });
     env.objc.alloc_object(this, host_object, &mut env.mem)
 }
@@ -715,13 +716,13 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
     #[cfg(target_os = "android")]
     let restore_view = if std::mem::take(&mut host.raised_movie_container) {
-        Some(host.view)
+        Some((host.view, host.original_movie_z.take().unwrap_or(0.0)))
     } else {
         None
     };
     #[cfg(target_os = "android")]
-    if let Some(view) = restore_view {
-        restore_hunters_movie_overlay(env, view);
+    if let Some((view, original_z)) = restore_view {
+        restore_hunters_movie_overlay(env, view, original_z);
     }
     State::get(env).pending_notifications.push_back((
         MPMoviePlayerPlaybackStateDidChangeNotification,
@@ -838,13 +839,13 @@ pub(super) fn handle_players(env: &mut Environment) {
             host.playback_state = MPMoviePlaybackStateStopped;
             #[cfg(target_os = "android")]
             let restore_view = if std::mem::take(&mut host.raised_movie_container) {
-                Some(host.view)
+                Some((host.view, host.original_movie_z.take().unwrap_or(0.0)))
             } else {
                 None
             };
             #[cfg(target_os = "android")]
-            if let Some(view) = restore_view {
-                restore_hunters_movie_overlay(env, view);
+            if let Some((view, original_z)) = restore_view {
+                restore_hunters_movie_overlay(env, view, original_z);
             }
         }
 
