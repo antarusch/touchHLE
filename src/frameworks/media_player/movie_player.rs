@@ -124,6 +124,8 @@ struct MPMoviePlayerControllerHostObject {
     playback_started_at: Option<Instant>,
     #[cfg(target_os = "android")]
     playback_start_position: NSTimeInterval,
+    #[cfg(target_os = "android")]
+    raised_movie_container: bool,
 }
 impl HostObject for MPMoviePlayerControllerHostObject {}
 
@@ -235,6 +237,29 @@ fn movie_video_tick(env: &mut Environment) {
     }) = frame
     {
         if view != nil {
+            // Hunters 2 puts its movie container behind an opaque game view.
+            // Raise that container during playback, not the movie's subview:
+            // the latter would still be covered by the game's full-screen view.
+            if env.bundle.bundle_identifier() == "uk.co.rodeogames.hunterstwo" {
+                let needs_raise = {
+                    let host = env.objc.borrow_mut::<MPMoviePlayerControllerHostObject>(player);
+                    let needs_raise = !host.raised_movie_container;
+                    host.raised_movie_container = true;
+                    needs_raise
+                };
+                if needs_raise {
+                    let container: id = msg![env; view superview];
+                    if container != nil {
+                        let parent: id = msg![env; container superview];
+                        if parent != nil {
+                            () = msg![env; parent bringSubviewToFront:container];
+                            log!(
+                                "Hunters 2 movie overlay: raised container {container:?} in {parent:?}"
+                            );
+                        }
+                    }
+                }
+            }
             let layer: id = msg![env; view layer];
             static VIDEO_FRAME_COUNT: std::sync::atomic::AtomicUsize =
                 std::sync::atomic::AtomicUsize::new(0);
@@ -302,6 +327,8 @@ pub const CLASSES: ClassExports = objc_classes! {
         playback_started_at: None,
         #[cfg(target_os = "android")]
         playback_start_position: 0.0,
+        #[cfg(target_os = "android")]
+        raised_movie_container: false,
     });
     env.objc.alloc_object(this, host_object, &mut env.mem)
 }
@@ -612,6 +639,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         host.playback_started_at = None;
         host.playback_start_position = 0.0;
         host.current_playback_time = 0.0;
+        host.raised_movie_container = false;
         if let Some(decoder) = host.decoder.as_mut() {
             if let Err(err) = decoder.restart(0) {
                 log!("Android movie rewind failed: {err}");
