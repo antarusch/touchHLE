@@ -616,8 +616,9 @@ unsafe fn composite_layer_recursive(
         }
     }
 
-    // Update texture with CGImageRef or CGContextRef pixels, if any
-    if need_update {
+    // Movie/EAGL frames are the current layer contents. A stale CGImage
+    // or bitmap backing must not overwrite a newer presented RGBA frame.
+    if need_update && host_obj.presented_pixels.is_none() {
         if host_obj.contents != nil {
             let image = cg_image::borrow_image(&env.objc, host_obj.contents);
 

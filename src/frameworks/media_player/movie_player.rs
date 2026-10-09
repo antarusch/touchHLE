@@ -236,7 +236,25 @@ fn movie_video_tick(env: &mut Environment) {
     {
         if view != nil {
             let layer: id = msg![env; view layer];
-            log_once!("Android H.264 movie frames composited in UIKit view");
+            static VIDEO_FRAME_COUNT: std::sync::atomic::AtomicUsize =
+                std::sync::atomic::AtomicUsize::new(0);
+            let frame_number = VIDEO_FRAME_COUNT.fetch_add(
+                1, std::sync::atomic::Ordering::Relaxed,
+            ) + 1;
+            if matches!(frame_number, 1 | 15 | 30 | 90 | 180) {
+                let bright = pixels.chunks_exact(4)
+                    .filter(|rgba| rgba[0] > 32 || rgba[1] > 32 || rgba[2] > 32)
+                    .count();
+                let rect: CGRect = msg![env; view frame];
+                let superview: id = msg![env; view superview];
+                let window: id = msg![env; view window];
+                let hidden: bool = msg![env; view isHidden];
+                let opacity: f32 = msg![env; layer opacity];
+                log!(
+                    "Android video frame {frame_number}: {}x{}, bright={bright}/{}, view={view:?}, frame={rect:?}, superview={superview:?}, window={window:?}, hidden={hidden}, opacity={opacity:.2}",
+                    width, height, pixels.len() / 4,
+                );
+            }
             present_movie_pixels(env, layer, pixels, width, height);
         } else {
             log_once!("Android movie frame decoded but player has no view");
