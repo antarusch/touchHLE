@@ -26,6 +26,10 @@ pub struct State {
     active_player: Option<id>,
     #[cfg(target_os = "android")]
     hunters_create_save_visible: bool,
+    /// Once save creation has switched to gameplay, do not draw the intro movie
+    /// over the game's Core Animation / GL content.
+    #[cfg(target_os = "android")]
+    hunters_gameplay_transition: bool,
     #[cfg(target_os = "android")]
     hunters_create_save_controller: Option<id>,
     #[cfg(target_os = "android")]
@@ -207,6 +211,14 @@ pub(super) fn set_hunters_create_save_visible(
     log!("Hunters 2 Create Save overlay visible={visible}; depth change deferred");
 }
 
+// Called from the guest message-dispatch path: only record state here.
+// All Core Animation mutations happen later during the host video tick.
+#[cfg(target_os = "android")]
+pub(super) fn set_hunters_gameplay_transition(env: &mut Environment, started: bool) {
+    State::get(env).hunters_gameplay_transition = started;
+    log!("Hunters 2 gameplay transition: started={started}; movie depth change deferred");
+}
+
 // Change drawing depth without modifying the game's logical subview order.
 #[cfg(target_os = "android")]
 fn restore_hunters_movie_overlay(env: &mut Environment, view: id, original_z: CGFloat) {
@@ -216,8 +228,13 @@ fn restore_hunters_movie_overlay(env: &mut Environment, view: id, original_z: CG
     let container: id = msg![env; view superview];
     if container != nil {
         let layer: id = msg![env; container layer];
-        () = msg![env; layer setZPosition:original_z];
-        log!("Hunters 2 movie overlay: restored layer {layer:?} z={original_z}");
+        let depth = if State::get(env).hunters_gameplay_transition {
+            -1000.0
+        } else {
+            original_z
+        };
+        () = msg![env; layer setZPosition:depth];
+        log!("Hunters 2 movie overlay: restored layer {layer:?} z={depth}");
     }
 }
 
@@ -314,6 +331,22 @@ fn movie_video_tick(env: &mut Environment) {
         .borrow::<MPMoviePlayerControllerHostObject>(player)
         .view;
     update_hunters_create_save_depth(env, movie_view);
+    // Hunters 2 can leave the title video looping after a successful
+    // Create Save callback. Keep decoding it for game notifications, but
+    // render behind the game instead of covering the next scene.
+    if State::get(env).hunters_gameplay_transition && movie_view != nil {
+        let movie_container: id = msg![env; movie_view superview];
+        if movie_container != nil {
+            let layer: id = msg![env; movie_container layer];
+            let z: CGFloat = msg![env; layer zPosition];
+            if z != -1000.0 {
+                () = msg![env; layer setZPosition:-1000.0f32];
+                log!(
+                    "Hunters 2 gameplay video depth: layer={layer:?}, old_z={z}, new_z=-1000"
+                );
+            }
+        }
+    }
     let (frame, view, ending, looping, error) = {
         let host = env
             .objc
@@ -379,7 +412,10 @@ fn movie_video_tick(env: &mut Environment) {
             }
             // Adjust drawing depth only; reordering UIKit subviews breaks
             // Hunters 2's overlay manager during Create Save.
-            if is_hunters_2 && !State::get(env).hunters_create_save_visible {
+            if is_hunters_2
+                && !State::get(env).hunters_create_save_visible
+                && !State::get(env).hunters_gameplay_transition
+            {
                 let needs_raise = {
                     let host = env
                         .objc
