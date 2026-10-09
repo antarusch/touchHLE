@@ -328,6 +328,23 @@ pub const CLASSES: ClassExports = objc_classes! {
             unsafe { read_renderbuffer(gles.as_mut(), pixels) }
         };
         log_once!("OpenGL ES 2.0 renderbuffer presentation via Core Animation readback");
+        static ES2_FRAME_COUNTER: std::sync::atomic::AtomicUsize =
+            std::sync::atomic::AtomicUsize::new(0);
+        let frame = ES2_FRAME_COUNTER.fetch_add(
+            1, std::sync::atomic::Ordering::Relaxed,
+        ) + 1;
+        if matches!(frame, 1 | 30 | 120) {
+            let pixel_count = pixels.len() / 4;
+            let non_black = pixels.chunks_exact(4)
+                .filter(|p| p[0] != 0 || p[1] != 0 || p[2] != 0).count();
+            log!(
+                "GLES2 present frame {frame}: renderbuffer {renderbuffer}, size {width}x{height}, non-black {non_black}/{pixel_count}",
+            );
+        }
+        if width == 0 || height == 0 {
+            log!("OpenGL ES 2.0 renderbuffer has zero dimensions; skipping presentation");
+            return false;
+        }
         present_pixels(env, drawable, pixels, width, height);
         if let Some(sleep_for) = sleep_for {
             env.sleep(sleep_for);
