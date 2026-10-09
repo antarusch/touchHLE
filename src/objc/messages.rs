@@ -300,7 +300,7 @@ Type mismatch when sending message {} to {:?}!
                             );
                         }
                         guest_imp.call_without_pushing_stack_frame(env)
-                    },
+                    }
                 }
                 return;
             } else {
