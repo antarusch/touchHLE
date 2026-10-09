@@ -218,10 +218,12 @@ fn objc_msgSend_inner(
             if matches!(class, Some("OverlayCreateSave")) {
                 log!("Hunters 2 create-save overlay: class={class:?}, selector={name}");
                 #[cfg(target_os = "android")]
-                crate::frameworks::media_player::set_hunters_create_save_visible(
-                    env,
-                    name == "show",
-                );
+                {
+                    let visible = name == "show";
+                    crate::frameworks::media_player::set_hunters_create_save_visible(
+                        env, visible,
+                    );
+                }
             }
         }
     }
