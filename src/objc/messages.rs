@@ -221,7 +221,7 @@ fn objc_msgSend_inner(
                 env.objc.try_get_class_name(orig_class),
             );
         }
-        // Diagnose why the status-3 controller construction is skipped.
+        // Diagnose the status-3 transition to the next controller.
         // These offsets come from Hunters 2's ARMv7 Objective-C accessors.
         // Read guest fields directly to avoid nested Objective-C dispatch.
         #[cfg(target_os = "android")]
@@ -280,9 +280,7 @@ fn objc_msgSend_inner(
                 "alloc" | "initWithDelegate:" | "onTextFinished" | "onSkipPressed"
             )
         {
-            log!(
-                "Hunters 2 intro controller: selector={name}, receiver={receiver:?}"
-            );
+            log!("Hunters 2 intro controller: selector={name}, receiver={receiver:?}");
         }
         // Track the save-menu unload and replacement-controller callbacks.
         // Hunters 2 enters status 3 during this handoff, before GLES starts.
