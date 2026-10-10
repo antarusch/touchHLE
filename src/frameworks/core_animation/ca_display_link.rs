@@ -25,6 +25,61 @@ struct CADisplayLinkHostObject {
 }
 impl HostObject for CADisplayLinkHostObject {}
 
+
+// Hunters 2 uses an asynchronous screen-unload handoff. In touchHLE the
+// SaveMenuController sometimes remains active after the unload request.
+// Complete the game's own callbacks only if it remains stuck for 90 frames.
+#[cfg(target_os = "android")]
+fn finish_stalled_hunters_intro_handoff(env: &mut crate::Environment, target: id) {
+    use crate::mem::ConstPtr;
+    use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
+
+    static LAST_CONTROLLER: AtomicU32 = AtomicU32::new(0);
+    static WAIT_FRAMES: AtomicUsize = AtomicUsize::new(0);
+
+    if env.bundle.bundle_identifier() != "uk.co.rodeogames.hunterstwo" {
+        return;
+    }
+
+    let game = target.to_bits();
+    let status: i32 = env.mem.read(ConstPtr::from_bits(game + 0xc8));
+    let next_type: i32 = env.mem.read(ConstPtr::from_bits(game + 0x9c));
+    let current: u32 = env.mem.read(ConstPtr::from_bits(game + 0x98));
+    let save_menu = if current != 0 {
+        let controller_type: i32 = env.mem.read(ConstPtr::from_bits(current + 0xa4));
+        controller_type == 1
+    } else {
+        false
+    };
+
+    if status != 3 || next_type != 6 || !save_menu {
+        LAST_CONTROLLER.store(0, Ordering::Relaxed);
+        WAIT_FRAMES.store(0, Ordering::Relaxed);
+        return;
+    }
+
+    let frames = if LAST_CONTROLLER.load(Ordering::Relaxed) == current {
+        WAIT_FRAMES.fetch_add(1, Ordering::Relaxed) + 1
+    } else {
+        LAST_CONTROLLER.store(current, Ordering::Relaxed);
+        WAIT_FRAMES.store(1, Ordering::Relaxed);
+        1
+    };
+    if frames != 90 {
+        return;
+    }
+
+    // Preserve the game's cleanup and delegate notification semantics.
+    let old_controller = id::from_bits(current);
+    let on_unload = env.objc.lookup_selector("onUnload").unwrap();
+    let on_unload_finished = env.objc.lookup_selector("onUnloadFinished").unwrap();
+    log!(
+        "Hunters 2 stalled unload: calling SaveMenuController onUnload and onUnloadFinished after {frames} frames"
+    );
+    () = msg_send_no_type_checking(env, (old_controller, on_unload));
+    () = msg_send_no_type_checking(env, (old_controller, on_unload_finished));
+}
+
 pub const CLASSES: ClassExports = objc_classes! {
 
 (env, this, _cmd);
@@ -112,10 +167,15 @@ pub const CLASSES: ClassExports = objc_classes! {
     // Apple's documented callback takes the display link as an argument, but
     // some older apps use a zero-argument selector. Objective-C tolerates that,
     // so support both forms here.
-    if selector.as_str(&env.mem).ends_with(':') {
+    let selector_name = selector.as_str(&env.mem).to_owned();
+    if selector_name.ends_with(':') {
         () = msg_send_no_type_checking(env, (target, selector, this));
     } else {
         () = msg_send_no_type_checking(env, (target, selector));
+    }
+    #[cfg(target_os = "android")]
+    if selector_name == "gameUpdate" {
+        finish_stalled_hunters_intro_handoff(env, target);
     }
 }
 
