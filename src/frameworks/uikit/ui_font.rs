@@ -38,6 +38,8 @@ impl State {
                 FontKind::SerifRegular => Font::serif_regular(),
                 FontKind::SerifBold => Font::serif_bold(),
                 FontKind::SerifBoldItalic => Font::serif_bold_italic(),
+                FontKind::HuntersEurostile => Font::sans_regular(),
+                FontKind::HuntersGothic => Font::sans_bold(),
                 FontKind::SerifItalic => Font::serif_italic(),
             })
     }
@@ -57,6 +59,31 @@ enum FontKind {
     SerifBold,
     SerifBoldItalic,
     SerifItalic,
+    HuntersEurostile,
+    HuntersGothic,
+}
+
+// Hunters 2 bundles these fonts. Only this game loads them through the
+// guest filesystem, without affecting other applications.
+fn hunters_bundled_font(env: &mut Environment, name: &str) -> Option<FontKind> {
+    if env.bundle.bundle_identifier_opt() != Some("uk.co.rodeogames.hunterstwo") {
+        return None;
+    }
+    let (kind, filename) = match name {
+        "Eurostile" => (FontKind::HuntersEurostile, "eurosti.ttf"),
+        "BankGothic Md BT" => (FontKind::HuntersGothic, "bankgthd.ttf"),
+        _ => return None,
+    };
+    if !env.framework_state.uikit.ui_font.fonts.contains_key(&kind) {
+        let path = env.bundle.bundle_path().join(filename);
+        let Ok(bytes) = env.fs.read(path) else {
+            log!("Hunters 2 bundled font {} not available", filename);
+            return None;
+        };
+        env.framework_state.uikit.ui_font.fonts.insert(kind, Font::from_vec(bytes));
+        log!("Hunters 2 loaded bundled font {}", filename);
+    }
+    Some(kind)
 }
 
 struct UIFontHostObject {
@@ -152,7 +179,8 @@ pub const CLASSES: ClassExports = objc_classes! {
             size:(CGFloat)fontSize {
     let font_name = to_rust_string(env, fontName).to_string();
     let host_object = UIFontHostObject {
-        kind: get_equivalent_font(&font_name).unwrap_or_else(|| {
+        kind: hunters_bundled_font(env, &font_name)
+            .or_else(|| get_equivalent_font(&font_name)).unwrap_or_else(|| {
             log!("No replacement found for font {}. Using system font instead.", font_name);
             FontKind::SansRegular
         }),
@@ -168,7 +196,10 @@ pub const CLASSES: ClassExports = objc_classes! {
     let kind = if name == nil {
         FontKind::SansRegular
     } else {
-        get_equivalent_font(&to_rust_string(env, name)).unwrap_or(FontKind::SansRegular)
+        let font_name = to_rust_string(env, name).into_owned();
+        hunters_bundled_font(env, &font_name)
+            .or_else(|| get_equivalent_font(&font_name))
+            .unwrap_or(FontKind::SansRegular)
     };
     let key = get_static_str(env, "UIFontPointSize");
     let size: f64 = msg![env; coder decodeDoubleForKey:key];
@@ -237,13 +268,13 @@ fn get_font<'a>(state: &'a mut State, kind: FontKind, text: &str) -> &'a Font {
            (0x3400..=0x4DBF).contains(&c) { // more kanji
             match kind {
                 // CJK has no italic equivalent
-                FontKind::MonoRegular | FontKind::MonoItalic | FontKind::SansRegular | FontKind::SansItalic | FontKind::SerifRegular | FontKind::SerifItalic => {
+                FontKind::MonoRegular | FontKind::MonoItalic | FontKind::SansRegular | FontKind::SansItalic | FontKind::SerifRegular | FontKind::SerifItalic | FontKind::HuntersEurostile => {
                     if state.sans_regular_ja.is_none() {
                         state.sans_regular_ja = Some(Font::sans_regular_ja());
                     }
                     return state.sans_regular_ja.as_ref().unwrap();
                 },
-                FontKind::MonoBold | FontKind::MonoBoldItalic | FontKind::SansBold | FontKind::SansBoldItalic | FontKind::SerifBold | FontKind::SerifBoldItalic => {
+                FontKind::MonoBold | FontKind::MonoBoldItalic | FontKind::SansBold | FontKind::SansBoldItalic | FontKind::SerifBold | FontKind::SerifBoldItalic | FontKind::HuntersGothic => {
                     if state.sans_bold_ja.is_none() {
                         state.sans_bold_ja = Some(Font::sans_bold_ja());
                     }
