@@ -47,6 +47,19 @@ pub const CLASSES: ClassExports = objc_classes! {
     )
 }
 
++ (())loadAchievementsWithCompletionHandler:(MutPtr<u8>)completion {
+    // No achievements are available without a real Game Center connection.
+    // Always invoke the completion so post-mission progression isn't stalled.
+    if !completion.is_null() {
+        let callback_address: u32 = env.mem.read((completion + 12).cast());
+        if callback_address != 0 {
+            let callback = GuestFunction::from_addr_with_thumb_bit(callback_address);
+            let achievements = ns_array::from_vec(env, Vec::<id>::new());
+            let _: () = callback.call_from_host(env, (completion, achievements, nil));
+        }
+    }
+}
+
 - (id)initWithIdentifier:(id)identifier {
     if identifier == nil {
         return nil;
@@ -86,18 +99,6 @@ pub const CLASSES: ClassExports = objc_classes! {
     finish_report(env, completion);
 }
 
-+ (())loadAchievementsWithCompletionHandler:(MutPtr<u8>)completion {
-    // No achievements are available without a real Game Center connection.
-    // Always invoke the completion so post-mission progression isn't stalled.
-    if !completion.is_null() {
-        let callback_address: u32 = env.mem.read((completion + 12).cast());
-        if callback_address != 0 {
-            let callback = GuestFunction::from_addr_with_thumb_bit(callback_address);
-            let achievements = ns_array::from_vec(env, Vec::<id>::new());
-            let _: () = callback.call_from_host(env, (completion, achievements, nil));
-        }
-    }
-}
 
 @end
 
