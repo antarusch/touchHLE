@@ -352,6 +352,26 @@ fn objc_msgSend_inner(
                 crate::frameworks::media_player::set_hunters_gameplay_transition(env, false);
             }
         }
+        // Observe tutorial state changes without invoking any guest code.
+        // The first mission currently shows seven placeholder tutorial labels
+        // instead of revealing only tutorials as they become relevant.
+        #[cfg(target_os = "android")]
+        if env.bundle.bundle_identifier_opt() == Some("uk.co.rodeogames.hunterstwo")
+            && env.objc.try_get_class_name(orig_class) == Some("OverlayTutorial")
+            && matches!(
+                name,
+                "setTutorialState:newState:"
+                    | "showTutorialPopup:"
+                    | "setTutorialPopup:"
+                    | "getFirstFreeTutorialSlot"
+                    | "onTutorialTapped:"
+                    | "onTutorialPopupDismiss:"
+            )
+        {
+            let arg0 = env.cpu.regs()[2];
+            let arg1 = env.cpu.regs()[3];
+            log!("Hunters 2 tutorial state: selector={name}, arg0={arg0:#x}, arg1={arg1:#x}");
+        }
         // Observe overlay visibility in Hunters 2 without invoking nested guest
         // methods during Objective-C dispatch.
         // Earlier nested dispatch caused guest CPU crashes.
