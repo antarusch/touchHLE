@@ -145,6 +145,27 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.alloc_object(this, host_object, &mut env.mem)
 }
 
+// Used by Hunters 2 during gameplay HUD number formatting.
+// The existing formatter is locale-neutral. Support the no-style and
+// decimal-style forms; other styles currently fall back to NSNumber's text.
++ (id)localizedStringFromNumber:(id)number numberStyle:(NSInteger)style {
+    if number == nil {
+        return nil;
+    }
+
+    let string: id = msg![env; number stringValue];
+    let value = ns_string::to_rust_string(env, string);
+    let formatted = if style == 1 {
+        // NSNumberFormatterDecimalStyle uses three-digit grouping in the
+        // English locale reported to Hunters 2.
+        apply_grouping(&value, ",", 3)
+    } else {
+        value.into_owned()
+    };
+    let result = ns_string::from_rust_string(env, formatted);
+    autorelease(env, result)
+}
+
 - (())setLocale:(id)_locale {
     // Rogue Planet sets the formatter locale to match its selected language.
     // The current formatter implementation is locale-neutral apart from the
