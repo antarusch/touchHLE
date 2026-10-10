@@ -100,6 +100,20 @@ pub(crate) fn hunters_ship_load_started(env: &mut crate::Environment, ship: crat
 }
 
 #[cfg(target_os = "android")]
+pub(crate) fn queue_hunters_drop_load(
+    env: &mut crate::Environment,
+    game: crate::objc::id,
+    drop: crate::objc::id,
+) {
+    movie_player::queue_hunters_drop_load(env, game, drop);
+}
+
+#[cfg(target_os = "android")]
+pub(crate) fn hunters_drop_load_started(env: &mut crate::Environment, drop: crate::objc::id) {
+    movie_player::hunters_drop_load_started(env, drop);
+}
+
+#[cfg(target_os = "android")]
 pub(crate) fn hunters_replacement_scene_displayed(env: &mut crate::Environment) {
     movie_player::hunters_replacement_scene_displayed(env);
 }
