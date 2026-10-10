@@ -197,9 +197,9 @@ fn objc_msgSend_inner(
         let name_owned = selector.as_str(&env.mem).to_owned();
         let name = name_owned.as_str();
         // Hunters 2's GestureCollector.onPan: passes InputIOS.m_mini to
-        // the game's coordinate conversion routine. During End Turn this
-        // pointer may be null, causing a guest load at 0x1317a from 0x50.
-        // This guard applies only to the exact Hunters 2 ARMv7 binary.
+        // the game's coordinate conversion routine. If Mini is null while its
+        // pan-mode flag remains set, that routine faults at 0x1317a.
+        // This fix is scoped to the Hunters 2 bundle on Android.
         #[cfg(target_os = "android")]
         if name == "onPan:" && env.objc.try_get_class_name(orig_class) == Some("GestureCollector") {
             use crate::mem::ConstPtr;
@@ -213,17 +213,26 @@ fn objc_msgSend_inner(
             } else {
                 env.mem.read(ConstPtr::from_bits(input_slot))
             };
-            let mini: u32 = if input == 0 {
-                0
-            } else {
-                env.mem.read(ConstPtr::from_bits(input + 0x24))
-            };
-            if mini == 0 {
-                log_once!("Hunters 2: ignored pan gesture while InputIOS Mini is null");
-                // onPan: returns void. Do not change game state or other
-                // recognizers; later valid pan gestures still run normally.
+            if input == 0 {
+                // There is no InputIOS instance to receive this gesture.
+                log_once!("Hunters 2: ignored pan with no InputIOS instance");
                 env.cpu.regs_mut()[0..2].fill(0);
                 return;
+            }
+            let mini: u32 = env.mem.read(ConstPtr::from_bits(input + 0x24));
+            if mini == 0 {
+                // InputIOS.onPan (0x1ff84) chooses the Mini-specific
+                // coordinate conversion at 0x2000c when bit 0 of +0x30
+                // is set. That routine dereferences Mini (+0x24) and
+                // crashes at 0x1317a when no Mini is selected. Clear only
+                // this stale mode bit so normal camera panning at 0x1fff0
+                // still receives the original gesture.
+                use crate::mem::MutPtr;
+                let mode: u8 = env.mem.read(ConstPtr::from_bits(input + 0x30));
+                if mode & 1 != 0 {
+                    env.mem.write(MutPtr::from_bits(input + 0x30), mode & !1);
+                    log_once!("Hunters 2: cleared stale Mini pan mode; camera pan remains active");
+                }
             }
         }
         if matches!(
