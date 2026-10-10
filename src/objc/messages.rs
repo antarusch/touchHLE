@@ -414,6 +414,16 @@ fn objc_msgSend_inner(
                     );
                 }
             }
+            if matches!(class.as_deref(), Some("OverlayResumeContract")) {
+                #[cfg(target_os = "android")]
+                {
+                    crate::frameworks::media_player::set_hunters_resume_contract_visible(
+                        env,
+                        name == "show",
+                        receiver,
+                    );
+                }
+            }
             if matches!(class.as_deref(), Some("OverlayCreateSave")) {
                 log!("Hunters 2 create-save overlay: class={class:?}, selector={name}");
                 #[cfg(target_os = "android")]
