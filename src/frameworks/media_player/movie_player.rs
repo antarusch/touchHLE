@@ -1300,7 +1300,10 @@ pub(super) fn handle_players(env: &mut Environment) {
         let status: u32 = env.mem.read(ConstPtr::from_bits(game_addr + 0xc8));
         let core: u32 = env.mem.read(ConstPtr::from_bits(game_addr + 0x98));
         let next_type: i32 = env.mem.read(ConstPtr::from_bits(game_addr + 0x9c));
-        if status != 3 || core != menu_addr || next_type != 4 {
+        // A saved contract transitions to type 3 (DropGameController);
+        // type 4 is the ship-hub path. In either case the old core must
+        // still be the same SaveMenuController in loading status 3.
+        if status != 3 || core != menu_addr || !matches!(next_type, 3 | 4) {
             State::get(env).hunters_pending_save_unload = None;
         } else if queued_at.elapsed() >= Duration::from_millis(1200) {
             State::get(env).hunters_pending_save_unload = None;
