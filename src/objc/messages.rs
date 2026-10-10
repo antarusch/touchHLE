@@ -196,6 +196,37 @@ fn objc_msgSend_inner(
     if env.bundle.bundle_identifier_opt() == Some("uk.co.rodeogames.hunterstwo") {
         let name_owned = selector.as_str(&env.mem).to_owned();
         let name = name_owned.as_str();
+        // Hunters 2's GestureCollector.onPan: passes InputIOS.m_mini to
+        // the game's coordinate conversion routine. During End Turn this
+        // pointer may be null, causing a guest load at 0x1317a from 0x50.
+        // This guard applies only to the exact Hunters 2 ARMv7 binary.
+        #[cfg(target_os = "android")]
+        if name == "onPan:"
+            && env.objc.try_get_class_name(orig_class) == Some("GestureCollector")
+        {
+            use crate::mem::ConstPtr;
+
+            // The onPan: IMP at 0x2061c loads InputIOS through this
+            // pointer-to-pointer global. InputIOS's Mini pointer is +0x24.
+            let input_slot: u32 = env.mem.read(ConstPtr::from_bits(0x1d1a9c));
+            let input: u32 = if input_slot == 0 {
+                0
+            } else {
+                env.mem.read(ConstPtr::from_bits(input_slot))
+            };
+            let mini: u32 = if input == 0 {
+                0
+            } else {
+                env.mem.read(ConstPtr::from_bits(input + 0x24))
+            };
+            if mini == 0 {
+                log_once!("Hunters 2: ignored pan gesture while InputIOS Mini is null");
+                // onPan: returns void. Do not change game state or other
+                // recognizers; later valid pan gestures still run normally.
+                env.cpu.regs_mut()[0..2].fill(0);
+                return;
+            }
+        }
         if matches!(
             name,
             "onSaveSlotPressed:"
