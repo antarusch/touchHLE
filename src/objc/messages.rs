@@ -338,10 +338,31 @@ fn objc_msgSend_inner(
                 use crate::frameworks::core_graphics::cg_affine_transform::CGAffineTransform;
                 use crate::frameworks::core_graphics::CGRect;
                 let parent_bounds: CGRect = msg![env; parent bounds];
-                let view_bounds: CGRect = msg![env; view bounds];
+                let mut view_bounds: CGRect = msg![env; view bounds];
                 let transform: CGAffineTransform = msg![env; view transform];
                 let (parent_width, parent_height) =
                     (parent_bounds.size.width, parent_bounds.size.height);
+                // The original OverlayDropgameAbilities iPhone nib defines a
+                // 390x56 root view containing seven UIButton children. The
+                // runtime sometimes shrinks that root to 56x56, so the icons
+                // can render outside the parent's hit-test area. Restore only
+                // that exact collapsed landscape case; preserve all buttons,
+                // nib targets, and the game's AP/Guard decisions.
+                if parent_width > parent_height
+                    && (view_bounds.size.width - 56.0).abs() < 0.5
+                    && (view_bounds.size.height - 56.0).abs() < 0.5
+                {
+                    let mut expanded_bounds = view_bounds;
+                    expanded_bounds.size.width = 390.0;
+                    () = msg_class![env; CATransaction begin];
+                    () = msg_class![env; CATransaction setDisableActions:true];
+                    () = msg![env; view setBounds:expanded_bounds];
+                    () = msg_class![env; CATransaction commit];
+                    log!(
+                        "Hunters 2: restored abilities root hit-test bounds 56x56 -> 390x56"
+                    );
+                    view_bounds = expanded_bounds;
+                }
                 let (view_width, view_height) = (view_bounds.size.width, view_bounds.size.height);
                 let (old_x, old_y) = (transform.tx, transform.ty);
                 if parent_width > parent_height
