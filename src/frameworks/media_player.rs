@@ -77,6 +77,15 @@ pub(crate) fn set_hunters_gameplay_transition(env: &mut crate::Environment, star
 }
 
 #[cfg(target_os = "android")]
+pub(crate) fn queue_hunters_save_menu_unload(
+    env: &mut crate::Environment,
+    game_controller: crate::objc::id,
+    save_menu: crate::objc::id,
+) {
+    movie_player::queue_hunters_save_menu_unload(env, game_controller, save_menu);
+}
+
+#[cfg(target_os = "android")]
 pub(crate) fn hunters_replacement_scene_displayed(env: &mut crate::Environment) {
     movie_player::hunters_replacement_scene_displayed(env);
 }
