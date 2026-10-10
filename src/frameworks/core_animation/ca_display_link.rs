@@ -69,15 +69,16 @@ fn finish_stalled_hunters_intro_handoff(env: &mut crate::Environment, target: id
         return;
     }
 
-    // Preserve the game's cleanup and delegate notification semantics.
+    // The game's SaveMenuController.onUnload directly calls the inherited
+    // CoreViewController.onUnloadFinished, which notifies GameController and
+    // releases the outgoing controller. Do not invoke onUnloadFinished again:
+    // that would send a second completion to an already-released controller.
     let old_controller = id::from_bits(current);
     let on_unload = env.objc.lookup_selector("onUnload").unwrap();
-    let on_unload_finished = env.objc.lookup_selector("onUnloadFinished").unwrap();
     log!(
-        "Hunters 2 stalled unload: calling SaveMenuController onUnload and onUnloadFinished after {frames} frames"
+        "Hunters 2 stalled unload: invoking SaveMenuController onUnload after {frames} frames"
     );
     () = msg_send_no_type_checking(env, (old_controller, on_unload));
-    () = msg_send_no_type_checking(env, (old_controller, on_unload_finished));
 }
 
 pub const CLASSES: ClassExports = objc_classes! {
