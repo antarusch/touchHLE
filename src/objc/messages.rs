@@ -358,9 +358,7 @@ fn objc_msgSend_inner(
                     () = msg_class![env; CATransaction setDisableActions:true];
                     () = msg![env; view setBounds:expanded_bounds];
                     () = msg_class![env; CATransaction commit];
-                    log!(
-                        "Hunters 2: restored abilities root hit-test bounds 56x56 -> 390x56"
-                    );
+                    log!("Hunters 2: restored abilities root hit-test bounds 56x56 -> 390x56");
                     view_bounds = expanded_bounds;
                 }
                 let (view_width, view_height) = (view_bounds.size.width, view_bounds.size.height);
