@@ -616,6 +616,12 @@ pub const CLASSES: ClassExports = objc_classes! {
     msg![env; this compare:other options:NSLiteralSearch]
 }
 
+- (NSComparisonResult)localizedCaseInsensitiveCompare:(id)other { // NSString*
+    // TODO: honor locale-specific collation rules; use the existing
+    // Unicode-aware case-insensitive comparison in the meantime.
+    msg![env; this compare:other options:NSCaseInsensitiveSearch]
+}
+
 - (NSComparisonResult)caseInsensitiveCompare:(id)other { //NSString*
     msg![env; this compare:other options:NSCaseInsensitiveSearch]
 }
