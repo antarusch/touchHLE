@@ -237,15 +237,17 @@ fn objc_msgSend_inner(
                 let frame = STATUS3_FRAMES.fetch_add(1, Ordering::Relaxed) + 1;
                 if matches!(frame, 1 | 30 | 120) {
                     let core: u32 = env.mem.read(ConstPtr::from_bits(controller + 0x98));
+                    let next_type: i32 = env.mem.read(ConstPtr::from_bits(controller + 0x9c));
                     if core != 0 {
                         let has_update: u8 = env.mem.read(ConstPtr::from_bits(core + 0xa0));
-                        let loaded: u8 = env.mem.read(ConstPtr::from_bits(core + 0xa1));
+                        let show_tip: u8 = env.mem.read(ConstPtr::from_bits(core + 0xa1));
                         let updates_singletons: u8 = env.mem.read(ConstPtr::from_bits(core + 0xa2));
+                        let is_loaded: u8 = env.mem.read(ConstPtr::from_bits(core + 0xa3));
                         log!(
-                            "Hunters 2 status-3 update gate: frame={frame}, core={core:#x}, has_update={has_update}, loaded={loaded}, updates_singletons={updates_singletons}"
+                            "Hunters 2 status-3 update gate: frame={frame}, next_type={next_type}, core={core:#x}, has_update={has_update}, show_tip={show_tip}, updates_singletons={updates_singletons}, is_loaded={is_loaded}"
                         );
                     } else {
-                        log!("Hunters 2 status-3 update gate: frame={frame}, core=nil");
+                        log!("Hunters 2 status-3 update gate: frame={frame}, next_type={next_type}, core=nil");
                     }
                 }
             }
@@ -269,6 +271,18 @@ fn objc_msgSend_inner(
                     env.cpu.regs()[2]
                 );
             }
+        }
+        // A newly created game requests controller type 6: IntroTextController.
+        // Trace that class rather than the DropGameController used by type 3.
+        if env.objc.try_get_class_name(orig_class) == Some("IntroTextController")
+            && matches!(
+                name,
+                "alloc" | "initWithDelegate:" | "onTextFinished" | "onSkipPressed"
+            )
+        {
+            log!(
+                "Hunters 2 intro controller: selector={name}, receiver={receiver:?}"
+            );
         }
         // Track the save-menu unload and replacement-controller callbacks.
         // Hunters 2 enters status 3 during this handoff, before GLES starts.
