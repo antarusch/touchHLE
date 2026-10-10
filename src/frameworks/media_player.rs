@@ -75,3 +75,8 @@ pub(crate) fn set_hunters_resume_contract_visible(
 pub(crate) fn set_hunters_gameplay_transition(env: &mut crate::Environment, started: bool) {
     movie_player::set_hunters_gameplay_transition(env, started);
 }
+
+#[cfg(target_os = "android")]
+pub(crate) fn hunters_replacement_scene_displayed(env: &mut crate::Environment) {
+    movie_player::hunters_replacement_scene_displayed(env);
+}
