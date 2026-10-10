@@ -40,6 +40,10 @@ pub struct State {
     // ShipGameController.onLoad. Apply a separate lifecycle-scoped recovery.
     #[cfg(target_os = "android")]
     hunters_pending_ship_load: Option<(id, id, Instant)>,
+    // Saved-contract DropGameController may need the game's real onLoad
+    // after the save menu handoff but before its first frame update.
+    #[cfg(target_os = "android")]
+    hunters_pending_drop_load: Option<(id, id, Instant)>,
     #[cfg(target_os = "android")]
     hunters_create_save_visible: bool,
     /// Once save creation has switched to gameplay, do not draw the intro movie
@@ -1189,6 +1193,28 @@ pub(super) fn queue_hunters_ship_load(env: &mut Environment, game: id, ship: id)
     log!("Hunters 2: queued ShipGameController load recovery for {ship:?}");
 }
 
+/// Remember the exact DropGameController awaiting the saved-contract load.
+#[cfg(target_os = "android")]
+pub(super) fn queue_hunters_drop_load(env: &mut Environment, game: id, drop: id) {
+    if env.bundle.bundle_identifier() != "uk.co.rodeogames.hunterstwo" {
+        return;
+    }
+    State::get(env).hunters_pending_drop_load = Some((game, drop, Instant::now()));
+    log!("Hunters 2: queued saved-contract DropGameController onLoad check for {drop:?}");
+}
+
+/// Cancel the fallback if Hunters 2 dispatches the real callback itself.
+#[cfg(target_os = "android")]
+pub(super) fn hunters_drop_load_started(env: &mut Environment, drop: id) {
+    if State::get(env)
+        .hunters_pending_drop_load
+        .is_some_and(|(_, pending, _)| pending == drop)
+    {
+        State::get(env).hunters_pending_drop_load = None;
+        log!("Hunters 2: DropGameController entered onLoad; recovery cancelled");
+    }
+}
+
 /// An actual onLoad event always wins over recovery.
 #[cfg(target_os = "android")]
 pub(super) fn hunters_ship_load_started(env: &mut Environment, ship: id) {
@@ -1313,6 +1339,34 @@ pub(super) fn handle_players(env: &mut Environment) {
                     "Hunters 2: stalled resume; calling SaveMenuController.onUnload after timeout"
                 );
                 let _: () = msg![env; menu onUnload];
+            }
+        }
+    }
+
+    // Do not run the first saved-contract update with an uninitialized
+    // DropGameController. Run its *real* onLoad if the game's handoff has
+    // selected this exact core in status 1 and it is still unloaded.
+    // This is deferred to NSRunLoop, not nested inside GameController.
+    #[cfg(target_os = "android")]
+    if let Some((game, drop, _queued_at)) = State::get(env).hunters_pending_drop_load {
+        use crate::mem::ConstPtr;
+        let game_addr = game.to_bits();
+        let drop_addr = drop.to_bits();
+        let status: u32 = env.mem.read(ConstPtr::from_bits(game_addr + 0xc8));
+        let current_core: u32 = env.mem.read(ConstPtr::from_bits(game_addr + 0x98));
+        let next_type: i32 = env.mem.read(ConstPtr::from_bits(game_addr + 0x9c));
+        let is_loaded: u8 = env.mem.read(ConstPtr::from_bits(drop_addr + 0xa3));
+        if current_core != drop_addr || next_type != 3 || status != 1 || is_loaded != 0 {
+            State::get(env).hunters_pending_drop_load = None;
+        } else {
+            let has_update: u8 = env.mem.read(ConstPtr::from_bits(drop_addr + 0xa0));
+            let updates_singletons: u8 = env.mem.read(ConstPtr::from_bits(drop_addr + 0xa2));
+            if has_update != 0 && updates_singletons != 0 {
+                State::get(env).hunters_pending_drop_load = None;
+                log!(
+                    "Hunters 2: saved-contract core unloaded in status 1; invoking original DropGameController.onLoad"
+                );
+                let _: () = msg![env; drop onLoad];
             }
         }
     }
