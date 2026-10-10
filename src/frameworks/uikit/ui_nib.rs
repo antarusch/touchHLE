@@ -19,6 +19,7 @@ use crate::objc::{
     release, retain, Class, ClassExports, HostObject,
 };
 use crate::Environment;
+use std::collections::HashMap;
 
 #[derive(Default)]
 struct UINibHostObject {
@@ -29,6 +30,9 @@ struct UINibHostObject {
     /// File's Owner
     /// (weak, non-retaining)
     file_owner: id,
+    // Collection outlets need to share one array when multiple nib
+    // connections target the same controller property.
+    collection_outlets: HashMap<(u32, String), id>,
 }
 impl HostObject for UINibHostObject {}
 
@@ -46,6 +50,14 @@ struct UIRuntimeEventConnectionHostObject {
     event_mask: UIControlEvents,
 }
 impl_HostObject_with_superclass!(UIRuntimeEventConnectionHostObject);
+
+#[derive(Default)]
+struct UIRuntimeOutletCollectionConnectionHostObject {
+    superclass: UIRuntimeConnectionHostObject,
+    // Weak reference to the UINib decoder delegate.
+    nib: id,
+}
+impl_HostObject_with_superclass!(UIRuntimeOutletCollectionConnectionHostObject);
 
 pub const CLASSES: ClassExports = objc_classes! {
 
@@ -69,7 +81,8 @@ pub const CLASSES: ClassExports = objc_classes! {
     let host_object = Box::new(UINibHostObject {
         nib_name,
         bundle,
-        file_owner: nil
+        file_owner: nil,
+        collection_outlets: HashMap::new(),
     });
     let new = env.objc.alloc_object(this, host_object, &mut env.mem);
 
@@ -103,6 +116,9 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     assert!(env.objc.borrow::<UINibHostObject>(this).file_owner == nil);
     env.objc.borrow_mut::<UINibHostObject>(this).file_owner = owner;
+    env.objc.borrow_mut::<UINibHostObject>(this)
+        .collection_outlets
+        .clear();
 
     let unarchiver = load_nib_file(env, this, GuestPathBuf::from(nib_path)).unwrap();
     let top_level_objects_key = get_static_str(env, "UINibTopLevelObjectsKey");
@@ -345,6 +361,53 @@ pub const CLASSES: ClassExports = objc_classes! {
     } = env.objc.borrow(this);
 
     () = msg![env; source setValue:destination forKey:label];
+}
+
+@end
+
+// An outlet collection contains several destination objects under one
+// property. UIKit archives one UIRuntimeOutletCollectionConnection per
+// item. Preserve the order and share a mutable array across connections.
+@implementation UIRuntimeOutletCollectionConnection: UIRuntimeConnection
+
++ (id)alloc {
+    let host_object = Box::<UIRuntimeOutletCollectionConnectionHostObject>::default();
+    env.objc.alloc_object(this, host_object, &mut env.mem)
+}
+
+- (id)initWithCoder:(id)coder {
+    let this: id = msg_super![env; this initWithCoder:coder];
+    let nib: id = msg![env; coder delegate];
+    env.objc.borrow_mut::<UIRuntimeOutletCollectionConnectionHostObject>(this).nib = nib;
+    this
+}
+
+- (())connect {
+    let &UIRuntimeConnectionHostObject {
+        destination,
+        label,
+        source,
+    } = env.objc.borrow(this);
+    let nib = env.objc.borrow::<UIRuntimeOutletCollectionConnectionHostObject>(this).nib;
+    let label_string = to_rust_string(env, label).to_string();
+    let key = (source.to_bits(), label_string);
+
+    let existing = env.objc.borrow::<UINibHostObject>(nib)
+        .collection_outlets
+        .get(&key)
+        .copied();
+    let collection = if let Some(collection) = existing {
+        collection
+    } else {
+        let collection: id = msg_class![env; NSMutableArray array];
+        () = msg![env; source setValue:collection forKey:label];
+        env.objc.borrow_mut::<UINibHostObject>(nib)
+            .collection_outlets
+            .insert(key, collection);
+        collection
+    };
+
+    () = msg![env; collection addObject:destination];
 }
 
 @end
