@@ -3,7 +3,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
-//! Minimal UIKit gesture recognizers for applications with gesture-driven input.
+//! Minimal UIKit gesture recognizers for gesture-driven applications.
 //! The view retains its recognizers; delegates and action targets are weak.
 
 use crate::frameworks::core_graphics::CGPoint;
