@@ -415,8 +415,9 @@ fn objc_msgSend_inner(
         }
         #[cfg(target_os = "android")]
         if name == "onLoad" {
-            let receiver_class =
-                env.objc.try_get_class_name(ObjC::read_isa(receiver, &env.mem));
+            let receiver_class = env
+                .objc
+                .try_get_class_name(ObjC::read_isa(receiver, &env.mem));
             if receiver_class == Some("ShipGameController") {
                 crate::frameworks::media_player::hunters_ship_load_started(env, receiver);
             } else if receiver_class == Some("DropGameController") {
