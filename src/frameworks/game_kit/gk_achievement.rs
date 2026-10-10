@@ -99,7 +99,6 @@ pub const CLASSES: ClassExports = objc_classes! {
     finish_report(env, completion);
 }
 
-
 @end
 
 };
