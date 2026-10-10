@@ -31,6 +31,11 @@ pub struct State {
     hunters_completed_player_holds: Vec<id>,
     #[cfg(target_os = "android")]
     hunters_replacement_scene_displayed: bool,
+    // SaveMenuController can remain attached in status 3 after a resume
+    // selection, leaving the next controller permanently blocked.
+    // Defer any recovery callback until outside objc_msgSend.
+    #[cfg(target_os = "android")]
+    hunters_pending_save_unload: Option<(id, id, Instant)>,
     #[cfg(target_os = "android")]
     hunters_create_save_visible: bool,
     /// Once save creation has switched to gameplay, do not draw the intro movie
@@ -1133,6 +1138,22 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 };
 
+/// Schedule recovery of a stalled save-menu unload. No guest message is
+/// dispatched from within GameController.onCoreViewReadyToUnload.
+#[cfg(target_os = "android")]
+pub(super) fn queue_hunters_save_menu_unload(
+    env: &mut Environment,
+    game_controller: id,
+    save_menu: id,
+) {
+    if env.bundle.bundle_identifier() != "uk.co.rodeogames.hunterstwo" {
+        return;
+    }
+    State::get(env).hunters_pending_save_unload =
+        Some((game_controller, save_menu, Instant::now()));
+    log!("Hunters 2: queued SaveMenuController unload recovery for {save_menu:?}");
+}
+
 /// Mark the safe handoff point without dispatching Objective-C messages
 /// inside GameController's own Objective-C method invocation.
 #[cfg(target_os = "android")]
@@ -1217,6 +1238,32 @@ pub(super) fn handle_players(env: &mut Environment) {
             }
             #[cfg(not(target_os = "android"))]
             release(env, object);
+        }
+    }
+
+    // If the resume transition has been stuck for at least one second,
+    // invoke SaveMenuController's *real* onUnload implementation, which
+    // performs its cleanup and calls onUnloadFinished. Do not synthesize
+    // status changes or bypass the game's controller lifecycle.
+    #[cfg(target_os = "android")]
+    if let Some((game, menu, queued_at)) = State::get(env).hunters_pending_save_unload {
+        use crate::mem::ConstPtr;
+        let game_addr = game.to_bits();
+        let menu_addr = menu.to_bits();
+        let status: u32 = env.mem.read(ConstPtr::from_bits(game_addr + 0xc8));
+        let core: u32 = env.mem.read(ConstPtr::from_bits(game_addr + 0x98));
+        let next_type: i32 = env.mem.read(ConstPtr::from_bits(game_addr + 0x9c));
+        if status != 3 || core != menu_addr || next_type != 4 {
+            State::get(env).hunters_pending_save_unload = None;
+        } else if queued_at.elapsed() >= Duration::from_millis(1200) {
+            State::get(env).hunters_pending_save_unload = None;
+            let is_loaded: u8 = env.mem.read(ConstPtr::from_bits(menu_addr + 0xa3));
+            if is_loaded != 0 {
+                log!(
+                    "Hunters 2: stalled resume; calling SaveMenuController.onUnload after timeout"
+                );
+                let _: () = msg![env; menu onUnload];
+            }
         }
     }
 
