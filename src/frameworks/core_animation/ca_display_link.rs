@@ -130,6 +130,77 @@ fn finish_stalled_hunters_intro_load(env: &mut crate::Environment, target: id) {
     () = msg_send_no_type_checking(env, (target, on_showing, 6_i32));
 }
 
+// Defer Hunters 2 dialogue-overlay visibility probes until the next display
+// tick. Querying guest UIView properties from within objc_msgSend is unsafe.
+#[cfg(target_os = "android")]
+static HUNTERS_DIALOGUE_CONTROLLER: std::sync::atomic::AtomicU32 =
+    std::sync::atomic::AtomicU32::new(0);
+#[cfg(target_os = "android")]
+static HUNTERS_DIALOGUE_VISIBLE: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+#[cfg(target_os = "android")]
+static HUNTERS_DIALOGUE_FRAMES: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
+#[cfg(target_os = "android")]
+pub(crate) fn note_hunters_dialogue_overlay(controller: id, visible: bool) {
+    use std::sync::atomic::Ordering;
+    HUNTERS_DIALOGUE_CONTROLLER.store(controller.to_bits(), Ordering::Relaxed);
+    HUNTERS_DIALOGUE_VISIBLE.store(visible, Ordering::Relaxed);
+    HUNTERS_DIALOGUE_FRAMES.store(0, Ordering::Relaxed);
+}
+
+#[cfg(target_os = "android")]
+fn probe_hunters_dialogue_overlay(env: &mut crate::Environment) {
+    use std::sync::atomic::Ordering;
+    if env.bundle.bundle_identifier_opt() != Some("uk.co.rodeogames.hunterstwo") {
+        return;
+    }
+    let controller = HUNTERS_DIALOGUE_CONTROLLER.load(Ordering::Relaxed);
+    if controller == 0 {
+        return;
+    }
+    let frame = HUNTERS_DIALOGUE_FRAMES.fetch_add(1, Ordering::Relaxed) + 1;
+    if frame != 1 && frame != 20 {
+        return;
+    }
+    let visible = HUNTERS_DIALOGUE_VISIBLE.load(Ordering::Relaxed);
+    let controller = id::from_bits(controller);
+    let mut view: id = msg![env; controller view];
+    let root = view;
+    for depth in 0..6 {
+        if view == nil {
+            break;
+        }
+        let hidden: bool = msg![env; view isHidden];
+        let alpha: f32 = msg![env; view alpha];
+        let frame_rect: crate::frameworks::core_graphics::CGRect = msg![env; view frame];
+        let layer: id = msg![env; view layer];
+        let z: f32 = msg![env; layer zPosition];
+        let subviews: id = msg![env; view subviews];
+        let count: usize = msg![env; subviews count];
+        log!(
+            "Hunters 2 dialogue visibility: requested={visible}, frame={frame}, depth={depth}, view={view:?}, hidden={hidden}, alpha={alpha:.2}, z={z:.1}, rect={frame_rect:?}, children={count}"
+        );
+        view = msg![env; view superview];
+    }
+    if root != nil && frame == 20 {
+        let children: id = msg![env; root subviews];
+        let count: usize = msg![env; children count];
+        for i in 0..count.min(8) {
+            let child: id = msg![env; children objectAtIndex:i];
+            let hidden: bool = msg![env; child isHidden];
+            let alpha: f32 = msg![env; child alpha];
+            let child_frame: crate::frameworks::core_graphics::CGRect =
+                msg![env; child frame];
+            let class = env.objc.try_get_class_name(msg![env; child class]).map(str::to_owned);
+            log!(
+                "Hunters 2 dialogue child: index={i}, view={child:?}, class={class:?}, hidden={hidden}, alpha={alpha:.2}, rect={child_frame:?}"
+            );
+        }
+    }
+}
+
 pub const CLASSES: ClassExports = objc_classes! {
 
 (env, this, _cmd);
@@ -227,6 +298,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     if selector_name == "gameUpdate" {
         finish_stalled_hunters_intro_handoff(env, target);
         finish_stalled_hunters_intro_load(env, target);
+        probe_hunters_dialogue_overlay(env);
     }
 }
 
