@@ -208,7 +208,10 @@ fn fire(env: &mut Environment, recognizer: id) {
                 () = msg_send(env, (target, action, recognizer));
             }
             _ => {
-                log!("Ignoring gesture action with unsupported arity: {:?}", action);
+                log!(
+                    "Ignoring gesture action with unsupported arity: {:?}",
+                    action
+                );
             }
         }
     }
