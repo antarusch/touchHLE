@@ -9,8 +9,7 @@
 use crate::frameworks::core_graphics::CGPoint;
 use crate::frameworks::foundation::{NSInteger, NSTimeInterval, NSUInteger};
 use crate::objc::{
-    id, msg, msg_send, nil, objc_classes, release, retain, ClassExports, HostObject, NSZonePtr,
-    SEL,
+    id, msg, msg_send, nil, objc_classes, release, retain, ClassExports, HostObject, NSZonePtr, SEL,
 };
 use crate::Environment;
 
@@ -186,15 +185,32 @@ pub(crate) fn detach(env: &mut Environment, recognizer: id) {
 }
 
 fn fire(env: &mut Environment, recognizer: id) {
-    let targets = env.objc.borrow::<GestureHostObject>(recognizer).targets.clone();
+    let targets = env
+        .objc
+        .borrow::<GestureHostObject>(recognizer)
+        .targets
+        .clone();
     retain(env, recognizer);
     for (target, action) in targets {
-        if target == nil { continue; }
-        let arity = action.as_str(&env.mem).bytes().filter(|&b| b == b':').count();
+        if target == nil {
+            continue;
+        }
+        let arity = action
+            .as_str(&env.mem)
+            .bytes()
+            .filter(|&b| b == b':')
+            .count();
         match arity {
-            0 => { () = msg_send(env, (target, action)); }
-            1 => { () = msg_send(env, (target, action, recognizer)); }
-            _ => log!("Ignoring gesture action with unsupported arity: {:?}", action),
+            0 => {
+                () = msg_send(env, (target, action));
+            }
+            1 => {
+                () = msg_send(env, (target, action, recognizer));
+            }
+            _ => log!(
+                "Ignoring gesture action with unsupported arity: {:?}",
+                action
+            ),
         }
     }
     release(env, recognizer);
@@ -202,24 +218,26 @@ fn fire(env: &mut Environment, recognizer: id) {
 
 /// Called alongside regular UIWindow touch dispatch. Only attached gestures
 /// receive touch notifications. Touches still reach their UIView normally.
-pub(crate) fn dispatch(
-    env: &mut Environment,
-    recognizer: id,
-    touch: id,
-    phase: NSInteger,
-) {
+pub(crate) fn dispatch(env: &mut Environment, recognizer: id, touch: id, phase: NSInteger) {
     let (view, enabled, delegate, kind) = {
         let g = env.objc.borrow::<GestureHostObject>(recognizer);
         (g.view, g.enabled, g.delegate, g.kind)
     };
-    if view == nil || !enabled { return; }
+    if view == nil || !enabled {
+        return;
+    }
 
     if phase == 0 && delegate != nil {
-        let sel = env.objc.lookup_selector("gestureRecognizer:shouldReceiveTouch:").unwrap();
+        let sel = env
+            .objc
+            .lookup_selector("gestureRecognizer:shouldReceiveTouch:")
+            .unwrap();
         let responds: bool = msg![env; delegate respondsToSelector:sel];
         if responds {
             let allowed: bool = msg_send(env, (delegate, sel, recognizer, touch));
-            if !allowed { return; }
+            if !allowed {
+                return;
+            }
         }
     }
 
@@ -246,12 +264,18 @@ pub(crate) fn dispatch(
                 let delta_y = location.y - g.last.y;
                 g.last = location;
                 g.translation = CGPoint { x: dx, y: dy };
-                g.velocity = CGPoint { x: delta_x * 60.0, y: delta_y * 60.0 };
-                if dx * dx + dy * dy > 36.0 { g.moved = true; }
+                g.velocity = CGPoint {
+                    x: delta_x * 60.0,
+                    y: delta_y * 60.0,
+                };
+                if dx * dx + dy * dy > 36.0 {
+                    g.moved = true;
+                }
                 if kind == Kind::Pan && g.moved {
                     g.state = if g.state == POSSIBLE { BEGAN } else { CHANGED };
                     should_fire = true;
-                } else if kind == Kind::LongPress && !g.moved
+                } else if kind == Kind::LongPress
+                    && !g.moved
                     && time - g.start_time >= g.minimum_press_duration
                 {
                     g.state = BEGAN;
@@ -265,9 +289,11 @@ pub(crate) fn dispatch(
                 g.translation = CGPoint { x: dx, y: dy };
                 g.active = false;
                 match kind {
-                    Kind::Tap if !g.moved && dx * dx + dy * dy <= 144.0
-                        && g.number_of_taps_required == 1
-                        && g.number_of_touches_required == 1 =>
+                    Kind::Tap
+                        if !g.moved
+                            && dx * dx + dy * dy <= 144.0
+                            && g.number_of_taps_required == 1
+                            && g.number_of_touches_required == 1 =>
                     {
                         g.state = ENDED;
                         should_fire = true;
@@ -276,19 +302,23 @@ pub(crate) fn dispatch(
                         g.state = ENDED;
                         should_fire = true;
                     }
-                    Kind::LongPress if time - g.start_time >= g.minimum_press_duration
-                        && !g.moved =>
+                    Kind::LongPress
+                        if time - g.start_time >= g.minimum_press_duration && !g.moved =>
                     {
                         g.state = ENDED;
                         should_fire = true;
                     }
-                    _ => { g.state = POSSIBLE; }
+                    _ => {
+                        g.state = POSSIBLE;
+                    }
                 }
             }
             4 if g.active => {
                 g.active = false;
                 g.state = CANCELLED;
-                if kind == Kind::Pan { should_fire = true; }
+                if kind == Kind::Pan {
+                    should_fire = true;
+                }
             }
             _ => {}
         }
@@ -296,11 +326,16 @@ pub(crate) fn dispatch(
 
     if should_fire {
         if delegate != nil {
-            let sel = env.objc.lookup_selector("gestureRecognizerShouldBegin:").unwrap();
+            let sel = env
+                .objc
+                .lookup_selector("gestureRecognizerShouldBegin:")
+                .unwrap();
             let responds: bool = msg![env; delegate respondsToSelector:sel];
             if responds {
                 let allowed: bool = msg_send(env, (delegate, sel, recognizer));
-                if !allowed { return; }
+                if !allowed {
+                    return;
+                }
             }
         }
         fire(env, recognizer);
