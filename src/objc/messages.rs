@@ -207,7 +207,8 @@ fn objc_msgSend_inner(
             use crate::mem::ConstPtr;
 
             // The onPan: IMP at 0x2061c loads InputIOS through this
-            // pointer-to-pointer global at 0x1d1a80 (Thumb PC-relative\n            // load at 0x2062a). InputIOS's Mini pointer is +0x24.
+            // pointer-to-pointer global at 0x1d1a80 (Thumb PC-relative
+            // load at 0x2062a). InputIOS's Mini pointer is +0x24.
             let input_slot: u32 = env.mem.read(ConstPtr::from_bits(0x1d1a80));
             let input: u32 = if input_slot == 0 {
                 0
