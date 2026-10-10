@@ -65,8 +65,8 @@ pub const CLASSES: ClassExports = objc_classes! {
         return nil;
     }
     retain(env, identifier);
-    let old_identifier = env.objc.borrow_mut(this).identifier;
-    env.objc.borrow_mut(this).identifier = identifier;
+    let old_identifier = env.objc.borrow_mut::<GKAchievementHostObject>(this).identifier;
+    env.objc.borrow_mut::<GKAchievementHostObject>(this).identifier = identifier;
     if old_identifier != nil {
         release(env, old_identifier);
     }
@@ -74,7 +74,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())dealloc {
-    let identifier = env.objc.borrow(this).identifier;
+    let identifier = env.objc.borrow::<GKAchievementHostObject>(this).identifier;
     if identifier != nil {
         release(env, identifier);
     }
@@ -82,15 +82,15 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (id)identifier {
-    env.objc.borrow(this).identifier
+    env.objc.borrow::<GKAchievementHostObject>(this).identifier
 }
 
 - (f64)percentComplete {
-    env.objc.borrow(this).percent_complete
+    env.objc.borrow::<GKAchievementHostObject>(this).percent_complete
 }
 
 - (())setPercentComplete:(f64)percent_complete {
-    env.objc.borrow_mut(this).percent_complete = percent_complete.clamp(0.0, 100.0);
+    env.objc.borrow_mut::<GKAchievementHostObject>(this).percent_complete = percent_complete.clamp(0.0, 100.0);
 }
 
 - (())reportAchievementWithCompletionHandler:(MutPtr<u8>)completion {
