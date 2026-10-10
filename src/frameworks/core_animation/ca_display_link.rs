@@ -192,10 +192,8 @@ fn probe_hunters_dialogue_overlay(env: &mut crate::Environment) {
             let hidden: bool = msg![env; child isHidden];
             let alpha: f32 = msg![env; child alpha];
             let child_frame: crate::frameworks::core_graphics::CGRect = msg![env; child frame];
-            let class = env
-                .objc
-                .try_get_class_name(msg![env; child class])
-                .map(str::to_owned);
+            let child_class: crate::objc::Class = msg![env; child class];
+            let class = env.objc.try_get_class_name(child_class).map(str::to_owned);
             log!(
                 "Hunters 2 dialogue child: index={i}, view={child:?}, class={class:?}, hidden={hidden}, alpha={alpha:.2}, rect={child_frame:?}"
             );
