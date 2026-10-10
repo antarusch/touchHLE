@@ -366,8 +366,10 @@ fn objc_msgSend_inner(
             if env.bundle.bundle_identifier_opt() == Some("uk.co.rodeogames.hunterstwo")
                 && class == Some("OverlayGameDialogue")
             {
-                crate::frameworks::core_animation::ca_display_link::
-                    note_hunters_dialogue_overlay(receiver, name == "show");
+                crate::frameworks::core_animation::ca_display_link::note_hunters_dialogue_overlay(
+                    receiver,
+                    name == "show",
+                );
             }
         }
         if name == "show" || name == "hide" {
