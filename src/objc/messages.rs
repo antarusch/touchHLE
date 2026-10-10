@@ -322,6 +322,53 @@ fn objc_msgSend_inner(
                 log!("Hunters 2: BEGIN CONTRACT overlay view has no superview: view={view:?}");
             }
         }
+        // Hunters 2's seven-button battlefield abilities bar (including
+        // the Guard shield) is also positioned using portrait screen width
+        // and height on this landscape iPhone. It is 390x56 in the nib, but
+        // the active transform observed in game is (-35, 424) in a 480x320
+        // parent. Only correct it when enabled and actually off-screen.
+        #[cfg(target_os = "android")]
+        if name == "setIsEnabled:"
+            && env.cpu.regs()[2] != 0
+            && env.objc.try_get_class_name(orig_class) == Some("OverlayDropgameAbilities")
+        {
+            let view: id = msg![env; receiver view];
+            let parent: id = msg![env; view superview];
+            if parent != nil {
+                use crate::frameworks::core_graphics::cg_affine_transform::CGAffineTransform;
+                use crate::frameworks::core_graphics::CGRect;
+                let parent_bounds: CGRect = msg![env; parent bounds];
+                let view_bounds: CGRect = msg![env; view bounds];
+                let transform: CGAffineTransform = msg![env; view transform];
+                let (parent_width, parent_height) =
+                    (parent_bounds.size.width, parent_bounds.size.height);
+                let (view_width, view_height) = (view_bounds.size.width, view_bounds.size.height);
+                let (old_x, old_y) = (transform.tx, transform.ty);
+                if parent_width > parent_height
+                    && view_width > 0.0
+                    && view_height > 0.0
+                    && (old_x < -1.0
+                        || old_y < -1.0
+                        || old_x + view_width > parent_width + 1.0
+                        || old_y + view_height > parent_height + 1.0)
+                {
+                    let mut corrected = transform;
+                    corrected.tx = (parent_width - view_width) / 2.0;
+                    corrected.ty = parent_height - view_height;
+                    let (new_x, new_y) = (corrected.tx, corrected.ty);
+                    () = msg_class![env; CATransaction begin];
+                    () = msg_class![env; CATransaction setDisableActions:true];
+                    () = msg![env; view setTransform:corrected];
+                    () = msg_class![env; CATransaction commit];
+                    let layer: id = msg![env; view layer];
+                    () = msg![env; layer setZPosition:1100.0f32];
+                    () = msg![env; parent bringSubviewToFront:view];
+                    log!(
+                        "Hunters 2: corrected combat abilities bar offset ({old_x}, {old_y}) -> ({new_x}, {new_y}); overlay={view_width}x{view_height}, parent={parent_width}x{parent_height}"
+                    );
+                }
+            }
+        }
         // ShipGameController is the next core (type 4) after resuming a
         // save. In some transitions the controller is constructed but
         // its onLoad callback is never dispatched. Defer recovery outside
