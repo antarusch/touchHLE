@@ -24,6 +24,13 @@ use std::time::{Duration, Instant};
 #[derive(Default)]
 pub struct State {
     active_player: Option<id>,
+    // Hunters 2's IntroVideoController still uses the finished player
+    // during the asynchronous CoreView unload/finish handoff. Keep the
+    // runtime playback retain until a replacement scene is displayed.
+    #[cfg(target_os = "android")]
+    hunters_completed_player_holds: Vec<id>,
+    #[cfg(target_os = "android")]
+    hunters_replacement_scene_displayed: bool,
     #[cfg(target_os = "android")]
     hunters_create_save_visible: bool,
     /// Once save creation has switched to gameplay, do not draw the intro movie
@@ -1126,11 +1133,31 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 };
 
+/// Mark the safe handoff point without dispatching Objective-C messages
+/// inside GameController's own Objective-C method invocation.
+#[cfg(target_os = "android")]
+pub(super) fn hunters_replacement_scene_displayed(env: &mut Environment) {
+    let state = State::get(env);
+    if !state.hunters_completed_player_holds.is_empty() {
+        state.hunters_replacement_scene_displayed = true;
+        log!("Hunters 2: replacement CoreView displayed; finished-player cleanup queued");
+    }
+}
+
 /// For use by `NSRunLoop` via [super::handle_players]: check movie players'
 /// status, send notifications if necessary.
 pub(super) fn handle_players(env: &mut Environment) {
     #[cfg(target_os = "android")]
-    movie_video_tick(env);
+    {
+        if std::mem::take(&mut State::get(env).hunters_replacement_scene_displayed) {
+            let old_players = std::mem::take(&mut State::get(env).hunters_completed_player_holds);
+            for player in old_players {
+                log!("Hunters 2: releasing finished player after new CoreView displayed: {player:?}");
+                release(env, player);
+            }
+        }
+        movie_video_tick(env);
+    }
     let mut notifs_to_run = Vec::new();
     let pending_notifs = &mut State::get(env).pending_notifications;
     let mut i = 0;
@@ -1184,6 +1211,18 @@ pub(super) fn handle_players(env: &mut Environment) {
         // that retain through the completion callback so the notification's
         // object stays valid, then release it after observers return.
         if release_active_player {
+            // Hunters 2 still accesses the just-finished movie player
+            // after IntroVideoController.onUnloadFinished, before the
+            // new CoreView appears. Releasing the runtime's last retain
+            // here causes a stale "retain" to crash objc_msgSend.
+            #[cfg(target_os = "android")]
+            if env.bundle.bundle_identifier() == "uk.co.rodeogames.hunterstwo" {
+                State::get(env).hunters_completed_player_holds.push(object);
+                log!("Hunters 2: holding completed movie player through CoreView handoff: {object:?}");
+            } else {
+                release(env, object);
+            }
+            #[cfg(not(target_os = "android"))]
             release(env, object);
         }
     }
