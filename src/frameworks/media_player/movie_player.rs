@@ -1148,18 +1148,7 @@ pub(super) fn hunters_replacement_scene_displayed(env: &mut Environment) {
 /// status, send notifications if necessary.
 pub(super) fn handle_players(env: &mut Environment) {
     #[cfg(target_os = "android")]
-    {
-        if std::mem::take(&mut State::get(env).hunters_replacement_scene_displayed) {
-            let old_players = std::mem::take(&mut State::get(env).hunters_completed_player_holds);
-            for player in old_players {
-                log!(
-                    "Hunters 2: releasing finished player after new CoreView displayed: {player:?}"
-                );
-                release(env, player);
-            }
-        }
-        movie_video_tick(env);
-    }
+    movie_video_tick(env);
     let mut notifs_to_run = Vec::new();
     let pending_notifs = &mut State::get(env).pending_notifications;
     let mut i = 0;
@@ -1228,6 +1217,19 @@ pub(super) fn handle_players(env: &mut Environment) {
             }
             #[cfg(not(target_os = "android"))]
             release(env, object);
+        }
+    }
+
+    // Deliver any queued stop/playback notifications before giving up the
+    // last runtime retain. Their notification objects can be the same player.
+    #[cfg(target_os = "android")]
+    if std::mem::take(&mut State::get(env).hunters_replacement_scene_displayed) {
+        let old_players = std::mem::take(&mut State::get(env).hunters_completed_player_holds);
+        for player in old_players {
+            log!(
+                "Hunters 2: releasing finished player after new CoreView displayed: {player:?}"
+            );
+            release(env, player);
         }
     }
 }
