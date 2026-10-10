@@ -469,6 +469,11 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (id)hitTest:(CGPoint)point
     withEvent:(id)event { // UIEvent* (possibly nil)
+    // Respect the hidden/transparent state of the popup's ancestor view.
+    // The normal UIButton override bypasses UIView's alpha filtering.
+    if super::super::hunters_view_ignores_touches(env, this) {
+        return nil;
+    }
     // Hide subviews from hit testing so event goes straight to this control
     if msg![env; this pointInside:point withEvent:event] {
         this
