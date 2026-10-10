@@ -275,7 +275,9 @@ fn objc_msgSend_inner(
             let old_core: u32 = env.mem.read(ConstPtr::from_bits(game_addr + 0x98));
             if next_type == 4 && old_core != 0 {
                 let save_menu = id::from_bits(old_core);
-                if env.objc.try_get_class_name(ObjC::read_isa(save_menu, &env.mem))
+                if env
+                    .objc
+                    .try_get_class_name(ObjC::read_isa(save_menu, &env.mem))
                     == Some("SaveMenuController")
                 {
                     crate::frameworks::media_player::queue_hunters_save_menu_unload(
