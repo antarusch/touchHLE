@@ -168,6 +168,20 @@ fn probe_hunters_dialogue_overlay(env: &mut crate::Environment) {
     let controller = id::from_bits(controller);
     let mut view: id = msg![env; controller view];
     let root = view;
+    // Hunters 2 computes its dialogue's bottom position from the rotated
+    // 320x480 UIKit frame instead of the original 480x320 landscape space.
+    // The resulting y=386 places a 94-point panel below the visible game.
+    if visible && frame == 1 && view != nil {
+        let mut rect: crate::frameworks::core_graphics::CGRect = msg![env; view frame];
+        if (rect.origin.y - 386.0).abs() <= 1.0
+            && (rect.size.width - 480.0).abs() <= 1.0
+            && (rect.size.height - 94.0).abs() <= 1.0
+        {
+            rect.origin.y -= 160.0;
+            () = msg![env; view setFrame:rect];
+            log!("Hunters 2 dialogue position fixed: y=386 -> y=226");
+        }
+    }
     for depth in 0..6 {
         if view == nil {
             break;
@@ -198,6 +212,67 @@ fn probe_hunters_dialogue_overlay(env: &mut crate::Environment) {
                 "Hunters 2 dialogue child: index={i}, view={child:?}, class={class:?}, hidden={hidden}, alpha={alpha:.2}, rect={child_frame:?}"
             );
         }
+    }
+}
+
+// The same portrait/landscape mismatch positions Hunters 2's End Turn
+// button at (244,426) instead of its visible landscape anchor (404,266).
+// Defer repositioning until the next gameUpdate so the game's own show/hide
+// methods complete before UIKit is adjusted.
+#[cfg(target_os = "android")]
+static HUNTERS_ENDTURN_CONTROLLER: std::sync::atomic::AtomicU32 =
+    std::sync::atomic::AtomicU32::new(0);
+#[cfg(target_os = "android")]
+static HUNTERS_ENDTURN_VISIBLE: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+#[cfg(target_os = "android")]
+static HUNTERS_ENDTURN_FRAMES: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
+#[cfg(target_os = "android")]
+pub(crate) fn note_hunters_endturn_overlay(controller: id, visible: bool) {
+    use std::sync::atomic::Ordering;
+    HUNTERS_ENDTURN_CONTROLLER.store(controller.to_bits(), Ordering::Relaxed);
+    HUNTERS_ENDTURN_VISIBLE.store(visible, Ordering::Relaxed);
+    HUNTERS_ENDTURN_FRAMES.store(0, Ordering::Relaxed);
+}
+
+#[cfg(target_os = "android")]
+fn correct_hunters_endturn_overlay(env: &mut crate::Environment) {
+    use std::sync::atomic::Ordering;
+    if env.bundle.bundle_identifier_opt() != Some("uk.co.rodeogames.hunterstwo") {
+        return;
+    }
+    let controller = HUNTERS_ENDTURN_CONTROLLER.load(Ordering::Relaxed);
+    if controller == 0 {
+        return;
+    }
+    let frame = HUNTERS_ENDTURN_FRAMES.fetch_add(1, Ordering::Relaxed) + 1;
+    if frame != 1 && frame != 20 {
+        return;
+    }
+    let visible = HUNTERS_ENDTURN_VISIBLE.load(Ordering::Relaxed);
+    let controller = id::from_bits(controller);
+    let view: id = msg![env; controller view];
+    if view == nil {
+        return;
+    }
+    let mut rect: crate::frameworks::core_graphics::CGRect = msg![env; view frame];
+    let alpha: f32 = msg![env; view alpha];
+    let hidden: bool = msg![env; view isHidden];
+    log!(
+        "Hunters 2 end-turn geometry: visible={visible}, tick={frame}, view={view:?}, rect={rect:?}, alpha={alpha:.2}, hidden={hidden}"
+    );
+    if visible
+        && (rect.origin.x - 244.0).abs() <= 2.0
+        && (rect.origin.y - 426.0).abs() <= 2.0
+        && (rect.size.width - 76.0).abs() <= 2.0
+        && (rect.size.height - 54.0).abs() <= 2.0
+    {
+        rect.origin.x += 160.0;
+        rect.origin.y -= 160.0;
+        () = msg![env; view setFrame:rect];
+        log!("Hunters 2 end-turn position fixed: (244,426) -> (404,266)");
     }
 }
 
@@ -299,6 +374,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         finish_stalled_hunters_intro_handoff(env, target);
         finish_stalled_hunters_intro_load(env, target);
         probe_hunters_dialogue_overlay(env);
+        correct_hunters_endturn_overlay(env);
     }
 }
 
