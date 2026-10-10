@@ -260,6 +260,34 @@ fn objc_msgSend_inner(
                 env.objc.try_get_class_name(orig_class),
             );
         }
+        // ShipGameController is the next core (type 4) after resuming a
+        // save. In some transitions the controller is constructed but
+        // its onLoad callback is never dispatched. Defer recovery outside
+        // objc_msgSend and only while that exact controller stays pending.
+        #[cfg(target_os = "android")]
+        if name == "onCoreViewReadyToLoad"
+            && env.objc.try_get_class_name(orig_class) == Some("GameController")
+        {
+            use crate::mem::ConstPtr;
+
+            let game_addr = receiver.to_bits();
+            let next_type: i32 = env.mem.read(ConstPtr::from_bits(game_addr + 0x9c));
+            let core_addr: u32 = env.mem.read(ConstPtr::from_bits(game_addr + 0x98));
+            if next_type == 4 && core_addr != 0 {
+                let core = id::from_bits(core_addr);
+                if env.objc.try_get_class_name(ObjC::read_isa(core, &env.mem))
+                    == Some("ShipGameController")
+                {
+                    crate::frameworks::media_player::queue_hunters_ship_load(env, receiver, core);
+                }
+            }
+        }
+        #[cfg(target_os = "android")]
+        if name == "onLoad" && env.objc.try_get_class_name(orig_class) == Some("ShipGameController")
+        {
+            crate::frameworks::media_player::hunters_ship_load_started(env, receiver);
+        }
+
         // The SaveMenuController -> saved game transition can get stuck
         // before the old controller receives onUnload. Queue a timed
         // fallback on the run loop; do not send nested Objective-C messages
