@@ -260,6 +260,31 @@ fn objc_msgSend_inner(
                 env.objc.try_get_class_name(orig_class),
             );
         }
+        // The SaveMenuController -> saved game transition can get stuck
+        // before the old controller receives onUnload. Queue a timed
+        // fallback on the run loop; do not send nested Objective-C messages
+        // during GameController's own dispatch.
+        #[cfg(target_os = "android")]
+        if name == "onCoreViewReadyToUnload"
+            && env.objc.try_get_class_name(orig_class) == Some("GameController")
+        {
+            use crate::mem::ConstPtr;
+
+            let game_addr = receiver.to_bits();
+            let next_type: i32 = env.mem.read(ConstPtr::from_bits(game_addr + 0x9c));
+            let old_core: u32 = env.mem.read(ConstPtr::from_bits(game_addr + 0x98));
+            if next_type == 4 && old_core != 0 {
+                let save_menu = id::from_bits(old_core);
+                if env.objc.try_get_class_name(ObjC::read_isa(save_menu, &env.mem))
+                    == Some("SaveMenuController")
+                {
+                    crate::frameworks::media_player::queue_hunters_save_menu_unload(
+                        env, receiver, save_menu,
+                    );
+                }
+            }
+        }
+
         // A finished movie can still be used while IntroVideoController
         // unloads. Only schedule final playback-retain cleanup after
         // GameController has presented the replacement CoreView.
