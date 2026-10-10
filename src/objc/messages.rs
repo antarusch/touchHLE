@@ -362,6 +362,13 @@ fn objc_msgSend_inner(
                     "Hunters 2 overlay lifecycle: class={class:?}, selector={name}, receiver={receiver:?}"
                 );
             }
+            #[cfg(target_os = "android")]
+            if env.bundle.bundle_identifier_opt() == Some("uk.co.rodeogames.hunterstwo")
+                && class == Some("OverlayGameDialogue")
+            {
+                crate::frameworks::core_animation::ca_display_link::
+                    note_hunters_dialogue_overlay(receiver, name == "show");
+            }
         }
         if name == "show" || name == "hide" {
             let class = env.objc.try_get_class_name(orig_class).map(str::to_owned);
