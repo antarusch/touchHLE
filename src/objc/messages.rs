@@ -260,6 +260,16 @@ fn objc_msgSend_inner(
                 env.objc.try_get_class_name(orig_class),
             );
         }
+        // A finished movie can still be used while IntroVideoController
+        // unloads. Only schedule final playback-retain cleanup after
+        // GameController has presented the replacement CoreView.
+        #[cfg(target_os = "android")]
+        if name == "onCoreViewReadyToDisplay"
+            && env.objc.try_get_class_name(orig_class) == Some("GameController")
+        {
+            crate::frameworks::media_player::hunters_replacement_scene_displayed(env);
+        }
+
         // Diagnose the status-3 transition to the next controller.
         // These offsets come from Hunters 2's ARMv7 Objective-C accessors.
         // Read guest fields directly to avoid nested Objective-C dispatch.
