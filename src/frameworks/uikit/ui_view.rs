@@ -661,7 +661,8 @@ pub const CLASSES: ClassExports = objc_classes! {
     for &recognizer in &recognizers {
         retain(env, recognizer);
     }
-    autorelease(env, ns_array::from_vec(env, recognizers))
+    let array = ns_array::from_vec(env, recognizers);
+    autorelease(env, array)
 }
 
 - (())addGestureRecognizer:(id)recognizer {
