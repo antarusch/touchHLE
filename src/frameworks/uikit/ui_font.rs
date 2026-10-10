@@ -215,6 +215,11 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.borrow::<UIFontHostObject>(this).size
 }
 
+- (id)fontWithSize:(CGFloat)size {
+    // Preserve the same font face and reuse the existing UIFont clone helper.
+    font_with_size(env, this, size)
+}
+
 - (CGFloat)ascender {
     let host_object = env.objc.borrow::<UIFontHostObject>(this);
     let font = env.framework_state.uikit.ui_font.get_font_by_kind(host_object.kind);
