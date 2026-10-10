@@ -401,19 +401,27 @@ fn objc_msgSend_inner(
             let game_addr = receiver.to_bits();
             let next_type: i32 = env.mem.read(ConstPtr::from_bits(game_addr + 0x9c));
             let core_addr: u32 = env.mem.read(ConstPtr::from_bits(game_addr + 0x98));
-            if next_type == 4 && core_addr != 0 {
+            if core_addr != 0 {
                 let core = id::from_bits(core_addr);
-                if env.objc.try_get_class_name(ObjC::read_isa(core, &env.mem))
-                    == Some("ShipGameController")
-                {
+                let class = env.objc.try_get_class_name(ObjC::read_isa(core, &env.mem));
+                if next_type == 4 && class == Some("ShipGameController") {
                     crate::frameworks::media_player::queue_hunters_ship_load(env, receiver, core);
+                } else if next_type == 3 && class == Some("DropGameController") {
+                    // On saved-contract resume the new core may enter status 1
+                    // without receiving its initial onLoad before gameUpdate.
+                    crate::frameworks::media_player::queue_hunters_drop_load(env, receiver, core);
                 }
             }
         }
         #[cfg(target_os = "android")]
-        if name == "onLoad" && env.objc.try_get_class_name(orig_class) == Some("ShipGameController")
-        {
-            crate::frameworks::media_player::hunters_ship_load_started(env, receiver);
+        if name == "onLoad" {
+            let receiver_class =
+                env.objc.try_get_class_name(ObjC::read_isa(receiver, &env.mem));
+            if receiver_class == Some("ShipGameController") {
+                crate::frameworks::media_player::hunters_ship_load_started(env, receiver);
+            } else if receiver_class == Some("DropGameController") {
+                crate::frameworks::media_player::hunters_drop_load_started(env, receiver);
+            }
         }
 
         // The SaveMenuController -> saved game transition can get stuck
