@@ -94,7 +94,8 @@ fn hunters_tutorial_control_probe(env: &mut Environment, this: id, stage: &str) 
         .iter()
         .filter_map(|&(target, action, events)| {
             let name = action.as_str(&env.mem);
-            name.starts_with("onTutorial").then(|| (target, name.to_string(), events))
+            name.starts_with("onTutorial")
+                .then(|| (target, name.to_string(), events))
         })
         .collect();
     if tutorial_actions.is_empty() {
