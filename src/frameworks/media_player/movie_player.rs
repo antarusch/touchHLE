@@ -36,6 +36,10 @@ pub struct State {
     // Defer any recovery callback until outside objc_msgSend.
     #[cfg(target_os = "android")]
     hunters_pending_save_unload: Option<(id, id, Instant)>,
+    // A saved game can get past SaveMenuController but remain waiting for
+    // ShipGameController.onLoad. Apply a separate lifecycle-scoped recovery.
+    #[cfg(target_os = "android")]
+    hunters_pending_ship_load: Option<(id, id, Instant)>,
     #[cfg(target_os = "android")]
     hunters_create_save_visible: bool,
     /// Once save creation has switched to gameplay, do not draw the intro movie
@@ -1154,6 +1158,28 @@ pub(super) fn queue_hunters_save_menu_unload(
     log!("Hunters 2: queued SaveMenuController unload recovery for {save_menu:?}");
 }
 
+/// Remember that the ship screen is awaiting its normal onLoad callback.
+#[cfg(target_os = "android")]
+pub(super) fn queue_hunters_ship_load(env: &mut Environment, game: id, ship: id) {
+    if env.bundle.bundle_identifier() != "uk.co.rodeogames.hunterstwo" {
+        return;
+    }
+    State::get(env).hunters_pending_ship_load = Some((game, ship, Instant::now()));
+    log!("Hunters 2: queued ShipGameController load recovery for {ship:?}");
+}
+
+/// An actual onLoad event always wins over recovery.
+#[cfg(target_os = "android")]
+pub(super) fn hunters_ship_load_started(env: &mut Environment, ship: id) {
+    if State::get(env)
+        .hunters_pending_ship_load
+        .is_some_and(|(_, pending, _)| pending == ship)
+    {
+        State::get(env).hunters_pending_ship_load = None;
+        log!("Hunters 2: ShipGameController entered onLoad; recovery cancelled");
+    }
+}
+
 /// Mark the safe handoff point without dispatching Objective-C messages
 /// inside GameController's own Objective-C method invocation.
 #[cfg(target_os = "android")]
@@ -1264,6 +1290,33 @@ pub(super) fn handle_players(env: &mut Environment) {
                 );
                 let _: () = msg![env; menu onUnload];
             }
+        }
+    }
+
+    // Once the old save menu has unloaded, the ship hub may stall while
+    // GameController remains in loading status 1. Run the game's actual
+    // ShipGameController.onLoad once, but only after a grace period and
+    // only if the same unloaded ship screen is still selected.
+    #[cfg(target_os = "android")]
+    if let Some((game, ship, queued_at)) = State::get(env).hunters_pending_ship_load {
+        use crate::mem::ConstPtr;
+
+        let game_addr = game.to_bits();
+        let ship_addr = ship.to_bits();
+        let status: u32 = env.mem.read(ConstPtr::from_bits(game_addr + 0xc8));
+        let current_core: u32 = env.mem.read(ConstPtr::from_bits(game_addr + 0x98));
+        let next_type: i32 = env.mem.read(ConstPtr::from_bits(game_addr + 0x9c));
+        let is_loaded: u8 = env.mem.read(ConstPtr::from_bits(ship_addr + 0xa3));
+        if current_core != ship_addr || next_type != 4 || status != 1 || is_loaded != 0 {
+            State::get(env).hunters_pending_ship_load = None;
+        } else if queued_at.elapsed() >= Duration::from_millis(1500) {
+            State::get(env).hunters_pending_ship_load = None;
+            let has_update: u8 = env.mem.read(ConstPtr::from_bits(ship_addr + 0xa0));
+            let updates_singletons: u8 = env.mem.read(ConstPtr::from_bits(ship_addr + 0xa2));
+            log!(
+                "Hunters 2: stalled ship load; invoking ShipGameController.onLoad: has_update={has_update}, updates_singletons={updates_singletons}"
+            );
+            let _: () = msg![env; ship onLoad];
         }
     }
 
