@@ -252,6 +252,27 @@ fn init_common(env: &mut Environment, this: id) -> id {
     this
 }
 
+// UIKit does not deliver touches to views hidden by a transparent or
+// noninteractive ancestor. Hunters 2's tutorial popup fades its root view
+// to alpha 0 but keeps its fullscreen dismissal button in the hierarchy.
+pub(crate) fn hunters_view_ignores_touches(env: &mut Environment, view: id) -> bool {
+    if env.bundle.bundle_identifier_opt() != Some("uk.co.rodeogames.hunterstwo") {
+        return false;
+    }
+
+    let mut current = view;
+    while current != nil {
+        let hidden: bool = msg![env; current isHidden];
+        let alpha: CGFloat = msg![env; current alpha];
+        let enabled: bool = msg![env; current isUserInteractionEnabled];
+        if hidden || alpha <= 0.01 || !enabled {
+            return true;
+        }
+        current = msg![env; current superview];
+    }
+    false
+}
+
 pub const CLASSES: ClassExports = objc_classes! {
 
 (env, this, _cmd);
@@ -1113,6 +1134,9 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (id)hitTest:(CGPoint)point
     withEvent:(id)event { // UIEvent* (possibly nil)
+    if hunters_view_ignores_touches(env, this) {
+        return nil;
+    }
     if !msg![env; this pointInside:point withEvent:event] {
         return nil;
     }
