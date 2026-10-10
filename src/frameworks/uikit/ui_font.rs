@@ -80,7 +80,11 @@ fn hunters_bundled_font(env: &mut Environment, name: &str) -> Option<FontKind> {
             log!("Hunters 2 bundled font {} not available", filename);
             return None;
         };
-        env.framework_state.uikit.ui_font.fonts.insert(kind, Font::from_vec(bytes));
+        env.framework_state
+            .uikit
+            .ui_font
+            .fonts
+            .insert(kind, Font::from_vec(bytes));
         log!("Hunters 2 loaded bundled font {}", filename);
     }
     Some(kind)
