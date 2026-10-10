@@ -1367,6 +1367,13 @@ pub(super) fn handle_players(env: &mut Environment) {
                     "Hunters 2: saved-contract core unloaded in status 1; invoking original DropGameController.onLoad"
                 );
                 let _: () = msg![env; drop onLoad];
+                // The original armv7 getter at 0x2029c reads through this
+                // singleton pointer during the first restored-game update.
+                // Record whether the real onLoad established it.
+                let runtime_object: u32 = env.mem.read(ConstPtr::from_bits(0x20345c));
+                log!(
+                    "Hunters 2: saved-contract onLoad returned; runtime singleton={runtime_object:#x}"
+                );
             }
         }
     }
