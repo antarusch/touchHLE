@@ -201,9 +201,7 @@ fn objc_msgSend_inner(
         // pointer may be null, causing a guest load at 0x1317a from 0x50.
         // This guard applies only to the exact Hunters 2 ARMv7 binary.
         #[cfg(target_os = "android")]
-        if name == "onPan:"
-            && env.objc.try_get_class_name(orig_class) == Some("GestureCollector")
-        {
+        if name == "onPan:" && env.objc.try_get_class_name(orig_class) == Some("GestureCollector") {
             use crate::mem::ConstPtr;
 
             // The onPan: IMP at 0x2061c loads InputIOS through this
