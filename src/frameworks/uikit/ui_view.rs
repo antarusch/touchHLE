@@ -124,6 +124,8 @@ pub(super) struct UIViewHostObject {
     layer: id,
     /// Subviews in back-to-front order. These are strong references.
     subviews: Vec<id>,
+    /// UIGestureRecognizer objects retained by this view.
+    gesture_recognizers: Vec<id>,
     /// The superview. This is a weak reference.
     superview: id,
     /// The view controller that controls this view. This is a weak reference
@@ -143,6 +145,7 @@ impl Default for UIViewHostObject {
         UIViewHostObject {
             layer: nil,
             subviews: Vec::new(),
+            gesture_recognizers: Vec::new(),
             superview: nil,
             view_controller: nil,
             tag: 0,
@@ -653,6 +656,56 @@ pub const CLASSES: ClassExports = objc_classes! {
     window
 }
 
+- (id)gestureRecognizers {
+    let recognizers = env.objc.borrow::<UIViewHostObject>(this).gesture_recognizers.clone();
+    for &recognizer in &recognizers {
+        retain(env, recognizer);
+    }
+    autorelease(env, ns_array::from_vec(env, recognizers))
+}
+
+- (())addGestureRecognizer:(id)recognizer {
+    if recognizer == nil { return; }
+    let old_view: id = msg![env; recognizer view];
+    if old_view == this { return; }
+    if old_view != nil {
+        () = msg![env; old_view removeGestureRecognizer:recognizer];
+    }
+    retain(env, recognizer);
+    env.objc.borrow_mut::<UIViewHostObject>(this).gesture_recognizers.push(recognizer);
+    super::ui_gesture_recognizer::attach(env, recognizer, this);
+}
+
+- (())removeGestureRecognizer:(id)recognizer {
+    let removed = {
+        let list = &mut env.objc.borrow_mut::<UIViewHostObject>(this).gesture_recognizers;
+        if let Some(index) = list.iter().position(|&item| item == recognizer) {
+            list.remove(index);
+            true
+        } else {
+            false
+        }
+    };
+    if removed {
+        super::ui_gesture_recognizer::detach(env, recognizer);
+        release(env, recognizer);
+    }
+}
+
+- (())setGestureRecognizers:(id)recognizers {
+    let old = env.objc.borrow::<UIViewHostObject>(this).gesture_recognizers.clone();
+    for recognizer in old {
+        () = msg![env; this removeGestureRecognizer:recognizer];
+    }
+    if recognizers != nil {
+        let count: NSUInteger = msg![env; recognizers count];
+        for i in 0..count {
+            let recognizer: id = msg![env; recognizers objectAtIndex:i];
+            () = msg![env; this addGestureRecognizer:recognizer];
+        }
+    }
+}
+
 - (id)subviews {
     let views = env.objc.borrow::<UIViewHostObject>(this).subviews.clone();
     for view in &views {
@@ -837,6 +890,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         layer,
         superview,
         subviews,
+        gesture_recognizers,
         view_controller,
         tag: _,
         clears_context_before_drawing: _,
@@ -847,6 +901,10 @@ pub const CLASSES: ClassExports = objc_classes! {
     } = std::mem::take(env.objc.borrow_mut(this));
 
     release(env, layer);
+    for recognizer in gesture_recognizers {
+        super::ui_gesture_recognizer::detach(env, recognizer);
+        release(env, recognizer);
+    }
     assert!(view_controller == nil);
     assert!(superview == nil);
     for subview in subviews {
