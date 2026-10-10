@@ -1152,7 +1152,9 @@ pub(super) fn handle_players(env: &mut Environment) {
         if std::mem::take(&mut State::get(env).hunters_replacement_scene_displayed) {
             let old_players = std::mem::take(&mut State::get(env).hunters_completed_player_holds);
             for player in old_players {
-                log!("Hunters 2: releasing finished player after new CoreView displayed: {player:?}");
+                log!(
+                    "Hunters 2: releasing finished player after new CoreView displayed: {player:?}"
+                );
                 release(env, player);
             }
         }
@@ -1218,7 +1220,9 @@ pub(super) fn handle_players(env: &mut Environment) {
             #[cfg(target_os = "android")]
             if env.bundle.bundle_identifier() == "uk.co.rodeogames.hunterstwo" {
                 State::get(env).hunters_completed_player_holds.push(object);
-                log!("Hunters 2: holding completed movie player through CoreView handoff: {object:?}");
+                log!(
+                    "Hunters 2: holding completed movie player through CoreView handoff: {object:?}"
+                );
             } else {
                 release(env, object);
             }
