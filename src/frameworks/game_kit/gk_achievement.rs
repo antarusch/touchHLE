@@ -5,7 +5,7 @@
  */
 //! Game Center achievements. Online Game Center storage is not emulated.
 
-use crate::abi::GuestFunction;
+use crate::abi::{CallFromHost, GuestFunction};
 use crate::frameworks::foundation::ns_array;
 use crate::mem::MutPtr;
 use crate::objc::{id, nil, objc_classes, ClassExports};
