@@ -443,9 +443,7 @@ fn update_hunters_resume_contract_depth(env: &mut Environment, movie_view: id) {
         return;
     }
     if !State::get(env).hunters_resume_contract_visible {
-        if let Some((layer, old_z)) =
-            State::get(env).hunters_raised_resume_contract_layer.take()
-        {
+        if let Some((layer, old_z)) = State::get(env).hunters_raised_resume_contract_layer.take() {
             () = msg![env; layer setZPosition:old_z];
             log!("Hunters 2 Resume Contract restored: layer={layer:?}, z={old_z}");
         }
