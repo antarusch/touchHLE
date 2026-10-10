@@ -372,16 +372,17 @@ forControlEvents:(UIControlEvents)events {
         forEvent:(id)event { // UIEvent*
     assert!(target != nil); // TODO
 
-    let sel_str = action.as_str(&env.mem);
-    if env.bundle.bundle_identifier_opt() == Some("uk.co.rodeogames.hunterstwo")
-        && sel_str == "onButtonPressed:"
-    {
+    let is_hunters_ability_action =
+        env.bundle.bundle_identifier_opt() == Some("uk.co.rodeogames.hunterstwo")
+            && action.as_str(&env.mem) == "onButtonPressed:";
+    if is_hunters_ability_action {
         let tag: NSInteger = msg![env; this tag];
         let enabled: bool = msg![env; this isEnabled];
         log!(
-            "Hunters 2 abilities button action: control={this:?}, tag={tag}, enabled={enabled}, target={target:?}, selector={sel_str}"
+            "Hunters 2 abilities button action: control={this:?}, tag={tag}, enabled={enabled}, target={target:?}, selector=onButtonPressed:"
         );
     }
+    let sel_str = action.as_str(&env.mem);
     let colon_count = sel_str.bytes().filter(|&b| b == b':').count();
     match colon_count {
         // - (IBAction)action;
