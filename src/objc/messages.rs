@@ -281,6 +281,41 @@ fn objc_msgSend_inner(
                 // remains underneath other system-level popups.
                 () = msg![env; layer setZPosition:1100.0f32];
                 () = msg![env; parent bringSubviewToFront:view];
+
+                // The iPhone nib is 130x35 and DropGameController's
+                // landscape parent is 480x320. Hunters 2 sometimes computes
+                // this one overlay's offset using portrait (320x480) screen
+                // dimensions: x=95, y=445, entirely below the battlefield.
+                // Correct only an out-of-bounds enabled start overlay, never
+                // alter the button's original target/action or game state.
+                use crate::frameworks::core_graphics::cg_affine_transform::CGAffineTransform;
+                use crate::frameworks::core_graphics::CGRect;
+                let parent_bounds: CGRect = msg![env; parent bounds];
+                let view_bounds: CGRect = msg![env; view bounds];
+                let transform: CGAffineTransform = msg![env; view transform];
+                let (parent_width, parent_height) =
+                    (parent_bounds.size.width, parent_bounds.size.height);
+                let (view_width, view_height) =
+                    (view_bounds.size.width, view_bounds.size.height);
+                let (old_x, old_y) = (transform.tx, transform.ty);
+                if parent_width > parent_height
+                    && view_width > 0.0
+                    && view_height > 0.0
+                    && (old_y + view_height > parent_height + 1.0
+                        || old_x + view_width > parent_width + 1.0)
+                {
+                    let mut corrected = transform;
+                    corrected.tx = (parent_width - view_width) / 2.0;
+                    corrected.ty = parent_height - view_height;
+                    let (new_x, new_y) = (corrected.tx, corrected.ty);
+                    () = msg_class![env; CATransaction begin];
+                    () = msg_class![env; CATransaction setDisableActions:true];
+                    () = msg![env; view setTransform:corrected];
+                    () = msg_class![env; CATransaction commit];
+                    log!(
+                        "Hunters 2: corrected BEGIN CONTRACT portrait offset ({old_x}, {old_y}) -> ({new_x}, {new_y}); overlay={view_width}x{view_height}, parent={parent_width}x{parent_height}"
+                    );
+                }
                 log!(
                     "Hunters 2: brought BEGIN CONTRACT overlay above battlefield: view={view:?}, parent={parent:?}, old_z={old_z}"
                 );
