@@ -295,8 +295,7 @@ fn objc_msgSend_inner(
                 let transform: CGAffineTransform = msg![env; view transform];
                 let (parent_width, parent_height) =
                     (parent_bounds.size.width, parent_bounds.size.height);
-                let (view_width, view_height) =
-                    (view_bounds.size.width, view_bounds.size.height);
+                let (view_width, view_height) = (view_bounds.size.width, view_bounds.size.height);
                 let (old_x, old_y) = (transform.tx, transform.ty);
                 if parent_width > parent_height
                     && view_width > 0.0
