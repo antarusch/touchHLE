@@ -260,6 +260,36 @@ fn objc_msgSend_inner(
                 env.objc.try_get_class_name(orig_class),
             );
         }
+        // Hunters 2's mission-deployment BEGIN CONTRACT control is a real
+        // H2ButtonGothic nib outlet. DropGameController's OpenGLView can be
+        // layered over the old OverlayStartGame view even after show has
+        // completed, hiding the button and receiving its touches.
+        // Restore the overlay's stacking only when it becomes enabled;
+        // leave deployment logic and the nib's existing onTap action intact.
+        #[cfg(target_os = "android")]
+        if name == "setIsEnabled:"
+            && env.cpu.regs()[2] != 0
+            && env.objc.try_get_class_name(orig_class) == Some("OverlayStartGame")
+        {
+            let view: id = msg![env; receiver view];
+            let parent: id = msg![env; view superview];
+            if parent != nil {
+                let layer: id = msg![env; view layer];
+                let old_z: f32 = msg![env; layer zPosition];
+                // The title/video compatibility path can use z=1000.
+                // This is confined to the 130x35 deployment button and
+                // remains underneath other system-level popups.
+                () = msg![env; layer setZPosition:1100.0f32];
+                () = msg![env; parent bringSubviewToFront:view];
+                log!(
+                    "Hunters 2: brought BEGIN CONTRACT overlay above battlefield: view={view:?}, parent={parent:?}, old_z={old_z}"
+                );
+            } else {
+                log!(
+                    "Hunters 2: BEGIN CONTRACT overlay view has no superview: view={view:?}"
+                );
+            }
+        }
         // ShipGameController is the next core (type 4) after resuming a
         // save. In some transitions the controller is constructed but
         // its onLoad callback is never dispatched. Defer recovery outside
