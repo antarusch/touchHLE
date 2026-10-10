@@ -1226,9 +1226,7 @@ pub(super) fn handle_players(env: &mut Environment) {
     if std::mem::take(&mut State::get(env).hunters_replacement_scene_displayed) {
         let old_players = std::mem::take(&mut State::get(env).hunters_completed_player_holds);
         for player in old_players {
-            log!(
-                "Hunters 2: releasing finished player after new CoreView displayed: {player:?}"
-            );
+            log!("Hunters 2: releasing finished player after new CoreView displayed: {player:?}");
             release(env, player);
         }
     }
