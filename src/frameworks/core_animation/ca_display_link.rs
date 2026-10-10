@@ -178,7 +178,7 @@ fn probe_hunters_dialogue_overlay(env: &mut crate::Environment) {
         let layer: id = msg![env; view layer];
         let z: f32 = msg![env; layer zPosition];
         let subviews: id = msg![env; view subviews];
-        let count: usize = msg![env; subviews count];
+        let count: crate::frameworks::foundation::NSUInteger = msg![env; subviews count];
         log!(
             "Hunters 2 dialogue visibility: requested={visible}, frame={frame}, depth={depth}, view={view:?}, hidden={hidden}, alpha={alpha:.2}, z={z:.1}, rect={frame_rect:?}, children={count}"
         );
@@ -186,7 +186,7 @@ fn probe_hunters_dialogue_overlay(env: &mut crate::Environment) {
     }
     if root != nil && frame == 20 {
         let children: id = msg![env; root subviews];
-        let count: usize = msg![env; children count];
+        let count: crate::frameworks::foundation::NSUInteger = msg![env; children count];
         for i in 0..count.min(8) {
             let child: id = msg![env; children objectAtIndex:i];
             let hidden: bool = msg![env; child isHidden];
