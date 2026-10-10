@@ -86,6 +86,20 @@ pub(crate) fn queue_hunters_save_menu_unload(
 }
 
 #[cfg(target_os = "android")]
+pub(crate) fn queue_hunters_ship_load(
+    env: &mut crate::Environment,
+    game: crate::objc::id,
+    ship: crate::objc::id,
+) {
+    movie_player::queue_hunters_ship_load(env, game, ship);
+}
+
+#[cfg(target_os = "android")]
+pub(crate) fn hunters_ship_load_started(env: &mut crate::Environment, ship: crate::objc::id) {
+    movie_player::hunters_ship_load_started(env, ship);
+}
+
+#[cfg(target_os = "android")]
 pub(crate) fn hunters_replacement_scene_displayed(env: &mut crate::Environment) {
     movie_player::hunters_replacement_scene_displayed(env);
 }
