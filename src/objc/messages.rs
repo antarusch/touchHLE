@@ -429,7 +429,9 @@ fn objc_msgSend_inner(
             let game_addr = receiver.to_bits();
             let next_type: i32 = env.mem.read(ConstPtr::from_bits(game_addr + 0x9c));
             let old_core: u32 = env.mem.read(ConstPtr::from_bits(game_addr + 0x98));
-            if next_type == 4 && old_core != 0 {
+            // Saved contracts resume to DropGameController (type 3),
+            // whereas returning to the ship uses type 4.
+            if matches!(next_type, 3 | 4) && old_core != 0 {
                 let save_menu = id::from_bits(old_core);
                 if env
                     .objc
