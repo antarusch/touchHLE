@@ -961,16 +961,36 @@ pub const CLASSES: ClassExports = objc_classes! {
     if !video_available {
         log!("TODO: [(MPMoviePlayerController*){:?} play] - using simulated playback", this);
     }
+    // A player may be paused (or reset to Stopped by setContentURL:)
+    // while it still owns the runtime's single active-player retain.
+    // Hunters 2 replays that exact player when returning to the ship hub.
+    // Do not assert that the active slot is empty or take a second retain.
+    let mut reuse_hunters_active_player = false;
     if let Some(old) = env.framework_state.media_player.movie_player.active_player {
         if old == this {
-            let host = env.objc.borrow::<MPMoviePlayerControllerHostObject>(this);
-            if host.playback_state == MPMoviePlaybackStatePlaying { return; }
-            // Resuming a paused movie needs no additional runtime retain.
+            let playback_state = env
+                .objc
+                .borrow::<MPMoviePlayerControllerHostObject>(this)
+                .playback_state;
+            if playback_state == MPMoviePlaybackStatePlaying {
+                return;
+            }
+            #[cfg(target_os = "android")]
+            if env.bundle.bundle_identifier() == "uk.co.rodeogames.hunterstwo" {
+                reuse_hunters_active_player = true;
+                log!(
+                    "Hunters 2: resuming existing active movie player={this:?}, previous_state={playback_state}"
+                );
+            }
+            // The initial active-player retain is still held.
         } else {
             let _: () = msg![env; old stop];
         }
     }
-    assert!(env.framework_state.media_player.movie_player.active_player.is_none());
+    assert!(
+        reuse_hunters_active_player
+            || env.framework_state.media_player.movie_player.active_player.is_none()
+    );
     {
         let host = env.objc.borrow_mut::<MPMoviePlayerControllerHostObject>(this);
         #[cfg(target_os = "android")]
