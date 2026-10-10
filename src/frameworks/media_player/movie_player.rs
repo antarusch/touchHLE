@@ -975,8 +975,9 @@ pub const CLASSES: ClassExports = objc_classes! {
             if playback_state == MPMoviePlaybackStatePlaying {
                 return;
             }
-            #[cfg(target_os = "android")]
-            if env.bundle.bundle_identifier() == "uk.co.rodeogames.hunterstwo" {
+            if cfg!(target_os = "android")
+                && env.bundle.bundle_identifier() == "uk.co.rodeogames.hunterstwo"
+            {
                 reuse_hunters_active_player = true;
                 log!(
                     "Hunters 2: resuming existing active movie player={this:?}, previous_state={playback_state}"
