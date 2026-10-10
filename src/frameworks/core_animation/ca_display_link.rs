@@ -78,6 +78,58 @@ fn finish_stalled_hunters_intro_handoff(env: &mut crate::Environment, target: id
     () = msg_send_no_type_checking(env, (old_controller, on_unload));
 }
 
+// Once the intro controller has been constructed, the normal fade-overlay
+// notification (component 6) should advance GameController from status 1 to
+// status 4. Hunters 2 may never deliver this event under touchHLE, leaving
+// IntroTextController uninitialized. Recover only this exact stalled handoff.
+#[cfg(target_os = "android")]
+fn finish_stalled_hunters_intro_load(env: &mut crate::Environment, target: id) {
+    use crate::mem::ConstPtr;
+    use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
+
+    static LAST_CONTROLLER: AtomicU32 = AtomicU32::new(0);
+    static WAIT_FRAMES: AtomicUsize = AtomicUsize::new(0);
+
+    if env.bundle.bundle_identifier() != "uk.co.rodeogames.hunterstwo" {
+        return;
+    }
+
+    let game = target.to_bits();
+    let status: i32 = env.mem.read(ConstPtr::from_bits(game + 0xc8));
+    let current: u32 = env.mem.read(ConstPtr::from_bits(game + 0x98));
+    if status != 1 || current == 0 {
+        LAST_CONTROLLER.store(0, Ordering::Relaxed);
+        WAIT_FRAMES.store(0, Ordering::Relaxed);
+        return;
+    }
+
+    let controller_type: i32 = env.mem.read(ConstPtr::from_bits(current + 0xa4));
+    let is_loaded: u8 = env.mem.read(ConstPtr::from_bits(current + 0xa3));
+    if controller_type != 6 || is_loaded != 0 {
+        LAST_CONTROLLER.store(0, Ordering::Relaxed);
+        WAIT_FRAMES.store(0, Ordering::Relaxed);
+        return;
+    }
+
+    let frames = if LAST_CONTROLLER.load(Ordering::Relaxed) == current {
+        WAIT_FRAMES.fetch_add(1, Ordering::Relaxed) + 1
+    } else {
+        LAST_CONTROLLER.store(current, Ordering::Relaxed);
+        WAIT_FRAMES.store(1, Ordering::Relaxed);
+        1
+    };
+    if frames != 90 {
+        return;
+    }
+
+    // This is the game's original overlay-show callback. Its status-1
+    // branch calls setStatus:4 and the current controller's onInitialise,
+    // which in turn calls IntroTextController.onLoad.
+    log!("Hunters 2 stalled intro load: dispatching onComponentIsShowing:6 after {frames} frames");
+    let on_showing = env.objc.lookup_selector("onComponentIsShowing:").unwrap();
+    () = msg_send_no_type_checking(env, (target, on_showing, 6_i32));
+}
+
 pub const CLASSES: ClassExports = objc_classes! {
 
 (env, this, _cmd);
@@ -174,6 +226,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     #[cfg(target_os = "android")]
     if selector_name == "gameUpdate" {
         finish_stalled_hunters_intro_handoff(env, target);
+        finish_stalled_hunters_intro_load(env, target);
     }
 }
 
