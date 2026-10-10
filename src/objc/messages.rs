@@ -285,9 +285,7 @@ fn objc_msgSend_inner(
                     "Hunters 2: brought BEGIN CONTRACT overlay above battlefield: view={view:?}, parent={parent:?}, old_z={old_z}"
                 );
             } else {
-                log!(
-                    "Hunters 2: BEGIN CONTRACT overlay view has no superview: view={view:?}"
-                );
+                log!("Hunters 2: BEGIN CONTRACT overlay view has no superview: view={view:?}");
             }
         }
         // ShipGameController is the next core (type 4) after resuming a
