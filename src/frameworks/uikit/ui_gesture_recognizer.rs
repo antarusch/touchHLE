@@ -330,10 +330,9 @@ pub(crate) fn dispatch(env: &mut Environment, recognizer: id, touch: id, phase: 
 
     if should_fire {
         if delegate != nil {
-            let sel = env.objc.register_host_selector(
-                "gestureRecognizerShouldBegin:".to_string(),
-                &mut env.mem,
-            );
+            let sel = env
+                .objc
+                .register_host_selector("gestureRecognizerShouldBegin:".to_string(), &mut env.mem);
             let responds: bool = msg![env; delegate respondsToSelector:sel];
             if responds {
                 let allowed: bool = msg_send(env, (delegate, sel, recognizer));
