@@ -25,7 +25,6 @@ struct CADisplayLinkHostObject {
 }
 impl HostObject for CADisplayLinkHostObject {}
 
-
 // Hunters 2 uses an asynchronous screen-unload handoff. In touchHLE the
 // SaveMenuController sometimes remains active after the unload request.
 // Complete the game's own callbacks only if it remains stuck for 90 frames.
@@ -75,9 +74,7 @@ fn finish_stalled_hunters_intro_handoff(env: &mut crate::Environment, target: id
     // that would send a second completion to an already-released controller.
     let old_controller = id::from_bits(current);
     let on_unload = env.objc.lookup_selector("onUnload").unwrap();
-    log!(
-        "Hunters 2 stalled unload: invoking SaveMenuController onUnload after {frames} frames"
-    );
+    log!("Hunters 2 stalled unload: invoking SaveMenuController onUnload after {frames} frames");
     () = msg_send_no_type_checking(env, (old_controller, on_unload));
 }
 
