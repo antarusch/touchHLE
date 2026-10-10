@@ -75,6 +75,48 @@ const UIControlStateSelected: UIControlState = 1 << 2;
 #[allow(dead_code)]
 const UIControlStateFocused: UIControlState = 1 << 3;
 
+// Hunters 2 tutorial diagnostics only. The popup button covers the game view.
+fn hunters_tutorial_control_probe(env: &mut Environment, this: id, stage: &str) {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static PROBES: AtomicUsize = AtomicUsize::new(0);
+
+    if env.bundle.bundle_identifier_opt() != Some("uk.co.rodeogames.hunterstwo")
+        || PROBES.load(Ordering::Relaxed) >= 36
+    {
+        return;
+    }
+
+    let (actions, tracking) = {
+        let host = env.objc.borrow::<UIControlHostObject>(this);
+        (host.action_targets.clone(), host.tracking)
+    };
+    let tutorial_actions: Vec<_> = actions
+        .iter()
+        .filter_map(|&(target, action, events)| {
+            let name = action.as_str(&env.mem);
+            name.starts_with("onTutorial").then(|| (target, name.to_string(), events))
+        })
+        .collect();
+    if tutorial_actions.is_empty() {
+        return;
+    }
+    if PROBES.fetch_add(1, Ordering::Relaxed) >= 36 {
+        return;
+    }
+
+    let enabled: bool = msg![env; this isEnabled];
+    let tag: NSInteger = msg![env; this tag];
+    let superview: id = msg![env; this superview];
+    let (hidden, alpha) = if superview != nil {
+        (msg![env; superview isHidden], msg![env; superview alpha])
+    } else {
+        (false, 1.0_f32)
+    };
+    log!(
+        "Hunters 2 tutorial button {stage}: control={this:?}, tag={tag}, enabled={enabled}, tracking={tracking}, superview={superview:?}, parent_hidden={hidden}, parent_alpha={alpha}, actions={tutorial_actions:?}"
+    );
+}
+
 fn send_actions(env: &mut Environment, this: id, event: id, control_event: UIControlEvents) {
     log_dbg!(
         "Control event {:?} in control {:?} for event {:?}",
@@ -83,6 +125,7 @@ fn send_actions(env: &mut Environment, this: id, event: id, control_event: UICon
         event,
     );
 
+    hunters_tutorial_control_probe(env, this, "send-actions");
     let UIControlHostObject { action_targets, .. } = env.objc.borrow(this);
     let action_targets: Vec<_> = action_targets
         .iter()
@@ -204,6 +247,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (())touchesBegan:(id)touches // NSSet* of UITouch*
          withEvent:(id)event { // UIEvent*
+    hunters_tutorial_control_probe(env, this, "began");
     if !msg![env; this isEnabled] {
         return;
     }
@@ -262,6 +306,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 - (())touchesEnded:(id)touches // NSSet* of UITouch*
          withEvent:(id)event { // UIEvent*
+    hunters_tutorial_control_probe(env, this, "ended");
     let touch: id = msg![env; touches anyObject];
     let tracked_touch = env.objc.borrow::<UIControlHostObject>(this).tracked_touch;
     if tracked_touch != touch {
