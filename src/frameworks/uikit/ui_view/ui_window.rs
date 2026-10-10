@@ -73,6 +73,29 @@ pub const CLASSES: ClassExports = objc_classes! {
         () = msg![env; group addObject:touch];
     }
     for ((view, phase), touches) in groups {
+        // Deliver touches to recognizers on the hit-tested UIView and its
+        // ancestors. Keep a temporary strong reference because a callback
+        // is permitted to remove its own recognizer.
+        let touches_array: id = msg![env; touches allObjects];
+        let touches_count: NSUInteger = msg![env; touches_array count];
+        let mut ancestor = view;
+        while ancestor != nil {
+            let (recognizers, parent) = {
+                let host = env.objc.borrow::<super::UIViewHostObject>(ancestor);
+                (host.gesture_recognizers.clone(), host.superview)
+            };
+            for recognizer in recognizers {
+                retain(env, recognizer);
+                for index in 0..touches_count {
+                    let touch: id = msg![env; touches_array objectAtIndex:index];
+                    crate::frameworks::uikit::ui_gesture_recognizer::dispatch(
+                        env, recognizer, touch, phase,
+                    );
+                }
+                release(env, recognizer);
+            }
+            ancestor = parent;
+        }
         log_dbg!("UIWindow {:?} dispatches phase {} to view {:?}", this, phase, view);
         if env.bundle.bundle_identifier_opt() == Some("uk.co.rodeogames.hunterstwo")
             && matches!(phase, UITouchPhaseBegan | UITouchPhaseEnded)
