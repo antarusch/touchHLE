@@ -320,6 +320,18 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     let new_pos: CGPoint = msg![env; touch locationInView:this];
     let is_inside = msg![env; this pointInside:new_pos withEvent:event];
+    if env.bundle.bundle_identifier_opt() == Some("uk.co.rodeogames.hunterstwo") {
+        let is_abilities_button = env.objc.borrow::<UIControlHostObject>(this).action_targets
+            .iter()
+            .any(|(_, action, _)| action.as_str(&env.mem) == "onButtonPressed:");
+        if is_abilities_button {
+            let tag: NSInteger = msg![env; this tag];
+            let enabled: bool = msg![env; this isEnabled];
+            log!(
+                "Hunters 2 abilities touch ended: button={this:?}, tag={tag}, enabled={enabled}, inside={is_inside}, point={new_pos:?}"
+            );
+        }
+    }
 
     // TODO: unclear if this is meant to be affected by tracking
     send_actions(env, this, event, match is_inside {
