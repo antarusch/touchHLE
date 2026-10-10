@@ -15,6 +15,7 @@ pub const DYLIB_LIST: &[&super::HostDylib] = &[
     &libc::DYLIB,
     &objc::DYLIB,
     &crate::environment::app_picker::DYLIB, // Not a real library; special internal classes.
+    &frameworks::accounts::DYLIB,
     &frameworks::audio_toolbox::DYLIB,
     &frameworks::avfoundation::DYLIB,
     &frameworks::cf_network::DYLIB,
