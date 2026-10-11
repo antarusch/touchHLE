@@ -114,6 +114,17 @@ pub const CLASSES: ClassExports = objc_classes! {
     if env.bundle.bundle_identifier() == "uk.co.rodeogames.hunterstwo" {
         log!("Hunters 2 EAGL initWithAPI:sharegroup: api={api}, group={group:?}");
     }
+    // Tactical Soldier: Undead Rising 2.0.2 rendered its missions through
+    // the GLES 1.1 fallback before the later Hunters 2 GLES 2.0 work.
+    // Its newer GLES 2.0 path currently produces GL_INVALID_ENUM errors
+    // and omits the battlefield. Let Unity select its proven GLES 1.1 path
+    // without disabling GLES 2.0 for Hunters 2 or any other application.
+    if api == kEAGLRenderingAPIOpenGLES2
+        && env.bundle.bundle_identifier() == "dk.fullcontrol.tsur"
+    {
+        log_once!("Tactical Soldier: declining GLES 2.0 context; use original GLES 1.1 fallback");
+        return nil;
+    }
     if api != kEAGLRenderingAPIOpenGLES1 && api != kEAGLRenderingAPIOpenGLES2 {
         log!("Unsupported EAGL rendering API {api}");
         return nil;
@@ -166,6 +177,17 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (id)initWithAPI:(EAGLRenderingAPI)api {
     if env.bundle.bundle_identifier() == "uk.co.rodeogames.hunterstwo" {
         log!("Hunters 2 EAGL initWithAPI: api={api}");
+    }
+    // Tactical Soldier: Undead Rising 2.0.2 rendered its missions through
+    // the GLES 1.1 fallback before the later Hunters 2 GLES 2.0 work.
+    // Its newer GLES 2.0 path currently produces GL_INVALID_ENUM errors
+    // and omits the battlefield. Let Unity select its proven GLES 1.1 path
+    // without disabling GLES 2.0 for Hunters 2 or any other application.
+    if api == kEAGLRenderingAPIOpenGLES2
+        && env.bundle.bundle_identifier() == "dk.fullcontrol.tsur"
+    {
+        log_once!("Tactical Soldier: declining GLES 2.0 context; use original GLES 1.1 fallback");
+        return nil;
     }
     if api != kEAGLRenderingAPIOpenGLES1 && api != kEAGLRenderingAPIOpenGLES2 {
         log!("Unsupported EAGL rendering API {api}");
