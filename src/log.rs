@@ -168,7 +168,7 @@ impl Drop for DiagnosticHostCall {
     }
 }
 
-fn active_host_calls() -> String {
+pub(crate) fn active_host_calls() -> String {
     use std::fmt::Write;
     let stacks = HOST_CALLS.lock().unwrap_or_else(|error| error.into_inner());
     let mut text = String::new();
