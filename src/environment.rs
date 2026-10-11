@@ -313,6 +313,20 @@ impl Environment {
             return Err("Only one (real) Environment can exist at a time!".to_string());
         }
 
+        // Metal Gear Solid Touch 2.3.0 supplies a portrait 320x480
+        // framebuffer and portrait-oriented menu assets. A global
+        // --landscape-left default incorrectly rotates/clips its UI.
+        // Set the initial device orientation before creating the window,
+        // without affecting other apps that use the global preference.
+        if bundle.bundle_identifier_opt() == Some("com.konami.mgst")
+            && options.initial_orientation != window::DeviceOrientation::Portrait
+        {
+            log!(
+                "Metal Gear Solid Touch: overriding landscape default with portrait orientation"
+            );
+            options.initial_orientation = window::DeviceOrientation::Portrait;
+        }
+
         // Certain apps need to launch in a non-portrait orientation, and this
         // should be handled before creating the window because handling of
         // window rotation after-the-fact is somewhat glitchy.
