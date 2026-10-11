@@ -170,6 +170,15 @@ impl GLES for GLES2Native<'_> {
     unsafe fn BlendFunc(&mut self, sfactor: GLenum, dfactor: GLenum) {
         gles20::BlendFunc(sfactor, dfactor)
     }
+    unsafe fn BlendFuncSeparate(
+        &mut self,
+        src_rgb: GLenum,
+        dst_rgb: GLenum,
+        src_alpha: GLenum,
+        dst_alpha: GLenum,
+    ) {
+        gles20::BlendFuncSeparate(src_rgb, dst_rgb, src_alpha, dst_alpha);
+    }
 
     unsafe fn BlendEquationOES(&mut self, mode: GLenum) {
         gles20::BlendEquation(mode)
