@@ -324,7 +324,7 @@ pub const CLASSES: ClassExports = objc_classes! {
             return false;
         };
         let pixels = get_pixels_vec_for_presenting(env, drawable);
-        let (pixels, width, height) = {
+        let (mut pixels, width, height) = {
             let mut gles = super::sync_context(
                 &mut env.framework_state.opengles,
                 &mut env.objc,
@@ -350,6 +350,45 @@ pub const CLASSES: ClassExports = objc_classes! {
             log!(
                 "GLES2 present frame {frame}: renderbuffer {renderbuffer}, size {width}x{height}, non-black {non_black}/{pixel_count}",
             );
+        }
+        if env.bundle.bundle_identifier_opt() == Some("uk.co.rodeogames.hunterstwo") {
+            // The RGB readback is non-black after a saved-contract resume, yet
+            // its Core Animation output is black. Check whether the ES2
+            // framebuffer contains visible RGB with almost entirely zero
+            // alpha. A non-opaque CAEAGLLayer blends that image to black.
+            let (rgb_lit, alpha_zero, alpha_opaque, total) = pixels
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .fold((0usize, 0usize, 0usize, 0usize), |counts, rgba| {
+                    (
+                        counts.0 + usize::from(rgba[0] != 0 || rgba[1] != 0 || rgba[2] != 0),
+                        counts.1 + usize::from(rgba[3] == 0),
+                        counts.2 + usize::from(rgba[3] == 255),
+                        counts.3 + 1,
+                    )
+                });
+            let declared_opaque: bool = msg![env; drawable isOpaque];
+            if matches!(frame, 1 | 30 | 120) {
+                log!(
+                    "Hunters 2 GLES2 alpha check: frame={frame}, rgb_lit={rgb_lit}/{total}, alpha_zero={alpha_zero}/{total}, alpha_opaque={alpha_opaque}/{total}, layer_opaque={declared_opaque}"
+                );
+            }
+            // Treat an almost-fully-painted battlefield as opaque only when
+            // alpha is almost entirely zero. Do not alter valid alpha frames,
+            // UI layers, saves, or other games.
+            if !declared_opaque
+                && total > 0
+                && rgb_lit * 100 >= total * 90
+                && alpha_zero * 100 >= total * 95
+            {
+                for rgba in pixels.chunks_exact_mut(4) {
+                    rgba[3] = 255;
+                }
+                if matches!(frame, 1 | 30 | 120) {
+                    log!("Hunters 2: restored opaque alpha for fully painted ES2 battlefield");
+                }
+            }
         }
         if env.bundle.bundle_identifier_opt() == Some("uk.co.rodeogames.hunterstwo")
             && matches!(frame, 1 | 30 | 120)
