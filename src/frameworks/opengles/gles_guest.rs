@@ -340,6 +340,17 @@ fn glBlendFunc(env: &mut Environment, sfactor: GLenum, dfactor: GLenum) {
         gles.BlendFunc(sfactor, dfactor)
     })
 }
+fn glBlendFuncSeparate(
+    env: &mut Environment,
+    src_rgb: GLenum,
+    dst_rgb: GLenum,
+    src_alpha: GLenum,
+    dst_alpha: GLenum,
+) {
+    with_ctx_and_mem(env, |gles, _mem| unsafe {
+        gles.BlendFuncSeparate(src_rgb, dst_rgb, src_alpha, dst_alpha)
+    })
+}
 // Tactical Soldier: Undead Rising 2.0.2 calls the ES 2.0-style
 // glBlendFuncSeparate entry point while using an ES 1.1 context.
 // Its observed factors (SRC_ALPHA, ONE, SRC_ALPHA, ONE) are equivalent
@@ -1567,6 +1578,7 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(glAlphaFunc(_, _)),
     export_c_func!(glAlphaFuncx(_, _)),
     export_c_func!(glBlendFunc(_, _)),
+    export_c_func!(glBlendFuncSeparate(_, _, _, _)),
     export_c_func!(glBlendFuncSeparate(_, _, _, _)),
     export_c_func!(glBlendEquationOES(_)),
     export_c_func!(glColorMask(_, _, _, _)),
