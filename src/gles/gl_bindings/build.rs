@@ -63,6 +63,7 @@ fn main() {
             "GL_OES_compressed_paletted_texture",
             "GL_OES_matrix_palette",
             "GL_OES_blend_subtract",
+            "GL_OES_blend_func_separate",
         ],
     )
     .write_bindings(GlobalGenerator, &mut file)
