@@ -381,23 +381,26 @@ forControlEvents:(UIControlEvents)events {
         log!(
             "Hunters 2 abilities button action: control={this:?}, tag={tag}, enabled={enabled}, target={target:?}, selector=onButtonPressed:"
         );
-        // Original armv7 OverlayDropgameAbilities layout: m_buttonData is
-        // seven 20-byte entries beginning at offset 216. Each slot stores
-        // IAbility* at +12 and IAction* at +16. Its callback returns without
-        // gameplay if both pointers are null. Diagnose actual slot data;
-        // never invent a Guard action or bypass AP/turn restrictions.
+        // Probe the seven 20-byte OverlayDropgameAbilities records.
+        // The previous trace incorrectly labelled word 4 an IAction*, but
+        // it is the UIButton sender itself. Log raw words, not assumed
+        // IAbility/IAction offsets, until the game's layout is verified.
+        // Do not invent Guard actions or bypass AP/turn restrictions.
         let target_class: crate::objc::Class = msg![env; target class];
         if env.objc.try_get_class_name(target_class) == Some("OverlayDropgameAbilities")
             && (0..7).contains(&tag)
         {
             use crate::mem::ConstPtr;
             let slot = target.to_bits() + 216 + (tag as u32) * 20;
-            let ability: u32 = env.mem.read(ConstPtr::from_bits(slot + 12));
-            let action_ptr: u32 = env.mem.read(ConstPtr::from_bits(slot + 16));
-            let selected_mini: u32 =
+            let w0: u32 = env.mem.read(ConstPtr::from_bits(slot));
+            let w1: u32 = env.mem.read(ConstPtr::from_bits(slot + 4));
+            let w2: u32 = env.mem.read(ConstPtr::from_bits(slot + 8));
+            let w3: u32 = env.mem.read(ConstPtr::from_bits(slot + 12));
+            let w4: u32 = env.mem.read(ConstPtr::from_bits(slot + 16));
+            let field356: u32 =
                 env.mem.read(ConstPtr::from_bits(target.to_bits() + 356));
             log!(
-                "Hunters 2 Guard action slot: tag={tag}, selected_mini={selected_mini:#x}, ability={ability:#x}, action={action_ptr:#x}"
+                "Hunters 2 Guard raw slot: tag={tag}, words=[{w0:#x}, {w1:#x}, {w2:#x}, {w3:#x}, {w4:#x}], field356={field356:#x}, sender={this:?}"
             );
         }
     }
