@@ -351,6 +351,51 @@ pub const CLASSES: ClassExports = objc_classes! {
                 "GLES2 present frame {frame}: renderbuffer {renderbuffer}, size {width}x{height}, non-black {non_black}/{pixel_count}",
             );
         }
+        if env.bundle.bundle_identifier_opt() == Some("uk.co.rodeogames.hunterstwo")
+            && matches!(frame, 1 | 30 | 120)
+        {
+            // Saved-contract resume renders non-black pixels but the user
+            // sees black. Trace whether its CAEAGLLayer is actually attached
+            // to a visible UIWindow. Diagnostics only: no compositor changes.
+            let owner: id = msg![env; drawable delegate];
+            let view_class = env.objc.get_known_class("UIView", &mut env.mem);
+            let owner_is_view: bool = owner != nil && msg![env; owner isKindOfClass:view_class];
+            let owner_window: id = if owner_is_view {
+                msg![env; owner window]
+            } else {
+                nil
+            };
+            let mut ancestor = drawable;
+            let mut depth = 0;
+            let mut detached = false;
+            loop {
+                let parent: id = msg![env; ancestor superlayer];
+                if parent == nil {
+                    detached = true;
+                    break;
+                }
+                ancestor = parent;
+                depth += 1;
+                if depth >= 32 {
+                    break;
+                }
+            }
+            let windows = env.framework_state.uikit.ui_view.ui_window.windows.clone();
+            let mut attached_window = nil;
+            for window in windows {
+                let window_layer: id = msg![env; window layer];
+                if window_layer == ancestor {
+                    attached_window = window;
+                    break;
+                }
+            }
+            let layer_bounds: CGRect = msg![env; drawable bounds];
+            let layer_hidden: bool = msg![env; drawable isHidden];
+            let layer_opacity: f32 = msg![env; drawable opacity];
+            log!(
+                "Hunters 2 saved-contract GL presentation: frame={frame}, drawable={drawable:?}, owner={owner:?}, owner_window={owner_window:?}, ancestor={ancestor:?}, attached_window={attached_window:?}, layer_depth={depth}, root_reached={detached}, hidden={layer_hidden}, opacity={layer_opacity}, bounds={layer_bounds:?}"
+            );
+        }
         if width == 0 || height == 0 {
             log!("OpenGL ES 2.0 renderbuffer has zero dimensions; skipping presentation");
             return false;
