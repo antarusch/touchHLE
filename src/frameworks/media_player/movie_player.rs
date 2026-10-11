@@ -44,6 +44,10 @@ pub struct State {
     // after the save menu handoff but before its first frame update.
     #[cfg(target_os = "android")]
     hunters_pending_drop_load: Option<(id, id, Instant)>,
+    // Guarded pause->main menu unload handoff for a resumed saved contract.
+    // Avoid leaving DropGameController active after status changes to 3.
+    #[cfg(target_os = "android")]
+    hunters_pending_drop_unload: Option<(id, id, Instant)>,
     #[cfg(target_os = "android")]
     hunters_create_save_visible: bool,
     /// Once save creation has switched to gameplay, do not draw the intro movie
@@ -1231,6 +1235,28 @@ pub(super) fn hunters_drop_load_started(env: &mut Environment, drop: id) {
     }
 }
 
+/// Defer the original DropGameController.onUnload for the confirmed
+/// pause-to-main-menu (type 1) transition, if the game misses its callback.
+#[cfg(target_os = "android")]
+pub(super) fn queue_hunters_drop_unload(env: &mut Environment, game: id, drop: id) {
+    if env.bundle.bundle_identifier() != "uk.co.rodeogames.hunterstwo" {
+        return;
+    }
+    State::get(env).hunters_pending_drop_unload = Some((game, drop, Instant::now()));
+    log!("Hunters 2: queued paused-contract DropGameController unload check for {drop:?}");
+}
+
+#[cfg(target_os = "android")]
+pub(super) fn hunters_drop_unload_started(env: &mut Environment, drop: id) {
+    if State::get(env)
+        .hunters_pending_drop_unload
+        .is_some_and(|(_, pending, _)| pending == drop)
+    {
+        State::get(env).hunters_pending_drop_unload = None;
+        log!("Hunters 2: original DropGameController.onUnload started; fallback cancelled");
+    }
+}
+
 /// An actual onLoad event always wins over recovery.
 #[cfg(target_os = "android")]
 pub(super) fn hunters_ship_load_started(env: &mut Environment, ship: id) {
@@ -1355,6 +1381,33 @@ pub(super) fn handle_players(env: &mut Environment) {
                     "Hunters 2: stalled resume; calling SaveMenuController.onUnload after timeout"
                 );
                 let _: () = msg![env; menu onUnload];
+            }
+        }
+    }
+
+    // A paused restored contract can enter status 3 and request main-menu
+    // type 1 while the loaded DropGameController never receives its regular
+    // onUnload. Do not simulate lifecycle flags or alter the save: invoke
+    // the original game's callback, after a grace period, only for the same
+    // exact loaded controller in the same pending transition.
+    #[cfg(target_os = "android")]
+    if let Some((game, drop, queued_at)) = State::get(env).hunters_pending_drop_unload {
+        use crate::mem::ConstPtr;
+        let game_addr = game.to_bits();
+        let drop_addr = drop.to_bits();
+        let status: u32 = env.mem.read(ConstPtr::from_bits(game_addr + 0xc8));
+        let current_core: u32 = env.mem.read(ConstPtr::from_bits(game_addr + 0x98));
+        let next_type: i32 = env.mem.read(ConstPtr::from_bits(game_addr + 0x9c));
+        if status != 3 || current_core != drop_addr || next_type != 1 {
+            State::get(env).hunters_pending_drop_unload = None;
+        } else if queued_at.elapsed() >= Duration::from_millis(1200) {
+            State::get(env).hunters_pending_drop_unload = None;
+            let is_loaded: u8 = env.mem.read(ConstPtr::from_bits(drop_addr + 0xa3));
+            if is_loaded != 0 {
+                log!(
+                    "Hunters 2: stalled pause return, invoking original DropGameController.onUnload"
+                );
+                let _: () = msg![env; drop onUnload];
             }
         }
     }
