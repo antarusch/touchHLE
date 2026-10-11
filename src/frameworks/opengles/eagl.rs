@@ -449,6 +449,31 @@ pub const CLASSES: ClassExports = objc_classes! {
                     log!(
                         "Hunters 2 GLES2 layer ancestry: level={level}, layer={node:?}, parent={parent:?}, bounds={bounds:?}, hidden={hidden}, opacity={opacity}, z={z}, opaque={opaque}, clipped={clipped}"
                     );
+                    // Inspect the compositing siblings that could cover the
+                    // GL layer, without changing their UIKit stacking order.
+                    if parent != nil {
+                        let siblings: id = msg![env; parent sublayers];
+                        if siblings != nil {
+                            let count: u32 = msg![env; siblings count];
+                            log!(
+                                "Hunters 2 GLES2 compositor siblings: level={level}, parent={parent:?}, count={count}, GL_branch={node:?}"
+                            );
+                            for i in 0..count {
+                                if count > 24 && i >= 10 && i < count - 10 {
+                                    continue;
+                                }
+                                let sibling: id = msg![env; siblings objectAtIndex:i];
+                                let sibling_z: f32 = msg![env; sibling zPosition];
+                                let sibling_hidden: bool = msg![env; sibling isHidden];
+                                let sibling_opacity: f32 = msg![env; sibling opacity];
+                                let sibling_bounds: CGRect = msg![env; sibling bounds];
+                                log!(
+                                    "Hunters 2 GLES2 sibling: level={level}, index={i}/{count}, layer={sibling:?}, is_GL_branch={}, z={sibling_z}, hidden={sibling_hidden}, opacity={sibling_opacity}, bounds={sibling_bounds:?}",
+                                    sibling == node,
+                                );
+                            }
+                        }
+                    }
                     if parent == nil {
                         break;
                     }
