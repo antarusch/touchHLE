@@ -321,9 +321,7 @@ impl Environment {
         if bundle.bundle_identifier_opt() == Some("com.konami.mgst")
             && options.initial_orientation != window::DeviceOrientation::Portrait
         {
-            log!(
-                "Metal Gear Solid Touch: overriding landscape default with portrait orientation"
-            );
+            log!("Metal Gear Solid Touch: overriding landscape default with portrait orientation");
             options.initial_orientation = window::DeviceOrientation::Portrait;
         }
 
