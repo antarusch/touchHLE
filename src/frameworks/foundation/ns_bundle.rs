@@ -335,7 +335,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         }
     }
     if env.bundle.bundle_identifier_opt() == Some("com.konami.mgst") {
-        let describe = |value: id| {
+        let mut describe = |value: id| {
             if value == nil {
                 "(nil)".to_owned()
             } else {
