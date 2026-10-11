@@ -48,6 +48,10 @@ pub struct State {
     // Avoid leaving DropGameController active after status changes to 3.
     #[cfg(target_os = "android")]
     hunters_pending_drop_unload: Option<(id, id, Instant)>,
+    // Main-menu SaveMenuController may miss onLoad after a DropGameController
+    // unload. Recover only if the same replacement core is still pending.
+    #[cfg(target_os = "android")]
+    hunters_pending_save_menu_load: Option<(id, id, Instant)>,
     #[cfg(target_os = "android")]
     hunters_create_save_visible: bool,
     /// Once save creation has switched to gameplay, do not draw the intro movie
@@ -1257,6 +1261,27 @@ pub(super) fn hunters_drop_unload_started(env: &mut Environment, drop: id) {
     }
 }
 
+/// SaveMenuController can also stall when returning from a paused contract.
+#[cfg(target_os = "android")]
+pub(super) fn queue_hunters_save_menu_load(env: &mut Environment, game: id, menu: id) {
+    if env.bundle.bundle_identifier() != "uk.co.rodeogames.hunterstwo" {
+        return;
+    }
+    State::get(env).hunters_pending_save_menu_load = Some((game, menu, Instant::now()));
+    log!("Hunters 2: queued replacement SaveMenuController load check for {menu:?}");
+}
+
+#[cfg(target_os = "android")]
+pub(super) fn hunters_save_menu_load_started(env: &mut Environment, menu: id) {
+    if State::get(env)
+        .hunters_pending_save_menu_load
+        .is_some_and(|(_, pending, _)| pending == menu)
+    {
+        State::get(env).hunters_pending_save_menu_load = None;
+        log!("Hunters 2: SaveMenuController entered onLoad; fallback cancelled");
+    }
+}
+
 /// An actual onLoad event always wins over recovery.
 #[cfg(target_os = "android")]
 pub(super) fn hunters_ship_load_started(env: &mut Environment, ship: id) {
@@ -1443,6 +1468,35 @@ pub(super) fn handle_players(env: &mut Environment) {
                 log!(
                     "Hunters 2: saved-contract onLoad returned; runtime singleton={runtime_object:#x}"
                 );
+            }
+        }
+    }
+
+    // Pause-menu return reaches replacement SaveMenuController type 1,
+    // but its onLoad can be missing even after DropGameController finishes
+    // unloading. Invoke the game's own onLoad once after a grace period.
+    // Require an exact controller and status match, and abort on any
+    // intervening transition to avoid touching an old controller.
+    #[cfg(target_os = "android")]
+    if let Some((game, menu, queued_at)) = State::get(env).hunters_pending_save_menu_load {
+        use crate::mem::ConstPtr;
+
+        let game_addr = game.to_bits();
+        let menu_addr = menu.to_bits();
+        let status: u32 = env.mem.read(ConstPtr::from_bits(game_addr + 0xc8));
+        let current_core: u32 = env.mem.read(ConstPtr::from_bits(game_addr + 0x98));
+        let next_type: i32 = env.mem.read(ConstPtr::from_bits(game_addr + 0x9c));
+        if current_core != menu_addr || next_type != 1 || status != 1 {
+            State::get(env).hunters_pending_save_menu_load = None;
+        } else if queued_at.elapsed() >= Duration::from_millis(1500) {
+            State::get(env).hunters_pending_save_menu_load = None;
+            let is_loaded: u8 = env.mem.read(ConstPtr::from_bits(menu_addr + 0xa3));
+            if is_loaded == 0 {
+                let has_update: u8 = env.mem.read(ConstPtr::from_bits(menu_addr + 0xa0));
+                log!(
+                    "Hunters 2: stalled main-menu load; invoking SaveMenuController.onLoad: has_update={has_update}"
+                );
+                let _: () = msg![env; menu onLoad];
             }
         }
     }
