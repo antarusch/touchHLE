@@ -1,0 +1,70 @@
+name: Rename verified v178 release Alpha 3 to Alpha 4
+
+on:
+  push:
+    branches:
+      - hunters-2-alpha3-publish
+    paths:
+      - .github/workflows/rename-alpha3-to-alpha4.yml
+
+permissions:
+  contents: write
+
+jobs:
+  rename:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Rename existing verified release and tag without re-uploading APK
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          repo="$GITHUB_REPOSITORY"
+          master="f5db2b2b5ac98c17db34ace582853a1f00ec2e3b"
+          expected_digest="sha256:d7055f8c4cb068b0275d47e087d7455acc04cddb79a0d125f16e85bfc55a5013"
+
+          # Never overwrite any existing Alpha 4 release or tag.
+          if gh api "repos/$repo/releases/tags/alpha-4" >/dev/null 2>&1 ||
+             gh api "repos/$repo/git/ref/tags/alpha-4" >/dev/null 2>&1; then
+            echo "::error::Alpha 4 release or tag already exists; refusing to overwrite."
+            exit 1
+          fi
+
+          release_id="$(gh api "repos/$repo/releases/tags/alpha-3" --jq '.id')"
+          test "$release_id" = "409766705"
+          release_target="$(gh api "repos/$repo/releases/tags/alpha-3" --jq '.target_commitish')"
+          test "$release_target" = "$master"
+          old_sha="$(gh api "repos/$repo/git/ref/tags/alpha-3" --jq '.object.sha')"
+          test "$old_sha" = "$master"
+          asset_count="$(gh api "repos/$repo/releases/tags/alpha-3" --jq '[.assets[] | select(.name == "touchHLE.apk" and .digest == "'$expected_digest'")] | length')"
+          test "$asset_count" = "1"
+
+          # Keep all existing release notes and their tested-game disclaimers.
+          gh api "repos/$repo/releases/tags/alpha-3" --jq '.body' |
+            sed 's/This Alpha 3 build/This Alpha 4 build/' > "$RUNNER_TEMP/alpha4-notes.md"
+
+          # Create new lightweight tag at exactly the proven v178 master commit.
+          gh api -X POST "repos/$repo/git/refs" -f ref="refs/tags/alpha-4" -f sha="$master" >/dev/null
+
+          # Edit the release IN PLACE: preserve release ID, publish date,
+          # APK asset, prerelease status and download checksum.
+          gh release edit alpha-3 --repo "$repo" \
+            --tag alpha-4 --title "Alpha 4" \
+            --verify-tag --notes-file "$RUNNER_TEMP/alpha4-notes.md"
+
+          new_id="$(gh api "repos/$repo/releases/tags/alpha-4" --jq '.id')"
+          new_name="$(gh api "repos/$repo/releases/tags/alpha-4" --jq '.name')"
+          new_target="$(gh api "repos/$repo/releases/tags/alpha-4" --jq '.target_commitish')"
+          new_digest="$(gh api "repos/$repo/releases/tags/alpha-4" --jq '.assets[] | select(.name=="touchHLE.apk") | .digest')"
+          new_prerelease="$(gh api "repos/$repo/releases/tags/alpha-4" --jq '.prerelease')"
+          test "$new_id" = "$release_id"
+          test "$new_name" = "Alpha 4"
+          test "$new_target" = "$master"
+          test "$new_digest" = "$expected_digest"
+          test "$new_prerelease" = "true"
+
+          # Only after verifying the new release, remove obsolete alpha-3 tag.
+          # This does not affect the separately tagged eustrath-alpha-3 release.
+          gh api -X DELETE "repos/$repo/git/refs/tags/alpha-3"
+          gh release view alpha-4 --repo "$repo" --json url,tagName,name,assets,body
