@@ -77,6 +77,16 @@ pub(crate) fn set_hunters_gameplay_transition(env: &mut crate::Environment, star
 }
 
 #[cfg(target_os = "android")]
+pub(crate) fn set_hunters_saved_contract_active(env: &mut crate::Environment, active: bool) {
+    movie_player::set_hunters_saved_contract_active(env, active);
+}
+
+#[cfg(target_os = "android")]
+pub(crate) fn hunters_saved_contract_active(env: &mut crate::Environment) -> bool {
+    movie_player::hunters_saved_contract_active(env)
+}
+
+#[cfg(target_os = "android")]
 pub(crate) fn queue_hunters_save_menu_unload(
     env: &mut crate::Environment,
     game_controller: crate::objc::id,
