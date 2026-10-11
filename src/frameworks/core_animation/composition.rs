@@ -116,7 +116,11 @@ pub fn recomposite_if_necessary(env: &mut Environment, force: bool) -> Option<In
         return None;
     }
 
-    if find_fullscreen_eagl_layer(env) != nil {
+    // Match the Metal Gear EAGL override: its OpenGL layer must be
+    // composited rather than skipped as a fullscreen fast-path layer.
+    if env.bundle.bundle_identifier_opt() != Some("com.konami.mgst")
+        && find_fullscreen_eagl_layer(env) != nil
+    {
         // No composition done, EAGLContext will present directly.
         log_once!("Core Animation is bypassing the layer compositor via fullscreen CAEAGLLayer");
         log_dbg!("Using CAEAGLLayer fast path, skipping composition");
