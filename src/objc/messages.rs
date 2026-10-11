@@ -260,6 +260,24 @@ fn objc_msgSend_inner(
                 env.objc.try_get_class_name(orig_class),
             );
         }
+        // Observe the original Guard handler entry after UIControl has
+        // prepared its sender. This proves whether the original callback
+        // sees the enabled flag that our narrowly-scoped recovery writes.
+        #[cfg(target_os = "android")]
+        if name == "onButtonPressed:"
+            && env.objc.try_get_class_name(orig_class) == Some("OverlayDropgameAbilities")
+        {
+            use crate::mem::ConstPtr;
+            let enabled_off: u32 = env.mem.read(ConstPtr::from_bits(0x1fdfbc));
+            if (192..=1024).contains(&enabled_off) {
+                let raw: u8 =
+                    env.mem.read(ConstPtr::from_bits(receiver.to_bits() + enabled_off));
+                let sender = env.cpu.regs()[2];
+                log!(
+                    "Hunters 2 Guard guest entry: receiver={receiver:?}, sender={sender:#x}, enabled_off={enabled_off}, raw_enabled={raw:#x}"
+                );
+            }
+        }
         // ARMv7 OverlayDropgameAbilities has genuine setMini/clearMini and
         // action callbacks. Trace selection lifecycle separately from UIKit
         // hit testing so an unassigned Guard is not mistaken for a touch bug.
