@@ -96,6 +96,20 @@ pub(crate) fn queue_hunters_save_menu_unload(
 }
 
 #[cfg(target_os = "android")]
+pub(crate) fn queue_hunters_drop_unload(
+    env: &mut crate::Environment,
+    game: crate::objc::id,
+    drop: crate::objc::id,
+) {
+    movie_player::queue_hunters_drop_unload(env, game, drop);
+}
+
+#[cfg(target_os = "android")]
+pub(crate) fn hunters_drop_unload_started(env: &mut crate::Environment, drop: crate::objc::id) {
+    movie_player::hunters_drop_unload_started(env, drop);
+}
+
+#[cfg(target_os = "android")]
 pub(crate) fn queue_hunters_ship_load(
     env: &mut crate::Environment,
     game: crate::objc::id,
