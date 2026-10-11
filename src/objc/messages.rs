@@ -410,6 +410,12 @@ fn objc_msgSend_inner(
                     // On saved-contract resume the new core may enter status 1
                     // without receiving its initial onLoad before gameUpdate.
                     crate::frameworks::media_player::queue_hunters_drop_load(env, receiver, core);
+                } else if next_type == 1 && class == Some("SaveMenuController") {
+                    // Returning from a contract can complete DropGameController
+                    // unload, then stall before the replacement menu's onLoad.
+                    crate::frameworks::media_player::queue_hunters_save_menu_load(
+                        env, receiver, core,
+                    );
                 }
             }
         }
@@ -422,6 +428,8 @@ fn objc_msgSend_inner(
                 crate::frameworks::media_player::hunters_ship_load_started(env, receiver);
             } else if receiver_class == Some("DropGameController") {
                 crate::frameworks::media_player::hunters_drop_load_started(env, receiver);
+            } else if receiver_class == Some("SaveMenuController") {
+                crate::frameworks::media_player::hunters_save_menu_load_started(env, receiver);
             }
         }
         #[cfg(target_os = "android")]
@@ -598,7 +606,7 @@ fn objc_msgSend_inner(
             let state = env.cpu.regs()[2];
             if name == "onGameControllerChangeDropFromLoad" {
                 crate::frameworks::media_player::set_hunters_saved_contract_active(env, true);
-            } else if (name == "onGameControllerChange:" && matches!(state, 4 | 6))
+            } else if (name == "onGameControllerChange:" && matches!(state, 1 | 4 | 6))
                 || matches!(
                     name,
                     "onGameControllerChangeDrop:" | "onGameControllerChangeEndDrop"
@@ -614,6 +622,10 @@ fn objc_msgSend_inner(
                 // Mark gameplay before SaveMenuController.onUnload stops and
                 // restores the movie layer.
                 crate::frameworks::media_player::set_hunters_gameplay_transition(env, true);
+            } else if name == "onGameControllerChange:" && state == 1 {
+                // The saved-contract-only black-overlay suppression and
+                // hidden title video must not survive a return to the menu.
+                crate::frameworks::media_player::set_hunters_gameplay_transition(env, false);
             } else if name == "setStatus:" && state == 2 {
                 use crate::mem::ConstPtr;
                 let game_addr = receiver.to_bits();
