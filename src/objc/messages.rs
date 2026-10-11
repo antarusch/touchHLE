@@ -592,7 +592,10 @@ fn objc_msgSend_inner(
             if name == "onGameControllerChangeDropFromLoad" {
                 crate::frameworks::media_player::set_hunters_saved_contract_active(env, true);
             } else if (name == "onGameControllerChange:" && matches!(state, 4 | 6))
-                || matches!(name, "onGameControllerChangeDrop:" | "onGameControllerChangeEndDrop")
+                || matches!(
+                    name,
+                    "onGameControllerChangeDrop:" | "onGameControllerChangeEndDrop"
+                )
             {
                 crate::frameworks::media_player::set_hunters_saved_contract_active(env, false);
             }
