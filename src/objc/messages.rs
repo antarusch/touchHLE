@@ -589,6 +589,13 @@ fn objc_msgSend_inner(
         #[cfg(target_os = "android")]
         if env.objc.try_get_class_name(orig_class) == Some("GameController") {
             let state = env.cpu.regs()[2];
+            if name == "onGameControllerChangeDropFromLoad" {
+                crate::frameworks::media_player::set_hunters_saved_contract_active(env, true);
+            } else if (name == "onGameControllerChange:" && matches!(state, 4 | 6))
+                || matches!(name, "onGameControllerChangeDrop:" | "onGameControllerChangeEndDrop")
+            {
+                crate::frameworks::media_player::set_hunters_saved_contract_active(env, false);
+            }
             if (name == "onGameControllerChange:" && matches!(state, 4 | 6))
                 || name == "onGameControllerChangeDropFromLoad"
             {
