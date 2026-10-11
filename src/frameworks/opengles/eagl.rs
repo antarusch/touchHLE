@@ -518,7 +518,16 @@ pub const CLASSES: ClassExports = objc_classes! {
         return true;
     }
 
-    let fullscreen_layer = find_fullscreen_eagl_layer(env);
+    // Metal Gear Solid Touch draws a legacy 320x480 OpenGL surface while
+    // using rotated menu geometry. Test the regular CA composition path
+    // instead of the fullscreen fast path, so drawable transforms and
+    // normal layer presentation remain in effect for this game only.
+    let fullscreen_layer = if env.bundle.bundle_identifier_opt() == Some("com.konami.mgst") {
+        log_once!("Metal Gear: using composed EAGL presentation instead of fullscreen fast path");
+        nil
+    } else {
+        find_fullscreen_eagl_layer(env)
+    };
 
     // Unclear from documentation if this method requires the context to be
     // current, but it would be weird if it didn't?
