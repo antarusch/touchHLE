@@ -64,6 +64,38 @@ fn mmap(
                 );
                 env.mem.vm_alloc(None, len)
             }
+            Err(err)
+                if env.bundle.bundle_identifier() == "dk.fullcontrol.tsur"
+                    && (flags & (MAP_FIXED | MAP_ANON)) == (MAP_FIXED | MAP_ANON)
+                    && prot == 0 =>
+            {
+                // Mono/Unity remaps inaccessible guard pages with MAP_FIXED.
+                // A fixed mmap replaces any previous mappings at the same
+                // address, unlike vm_alloc, which only accepts unused pages.
+                // Keep this replacement scoped to Tactical Soldier's
+                // anonymous PROT_NONE request pending wider validation.
+                let end = addr.to_bits().checked_add(len);
+                let overlaps = env
+                    .libc_state
+                    .mman
+                    .mmap_allocations
+                    .iter()
+                    .filter(|(start, size)| {
+                        let start = start.to_bits();
+                        let old_end = start.saturating_add(**size);
+                        end.is_some_and(|end| start < end && addr.to_bits() < old_end)
+                    })
+                    .count();
+                log!(
+                    "Tactical Soldier Mono MAP_FIXED replacement: addr={addr:?}, len={len}, prior_error={err:?}, overlapping_mmaps={overlaps}"
+                );
+                if end.is_some() {
+                    env.mem.vm_free(addr, len);
+                    env.mem.vm_alloc(Some(addr.to_bits()), len)
+                } else {
+                    Err(err)
+                }
+            }
             Err(err) => Err(err),
         }
     };
@@ -89,7 +121,11 @@ fn mmap(
         assert_eq!(read as u32, len);
     };
 
-    assert!(!env.libc_state.mman.mmap_allocations.contains_key(&ptr));
+    // MAP_FIXED can legitimately replace an existing mmap at the same
+    // address; update its size instead of treating replacement as a bug.
+    if flags & MAP_FIXED == 0 {
+        assert!(!env.libc_state.mman.mmap_allocations.contains_key(&ptr));
+    }
     env.libc_state.mman.mmap_allocations.insert(ptr, len);
 
     ptr
