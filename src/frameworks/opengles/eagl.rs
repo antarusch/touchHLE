@@ -434,6 +434,27 @@ pub const CLASSES: ClassExports = objc_classes! {
             log!(
                 "Hunters 2 saved-contract GL presentation: frame={frame}, drawable={drawable:?}, owner={owner:?}, owner_window={owner_window:?}, ancestor={ancestor:?}, attached_window={attached_window:?}, layer_depth={depth}, root_reached={detached}, hidden={layer_hidden}, opacity={layer_opacity}, bounds={layer_bounds:?}"
             );
+            if frame == 1 {
+                // An attached, visible CAEAGLLayer can still disappear when
+                // one of its ancestors is hidden, transparent or clipped.
+                let mut node = drawable;
+                for level in 0..8 {
+                    let parent: id = msg![env; node superlayer];
+                    let bounds: CGRect = msg![env; node bounds];
+                    let hidden: bool = msg![env; node isHidden];
+                    let opacity: f32 = msg![env; node opacity];
+                    let z: f32 = msg![env; node zPosition];
+                    let opaque: bool = msg![env; node isOpaque];
+                    let clipped: bool = msg![env; node masksToBounds];
+                    log!(
+                        "Hunters 2 GLES2 layer ancestry: level={level}, layer={node:?}, parent={parent:?}, bounds={bounds:?}, hidden={hidden}, opacity={opacity}, z={z}, opaque={opaque}, clipped={clipped}"
+                    );
+                    if parent == nil {
+                        break;
+                    }
+                    node = parent;
+                }
+            }
         }
         if width == 0 || height == 0 {
             log!("OpenGL ES 2.0 renderbuffer has zero dimensions; skipping presentation");
