@@ -334,6 +334,21 @@ pub const CLASSES: ClassExports = objc_classes! {
             return path;
         }
     }
+    if env.bundle.bundle_identifier_opt() == Some("com.konami.mgst") {
+        let describe = |value: id| {
+            if value == nil {
+                "(nil)".to_owned()
+            } else {
+                to_rust_string(env, value).into_owned()
+            }
+        };
+        log!(
+            "Metal Gear: NSBundle resource not found: name={:?}, type={:?}, directory={:?}",
+            describe(name),
+            describe(extension),
+            describe(directory)
+        );
+    }
     nil
 }
 - (id)pathForResource:(id)name // NSString*
