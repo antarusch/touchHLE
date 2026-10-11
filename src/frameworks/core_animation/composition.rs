@@ -531,20 +531,30 @@ unsafe fn composite_layer_recursive(
         && host_obj.opaque
         && (host_obj.bounds.size.width - 480.0).abs() < 0.5
         && (host_obj.bounds.size.height - 320.0).abs() < 0.5
-        && host_obj
-            .background_color
-            .is_some_and(|color| color.r == 0.0 && color.g == 0.0 && color.b == 0.0 && color.a > 0.99)
-    {
+        && host_obj.background_color.is_some_and(|color| {
+            color.r == 0.0 && color.g == 0.0 && color.b == 0.0 && color.a > 0.99
+        }) {
         let parent = env.objc.borrow::<CALayerHostObject>(layer).superlayer;
-        parent != nil && env.objc.borrow::<CALayerHostObject>(parent).sublayers.iter().any(|&sibling| {
-            sibling != layer
-                && env.objc.borrow::<CALayerHostObject>(sibling).sublayers.iter().any(|&child| {
-                    let child_host = env.objc.borrow::<CALayerHostObject>(child);
-                    child_host.presented_pixels.is_some()
-                        && (child_host.bounds.size.width - 460.0).abs() < 0.5
-                        && (child_host.bounds.size.height - 320.0).abs() < 0.5
+        parent != nil
+            && env
+                .objc
+                .borrow::<CALayerHostObject>(parent)
+                .sublayers
+                .iter()
+                .any(|&sibling| {
+                    sibling != layer
+                        && env
+                            .objc
+                            .borrow::<CALayerHostObject>(sibling)
+                            .sublayers
+                            .iter()
+                            .any(|&child| {
+                                let child_host = env.objc.borrow::<CALayerHostObject>(child);
+                                child_host.presented_pixels.is_some()
+                                    && (child_host.bounds.size.width - 460.0).abs() < 0.5
+                                    && (child_host.bounds.size.height - 320.0).abs() < 0.5
+                            })
                 })
-        })
     } else {
         false
     };
@@ -604,7 +614,10 @@ unsafe fn composite_layer_recursive(
     }
 
     // Draw background color, if any
-    let have_background = if let Some(background_color) = host_obj.background_color.filter(|_| !suppress_hunters_black_overlay) {
+    let have_background = if let Some(background_color) = host_obj
+        .background_color
+        .filter(|_| !suppress_hunters_black_overlay)
+    {
         let misc = env
             .framework_state
             .core_animation
