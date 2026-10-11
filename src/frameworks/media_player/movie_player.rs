@@ -50,6 +50,11 @@ pub struct State {
     /// over the game's Core Animation / GL content.
     #[cfg(target_os = "android")]
     hunters_gameplay_transition: bool,
+    // Only the resume-from-save DropGameController scene can have the
+    // fullscreen black overlay background masking an already-rendering
+    // battlefield. Keep this separate from new-game/menu transitions.
+    #[cfg(target_os = "android")]
+    hunters_saved_contract_active: bool,
     #[cfg(target_os = "android")]
     hunters_create_save_controller: Option<id>,
     #[cfg(target_os = "android")]
@@ -277,6 +282,17 @@ pub(super) fn set_hunters_resume_contract_visible(
 pub(super) fn set_hunters_gameplay_transition(env: &mut Environment, started: bool) {
     State::get(env).hunters_gameplay_transition = started;
     log!("Hunters 2 gameplay transition: started={started}; movie depth change deferred");
+}
+
+#[cfg(target_os = "android")]
+pub(super) fn set_hunters_saved_contract_active(env: &mut Environment, active: bool) {
+    State::get(env).hunters_saved_contract_active = active;
+    log!("Hunters 2 resumed-contract overlay compositing active={active}");
+}
+
+#[cfg(target_os = "android")]
+pub(super) fn hunters_saved_contract_active(env: &mut Environment) -> bool {
+    State::get(env).hunters_saved_contract_active
 }
 
 // Change drawing depth without modifying the game's logical subview order.
