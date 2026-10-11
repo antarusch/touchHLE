@@ -381,27 +381,38 @@ forControlEvents:(UIControlEvents)events {
         log!(
             "Hunters 2 abilities button action: control={this:?}, tag={tag}, enabled={enabled}, target={target:?}, selector=onButtonPressed:"
         );
-        // Probe the seven 20-byte OverlayDropgameAbilities records.
-        // The previous trace incorrectly labelled word 4 an IAction*, but
-        // it is the UIButton sender itself. Log raw words, not assumed
-        // IAbility/IAction offsets, until the game's layout is verified.
-        // Do not invent Guard actions or bypass AP/turn restrictions.
+        // Original Hunters 2 ARMv7 metadata defines m_buttonData as
+        // seven DropgameUIButtonData records (UIButton*, UIImageView*,
+        // AssetHandle, IAbility*, IAction*) at static offset 216, and the
+        // integer m_mini at 356. UIKit superclass size reconciliation
+        // relocates these offsets at runtime; use the game's own
+        // _OBJC_IVAR_ symbols, never the original static field offsets.
+        // This is diagnostic only: preserve all game action/AP checks.
         let target_class: crate::objc::Class = msg![env; target class];
         if env.objc.try_get_class_name(target_class) == Some("OverlayDropgameAbilities")
             && (0..7).contains(&tag)
         {
             use crate::mem::ConstPtr;
-            let slot = target.to_bits() + 216 + (tag as u32) * 20;
-            let w0: u32 = env.mem.read(ConstPtr::from_bits(slot));
-            let w1: u32 = env.mem.read(ConstPtr::from_bits(slot + 4));
-            let w2: u32 = env.mem.read(ConstPtr::from_bits(slot + 8));
-            let w3: u32 = env.mem.read(ConstPtr::from_bits(slot + 12));
-            let w4: u32 = env.mem.read(ConstPtr::from_bits(slot + 16));
-            let field356: u32 =
-                env.mem.read(ConstPtr::from_bits(target.to_bits() + 356));
-            log!(
-                "Hunters 2 Guard raw slot: tag={tag}, words=[{w0:#x}, {w1:#x}, {w2:#x}, {w3:#x}, {w4:#x}], field356={field356:#x}, sender={this:?}"
-            );
+            // Values at 0x1fe00c and 0x1fe04c are the *relocatable*
+            // offset cells the game's ARMv7 methods dereference.
+            let data_off: u32 = env.mem.read(ConstPtr::from_bits(0x1fe00c));
+            let mini_off: u32 = env.mem.read(ConstPtr::from_bits(0x1fe04c));
+            if (216..=1024).contains(&data_off) && (356..=1024).contains(&mini_off) {
+                let slot = target.to_bits() + data_off + (tag as u32) * 20;
+                let button: u32 = env.mem.read(ConstPtr::from_bits(slot));
+                let icon: u32 = env.mem.read(ConstPtr::from_bits(slot + 4));
+                let image: u32 = env.mem.read(ConstPtr::from_bits(slot + 8));
+                let ability: u32 = env.mem.read(ConstPtr::from_bits(slot + 12));
+                let action_ptr: u32 = env.mem.read(ConstPtr::from_bits(slot + 16));
+                let mini: i32 = env.mem.read(ConstPtr::from_bits(target.to_bits() + mini_off));
+                log!(
+                    "Hunters 2 Guard actual slot: tag={tag}, data_off={data_off}, mini_off={mini_off}, mini={mini}, button={button:#x}, sender={this:?}, icon={icon:#x}, image={image:#x}, ability={ability:#x}, action={action_ptr:#x}"
+                );
+            } else {
+                log!(
+                    "Hunters 2 Guard unexpected ivar relocations: data_off={data_off}, mini_off={mini_off}"
+                );
+            }
         }
     }
     let sel_str = action.as_str(&env.mem);
