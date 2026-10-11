@@ -884,6 +884,15 @@ impl GLES for GLES1OnGL2<'_> {
         }
         gl21::BlendFunc(sfactor, dfactor);
     }
+    unsafe fn BlendFuncSeparate(
+        &mut self,
+        src_rgb: GLenum,
+        dst_rgb: GLenum,
+        src_alpha: GLenum,
+        dst_alpha: GLenum,
+    ) {
+        gl21::BlendFuncSeparate(src_rgb, dst_rgb, src_alpha, dst_alpha);
+    }
     unsafe fn BlendEquationOES(&mut self, mode: GLenum) {
         let functions = [
             gl21::FUNC_ADD,
