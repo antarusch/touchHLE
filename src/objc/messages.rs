@@ -589,10 +589,29 @@ fn objc_msgSend_inner(
         #[cfg(target_os = "android")]
         if env.objc.try_get_class_name(orig_class) == Some("GameController") {
             let state = env.cpu.regs()[2];
-            if name == "onGameControllerChange:" && matches!(state, 4 | 6) {
+            if (name == "onGameControllerChange:" && matches!(state, 4 | 6))
+                || name == "onGameControllerChangeDropFromLoad"
+            {
+                // The resume-from-save path was omitted. Its menu video
+                // remains raised at z=1000 and masks the working GL scene.
+                // Mark gameplay before SaveMenuController.onUnload stops and
+                // restores the movie layer.
                 crate::frameworks::media_player::set_hunters_gameplay_transition(env, true);
             } else if name == "setStatus:" && state == 2 {
-                crate::frameworks::media_player::set_hunters_gameplay_transition(env, false);
+                use crate::mem::ConstPtr;
+                let game_addr = receiver.to_bits();
+                let core_addr: u32 = env.mem.read(ConstPtr::from_bits(game_addr + 0x98));
+                let resumed_drop = core_addr != 0
+                    && env
+                        .objc
+                        .try_get_class_name(ObjC::read_isa(id::from_bits(core_addr), &env.mem))
+                        == Some("DropGameController");
+                // Do not reset the video depth when the *replacement* saved
+                // contract enters running status 2. Other paths retain the
+                // established behavior.
+                if !resumed_drop {
+                    crate::frameworks::media_player::set_hunters_gameplay_transition(env, false);
+                }
             }
         }
         // Observe tutorial state changes without invoking any guest code.
