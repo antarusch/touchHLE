@@ -829,6 +829,29 @@ unsafe fn composite_layer_recursive(
             gles11::UNSIGNED_BYTE,
             0 as *const GLvoid,
         );
+        if host_obj.presented_pixels.is_some()
+            && env.bundle.bundle_identifier_opt() == Some("uk.co.rodeogames.hunterstwo")
+            && (host_obj.bounds.size.width - 460.0).abs() < 0.5
+            && (host_obj.bounds.size.height - 320.0).abs() < 0.5
+        {
+            // The ES2 battlefield renderbuffer is brightly populated while
+            // the final compositor probe is black. Sample the compositor
+            // *immediately after drawing the specific 460x320 GL layer*.
+            // If lit here, a later sibling covers it; if unlit, investigate
+            // its texture, presentation transform or draw state instead.
+            static GL_DRAWS: std::sync::atomic::AtomicUsize =
+                std::sync::atomic::AtomicUsize::new(0);
+            let n = GL_DRAWS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+            if matches!(n, 1 | 30 | 120 | 300) {
+                let width = MOVIE_PROBE_FB_WIDTH.load(std::sync::atomic::Ordering::Relaxed) as u32;
+                let height = MOVIE_PROBE_FB_HEIGHT.load(std::sync::atomic::Ordering::Relaxed) as u32;
+                let lit = lit_framebuffer_samples(gles.as_mut(), 0, 0, width, height);
+                log!(
+                    "Hunters 2 GL post-composite draw {n}: layer={layer:?}, lit={lit}/9, texture_updated={need_update}, opacity={opacity}, bounds={:?}, position={:?}, z={}",
+                    host_obj.bounds, host_obj.position, host_obj.z_position
+                );
+            }
+        }
         if host_obj.presented_pixels.is_some() {
             static VIDEO_DRAWS: std::sync::atomic::AtomicUsize =
                 std::sync::atomic::AtomicUsize::new(0);
