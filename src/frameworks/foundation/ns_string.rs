@@ -1445,6 +1445,16 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (id)initWithContentsOfFile:(id)path // NSString*
                     encoding:(NSStringEncoding)encoding
                        error:(MutPtr<id>)error { // NSError**
+    // A failed NSBundle resource lookup may legitimately return nil. Cocoa
+    // initializers fail gracefully for an absent file path; attempting to
+    // convert nil to a host string previously panicked in borrow_mut().
+    if path == nil {
+        if env.bundle.bundle_identifier_opt() == Some("com.konami.mgst") {
+            log!("Metal Gear: NSString initWithContentsOfFile:encoding:error: received nil path");
+        }
+        release(env, this);
+        return nil;
+    }
     // TODO: avoid copy?
     let path = to_rust_string(env, path);
     let Ok(bytes) = env.fs.read(GuestPath::new(&path)) else {
