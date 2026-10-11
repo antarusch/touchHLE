@@ -162,6 +162,24 @@ impl GLES for GLES1Native<'_> {
     unsafe fn BlendFunc(&mut self, sfactor: GLenum, dfactor: GLenum) {
         gles11::BlendFunc(sfactor, dfactor)
     }
+    unsafe fn BlendFuncSeparate(
+        &mut self,
+        src_rgb: GLenum,
+        dst_rgb: GLenum,
+        src_alpha: GLenum,
+        dst_alpha: GLenum,
+    ) {
+        if gles11::BlendFuncSeparateOES::is_loaded() {
+            gles11::BlendFuncSeparateOES(src_rgb, dst_rgb, src_alpha, dst_alpha);
+        } else {
+            // A legacy host without the OES extension can only represent a
+            // single factor pair. Preserve the RGB factors rather than crash.
+            if src_rgb != src_alpha || dst_rgb != dst_alpha {
+                log_once!("Native GLES 1.1 lacks GL_OES_blend_func_separate; alpha blend factors approximated");
+            }
+            gles11::BlendFunc(src_rgb, dst_rgb);
+        }
+    }
     unsafe fn BlendEquationOES(&mut self, mode: GLenum) {
         gles11::BlendEquationOES(mode);
     }
