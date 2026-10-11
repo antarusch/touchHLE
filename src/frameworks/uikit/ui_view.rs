@@ -260,6 +260,29 @@ pub(crate) fn hunters_view_ignores_touches(env: &mut Environment, view: id) -> b
         return false;
     }
 
+    // A resumed contract now draws correctly, but its OverlayFadeToColour
+    // UIView stays above the battlefield and steals every "GET READY" tap.
+    // Keep its artwork in the compositor; only pass its hit-testing through
+    // to the real OpenGL gameplay view. Other menus and overlay buttons keep
+    // their original hit targets.
+    #[cfg(target_os = "android")]
+    if crate::frameworks::media_player::hunters_saved_contract_active(env) {
+        let mut ancestor = view;
+        while ancestor != nil {
+            let next: id = msg![env; ancestor nextResponder];
+            if next != nil {
+                let class: Class = msg![env; next class];
+                if env.objc.try_get_class_name(class) == Some("OverlayFadeToColour") {
+                    log_once!(
+                        "Hunters 2: passing saved-contract touch through OverlayFadeToColour to battlefield"
+                    );
+                    return true;
+                }
+            }
+            ancestor = msg![env; ancestor superview];
+        }
+    }
+
     let mut current = view;
     while current != nil {
         let hidden: bool = msg![env; current isHidden];
