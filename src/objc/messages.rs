@@ -270,8 +270,9 @@ fn objc_msgSend_inner(
             use crate::mem::ConstPtr;
             let enabled_off: u32 = env.mem.read(ConstPtr::from_bits(0x1fdfbc));
             if (192..=1024).contains(&enabled_off) {
-                let raw: u8 =
-                    env.mem.read(ConstPtr::from_bits(receiver.to_bits() + enabled_off));
+                let raw: u8 = env
+                    .mem
+                    .read(ConstPtr::from_bits(receiver.to_bits() + enabled_off));
                 let sender = env.cpu.regs()[2];
                 log!(
                     "Hunters 2 Guard guest entry: receiver={receiver:?}, sender={sender:#x}, enabled_off={enabled_off}, raw_enabled={raw:#x}"
