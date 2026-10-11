@@ -431,7 +431,7 @@ forControlEvents:(UIControlEvents)events {
                     use crate::mem::MutPtr;
                     let overlay_state: i32 = msg![env; target state];
                     let enabled_off: u32 = env.mem.read(ConstPtr::from_bits(0x1fdfbc));
-                    if enabled_off + 24 == data_off && overlay_state == 2 {
+                    if enabled_off + 96 == data_off && overlay_state == 2 {
                         let enabled_addr = target.to_bits() + enabled_off;
                         let before: u8 = env.mem.read(ConstPtr::from_bits(enabled_addr));
                         if before & 1 == 0 {
