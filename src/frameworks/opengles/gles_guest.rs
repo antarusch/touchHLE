@@ -340,6 +340,27 @@ fn glBlendFunc(env: &mut Environment, sfactor: GLenum, dfactor: GLenum) {
         gles.BlendFunc(sfactor, dfactor)
     })
 }
+// Tactical Soldier: Undead Rising 2.0.2 calls the ES 2.0-style
+// glBlendFuncSeparate entry point while using an ES 1.1 context.
+// Its observed factors (SRC_ALPHA, ONE, SRC_ALPHA, ONE) are equivalent
+// to glBlendFunc(SRC_ALPHA, ONE). Preserve that exact behavior without
+// requiring an extension that the GLES 1.1 backend does not expose.
+// Log differing alpha factors as a compatibility approximation instead
+// of silently pretending the two-factor API implements full separation.
+fn glBlendFuncSeparate(
+    env: &mut Environment,
+    src_rgb: GLenum,
+    dst_rgb: GLenum,
+    src_alpha: GLenum,
+    dst_alpha: GLenum,
+) {
+    if src_rgb != src_alpha || dst_rgb != dst_alpha {
+        log_once!(
+            "Warning: glBlendFuncSeparate has distinct RGB/alpha factors; GLES 1.1 compatibility path approximates alpha factors with RGB factors"
+        );
+    }
+    glBlendFunc(env, src_rgb, dst_rgb);
+}
 fn glBlendEquationOES(env: &mut Environment, mode: GLenum) {
     with_ctx_and_mem(env, |gles, _mem| unsafe { gles.BlendEquationOES(mode) })
 }
@@ -1546,6 +1567,7 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(glAlphaFunc(_, _)),
     export_c_func!(glAlphaFuncx(_, _)),
     export_c_func!(glBlendFunc(_, _)),
+    export_c_func!(glBlendFuncSeparate(_, _, _, _)),
     export_c_func!(glBlendEquationOES(_)),
     export_c_func!(glColorMask(_, _, _, _)),
     export_c_func!(glClipPlanef(_, _)),
