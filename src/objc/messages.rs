@@ -456,9 +456,7 @@ fn objc_msgSend_inner(
                 } else if next_type == 1 && old_class == Some("DropGameController") {
                     // Pause-menu return requests main-menu type 1. The loaded
                     // battlefield can remain in status 3 with no unload.
-                    crate::frameworks::media_player::queue_hunters_drop_unload(
-                        env, receiver, old,
-                    );
+                    crate::frameworks::media_player::queue_hunters_drop_unload(env, receiver, old);
                 }
             }
         }
