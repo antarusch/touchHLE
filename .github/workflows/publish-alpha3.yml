@@ -1,0 +1,75 @@
+name: Publish Alpha 3 — verified v178 Android APK
+
+on:
+  push:
+    branches:
+      - hunters-2-alpha3-publish
+    paths:
+      - .github/workflows/publish-alpha3.yml
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    if: github.repository == 'antarusch/touchHLE'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Retrieve APK from successful v178 Android build (#368)
+        uses: actions/download-artifact@v4
+        with:
+          name: touchHLE_Android_AArch64
+          run-id: 38151039471
+          repository: antarusch/touchHLE
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: dist
+
+      - name: Verify exact tested master APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s dist/touchHLE.apk
+          echo 'd7055f8c4cb068b0275d47e087d7455acc04cddb79a0d125f16e85bfc55a5013  dist/touchHLE.apk' | sha256sum --check
+
+      - name: Publish separate Alpha 3 prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if gh release view alpha-3 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo '::error::Release tag alpha-3 already exists. Refusing to overwrite.'
+            exit 1
+          fi
+          cat > "$RUNNER_TEMP/alpha3-release-notes.md" <<'RELEASE_NOTES'
+          ## Added game compatibility
+          
+          This Alpha 3 build adds compatibility support for:
+          
+          - **Metal Gear Solid Touch**
+          - **Tactical Soldier: Undead Rising**
+          - **Hunters 2**
+          
+          ### Important: limited gameplay testing
+          
+          **Only the first levels / early missions of these games have been tested.** Later levels and features have not been fully tested, so additional issues **may or may not arise** during further play. Possible issues include crashes, freezes, graphics or audio glitches, control problems, or other compatibility bugs.
+          
+          This is an **alpha** release. Support for the opening portions of these games does not guarantee a complete, issue-free playthrough.
+          
+          ### Build details
+          
+          - **Platform:** Android ARM64 (AArch64) only
+          - **Base:** Verified touchHLE v178 compatibility master (`f5db2b2b5ac98c17db34ace582853a1f00ec2e3b`)
+          - **APK:** Signed Android release build
+          - **Notes:** Hunters 2's Guard button activates, but its reaction-fire behavior is still being verified.
+          
+          This release contains touchHLE only; game files are **not** included.
+          RELEASE_NOTES
+          gh release create alpha-3 'dist/touchHLE.apk#touchHLE_Alpha3_Android_AArch64.apk' \
+            --repo "$GITHUB_REPOSITORY" \
+            --target f5db2b2b5ac98c17db34ace582853a1f00ec2e3b \
+            --title 'Alpha 3' \
+            --notes-file "$RUNNER_TEMP/alpha3-release-notes.md" \
+            --prerelease
+          gh release view alpha-3 --repo "$GITHUB_REPOSITORY" --json url,tagName,name,assets
