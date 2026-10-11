@@ -180,14 +180,19 @@ fn mprotect(env: &mut Environment, addr: MutVoidPtr, len: GuestUSize, prot: i32)
         && addr.to_bits() & PAGE_SIZE_ALIGN_MASK == 0
         && prot & !0x7 == 0
     {
-        let covered = env.libc_state.mman.mmap_allocations.iter().any(|(base, size)| {
-            let base = base.to_bits();
-            addr.to_bits() >= base
-                && addr
-                    .to_bits()
-                    .checked_add(len)
-                    .is_some_and(|end| end <= base.saturating_add(*size))
-        });
+        let covered = env
+            .libc_state
+            .mman
+            .mmap_allocations
+            .iter()
+            .any(|(base, size)| {
+                let base = base.to_bits();
+                addr.to_bits() >= base
+                    && addr
+                        .to_bits()
+                        .checked_add(len)
+                        .is_some_and(|end| end <= base.saturating_add(*size))
+            });
         if covered {
             set_errno(env, 0);
             log!(
