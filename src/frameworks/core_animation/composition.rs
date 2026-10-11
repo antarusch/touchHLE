@@ -519,6 +519,39 @@ unsafe fn composite_layer_recursive(
         return;
     }
 
+    // Hunters 2's save-resume transition leaves a full-screen, opaque,
+    // black overlay-container background *above* the successfully drawn ES2
+    // battlefield. Its descendants contain the game's HUD and buttons, so
+    // moving or hiding the container would also disable those controls.
+    // Suppress only that background quad, and only after a saved contract
+    // is active and a sibling GL view has a presented 460x320 framebuffer.
+    let suppress_hunters_black_overlay = if env.bundle.bundle_identifier_opt()
+        == Some("uk.co.rodeogames.hunterstwo")
+        && crate::frameworks::media_player::hunters_saved_contract_active(env)
+        && host_obj.opaque
+        && (host_obj.bounds.size.width - 480.0).abs() < 0.5
+        && (host_obj.bounds.size.height - 320.0).abs() < 0.5
+        && host_obj
+            .background_color
+            .is_some_and(|color| color.r == 0.0 && color.g == 0.0 && color.b == 0.0 && color.a > 0.99)
+    {
+        let parent = env.objc.borrow::<CALayerHostObject>(layer).superlayer;
+        parent != nil && env.objc.borrow::<CALayerHostObject>(parent).sublayers.iter().any(|&sibling| {
+            sibling != layer
+                && env.objc.borrow::<CALayerHostObject>(sibling).sublayers.iter().any(|&child| {
+                    let child_host = env.objc.borrow::<CALayerHostObject>(child);
+                    child_host.presented_pixels.is_some()
+                        && (child_host.bounds.size.width - 460.0).abs() < 0.5
+                        && (child_host.bounds.size.height - 320.0).abs() < 0.5
+                })
+        })
+    } else {
+        false
+    };
+    if suppress_hunters_black_overlay {
+        log_once!("Hunters 2: suppressed resumed-contract overlay's opaque black background; retained HUD and touch layers");
+    }
+
     let quad_buffer = env
         .framework_state
         .core_animation
@@ -571,7 +604,7 @@ unsafe fn composite_layer_recursive(
     }
 
     // Draw background color, if any
-    let have_background = if let Some(background_color) = host_obj.background_color {
+    let have_background = if let Some(background_color) = host_obj.background_color.filter(|_| !suppress_hunters_black_overlay) {
         let misc = env
             .framework_state
             .core_animation
