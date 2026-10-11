@@ -408,6 +408,30 @@ forControlEvents:(UIControlEvents)events {
                 log!(
                     "Hunters 2 Guard actual slot: tag={tag}, data_off={data_off}, mini_off={mini_off}, mini={mini}, button={button:#x}, sender={this:?}, icon={icon:#x}, image={image:#x}, ability={ability:#x}, action={action_ptr:#x}"
                 );
+                // Original ARMv7 onButtonPressed: at 0x3570d first calls
+                // [self isEnabled] and returns unless it equals 1. v167
+                // confirms the ability and selected Mini are valid, while
+                // OverlayDropgameAbilities reaches shown state 2 without
+                // the setIsEnabled:YES animation-completion callback seen
+                // for the other overlays. Restore that missing overlay
+                // lifecycle flag for a genuine, visible Guard button only.
+                // Leave the game's actual onButtonPressed:, AP checks,
+                // turn permissions and onAbilityPressed: untouched.
+                if tag == 0 && enabled && button == this.to_bits() && ability != 0
+                    && (0..=8).contains(&mini)
+                {
+                    let overlay_state: i32 = msg![env; target state];
+                    let overlay_enabled: bool = msg![env; target isEnabled];
+                    log!(
+                        "Hunters 2 Guard overlay gate: state={overlay_state}, enabled={overlay_enabled}, mini={mini}, assigned_ability={ability:#x}"
+                    );
+                    if overlay_state == 2 && !overlay_enabled {
+                        let _: () = msg![env; target setIsEnabled:true];
+                        log!(
+                            "Hunters 2 Guard: restored missing visible ability-overlay enable before original button callback"
+                        );
+                    }
+                }
             } else {
                 log!(
                     "Hunters 2 Guard unexpected ivar relocations: data_off={data_off}, mini_off={mini_off}"
