@@ -122,7 +122,9 @@ pub const CLASSES: ClassExports = objc_classes! {
     if api == kEAGLRenderingAPIOpenGLES2
         && env.bundle.bundle_identifier() == "dk.fullcontrol.tsur"
     {
-        log_once!("Tactical Soldier: declining GLES 2.0 context; use original GLES 1.1 fallback");
+        log_once!(
+            "Tactical Soldier: declining GLES 2.0 context; use original GLES 1.1 fallback"
+        );
         return nil;
     }
     if api != kEAGLRenderingAPIOpenGLES1 && api != kEAGLRenderingAPIOpenGLES2 {
@@ -186,7 +188,9 @@ pub const CLASSES: ClassExports = objc_classes! {
     if api == kEAGLRenderingAPIOpenGLES2
         && env.bundle.bundle_identifier() == "dk.fullcontrol.tsur"
     {
-        log_once!("Tactical Soldier: declining GLES 2.0 context; use original GLES 1.1 fallback");
+        log_once!(
+            "Tactical Soldier: declining GLES 2.0 context; use original GLES 1.1 fallback"
+        );
         return nil;
     }
     if api != kEAGLRenderingAPIOpenGLES1 && api != kEAGLRenderingAPIOpenGLES2 {
