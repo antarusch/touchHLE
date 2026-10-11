@@ -534,7 +534,7 @@ unsafe fn composite_layer_recursive(
         && host_obj.background_color.is_some_and(|color| {
             color.r == 0.0 && color.g == 0.0 && color.b == 0.0 && color.a > 0.99
         }) {
-        let parent = env.objc.borrow::<CALayerHostObject>(layer).superlayer;
+        let parent: id = msg![env; layer superlayer];
         parent != nil
             && env
                 .objc
