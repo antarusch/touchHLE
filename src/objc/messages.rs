@@ -260,6 +260,21 @@ fn objc_msgSend_inner(
                 env.objc.try_get_class_name(orig_class),
             );
         }
+        // ARMv7 OverlayDropgameAbilities has genuine setMini/clearMini and
+        // action callbacks. Trace selection lifecycle separately from UIKit
+        // hit testing so an unassigned Guard is not mistaken for a touch bug.
+        #[cfg(target_os = "android")]
+        if env.objc.try_get_class_name(orig_class) == Some("OverlayDropgameAbilities")
+            && matches!(
+                name,
+                "setMini:" | "clearMini" | "onAbilityPressed:" | "onActionPressed:"
+            )
+        {
+            let arg = env.cpu.regs()[2];
+            log!(
+                "Hunters 2 ability lifecycle: selector={name}, overlay={receiver:?}, arg0={arg:#x}"
+            );
+        }
         // Hunters 2's mission-deployment BEGIN CONTRACT control is a real
         // H2ButtonGothic nib outlet. DropGameController's OpenGLView can be
         // layered over the old OverlayStartGame view even after show has
