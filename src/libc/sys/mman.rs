@@ -170,6 +170,35 @@ fn shm_open(env: &mut Environment, name: ConstPtr<u8>, oflag: i32, _dots: DotDot
 }
 
 fn mprotect(env: &mut Environment, addr: MutVoidPtr, len: GuestUSize, prot: i32) -> i32 {
+    // Mono changes the 0x1012 (anonymous, fixed, private) reservation from
+    // PROT_NONE to PROT_READ|PROT_WRITE immediately after mmap. touchHLE's
+    // guest memory currently has no page protection tracking, so accepting
+    // this protection change is safe only for a verified, owned mapping.
+    if env.bundle.bundle_identifier() == "dk.fullcontrol.tsur"
+        && !addr.is_null()
+        && len != 0
+        && addr.to_bits() & PAGE_SIZE_ALIGN_MASK == 0
+        && prot & !0x7 == 0
+    {
+        let covered = env.libc_state.mman.mmap_allocations.iter().any(|(base, size)| {
+            let base = base.to_bits();
+            addr.to_bits() >= base
+                && addr
+                    .to_bits()
+                    .checked_add(len)
+                    .is_some_and(|end| end <= base.saturating_add(*size))
+        });
+        if covered {
+            set_errno(env, 0);
+            log!(
+                "Tactical Soldier Mono mprotect accepted: addr={addr:?}, len={len}, prot={prot}; guest page permissions not tracked"
+            );
+            return 0;
+        }
+        log!(
+            "Tactical Soldier Mono mprotect rejected unowned range: addr={addr:?}, len={len}, prot={prot}"
+        );
+    }
     log!("TODO: mprotect({:?}, {}, {}) -> -1", addr, len, prot);
     set_errno(env, ENOTSUP);
     -1
