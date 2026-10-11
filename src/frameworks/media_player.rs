@@ -110,6 +110,20 @@ pub(crate) fn hunters_drop_unload_started(env: &mut crate::Environment, drop: cr
 }
 
 #[cfg(target_os = "android")]
+pub(crate) fn queue_hunters_save_menu_load(
+    env: &mut crate::Environment,
+    game: crate::objc::id,
+    menu: crate::objc::id,
+) {
+    movie_player::queue_hunters_save_menu_load(env, game, menu);
+}
+
+#[cfg(target_os = "android")]
+pub(crate) fn hunters_save_menu_load_started(env: &mut crate::Environment, menu: crate::objc::id) {
+    movie_player::hunters_save_menu_load_started(env, menu);
+}
+
+#[cfg(target_os = "android")]
 pub(crate) fn queue_hunters_ship_load(
     env: &mut crate::Environment,
     game: crate::objc::id,
