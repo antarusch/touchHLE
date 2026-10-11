@@ -420,15 +420,30 @@ forControlEvents:(UIControlEvents)events {
                 if tag == 0 && enabled && button == this.to_bits() && ability != 0
                     && (0..=8).contains(&mini)
                 {
+                    // OverlayComponent.isEnabled is a one-byte BOOL. Its
+                    // original ARMv7 getter loads the relocated ivar byte
+                    // (0x21c4d); its setter stores that byte (0x21c61).
+                    // Avoid a nested guest Objective-C callback here: the
+                    // v168 setter call also entered compatibility layout
+                    // repair, but never reached onAbilityPressed:.
+                    // Check the runtime offset and leave the game's Guard
+                    // button callback, AP and turn checks unchanged.
+                    use crate::mem::MutPtr;
                     let overlay_state: i32 = msg![env; target state];
-                    let overlay_enabled: bool = msg![env; target isEnabled];
-                    log!(
-                        "Hunters 2 Guard overlay gate: state={overlay_state}, enabled={overlay_enabled}, mini={mini}, assigned_ability={ability:#x}"
-                    );
-                    if overlay_state == 2 && !overlay_enabled {
-                        let _: () = msg![env; target setIsEnabled:true];
+                    let enabled_off: u32 = env.mem.read(ConstPtr::from_bits(0x1fdfbc));
+                    if enabled_off + 24 == data_off && overlay_state == 2 {
+                        let enabled_addr = target.to_bits() + enabled_off;
+                        let before: u8 = env.mem.read(ConstPtr::from_bits(enabled_addr));
+                        if before & 1 == 0 {
+                            env.mem.write(MutPtr::from_bits(enabled_addr), before | 1);
+                        }
+                        let after: u8 = env.mem.read(ConstPtr::from_bits(enabled_addr));
                         log!(
-                            "Hunters 2 Guard: restored missing visible ability-overlay enable before original button callback"
+                            "Hunters 2 Guard enable byte: state={overlay_state}, off={enabled_off}, before={before:#x}, after={after:#x}, mini={mini}, ability={ability:#x}"
+                        );
+                    } else {
+                        log!(
+                            "Hunters 2 Guard enable byte skipped: state={overlay_state}, off={enabled_off}, data_off={data_off}"
                         );
                     }
                 }
