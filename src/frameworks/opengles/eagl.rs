@@ -382,7 +382,7 @@ pub const CLASSES: ClassExports = objc_classes! {
                 && rgb_lit * 100 >= total * 90
                 && alpha_zero * 100 >= total * 95
             {
-                for rgba in pixels.chunks_exact_mut(4) {
+                for rgba in pixels.as_chunks_mut::<4>().0 {
                     rgba[3] = 255;
                 }
                 if matches!(frame, 1 | 30 | 120) {
